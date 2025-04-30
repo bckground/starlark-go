@@ -1001,7 +1001,7 @@ func TestCancel(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation cancelled: nope" {
 			t.Errorf("execution returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrExecutionCancelled) {
+		if !errors.Is(err, starlark.ErrExecutionCanceled) {
 			t.Errorf("execution didn't return error starlark.ErrExecutionCancelled")
 		}
 
@@ -1010,7 +1010,7 @@ func TestCancel(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation cancelled: nope" {
 			t.Errorf("execution returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrExecutionCancelled) {
+		if !errors.Is(err, starlark.ErrExecutionCanceled) {
 			t.Errorf("execution didn't return error starlark.ErrExecutionCancelled")
 		}
 	}
@@ -1027,7 +1027,7 @@ func TestCancel(t *testing.T) {
 		if fmt.Sprint(err) != `Starlark computation cancelled: "nope"` {
 			t.Errorf("execution returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrExecutionCancelled) {
+		if !errors.Is(err, starlark.ErrExecutionCanceled) {
 			t.Errorf("execution didn't return error starlark.ErrExecutionCancelled")
 		}
 	}
@@ -1043,7 +1043,7 @@ func TestCancelWithError(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation cancelled: nope" {
 			t.Errorf("execution returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrExecutionCancelled) {
+		if !errors.Is(err, starlark.ErrExecutionCanceled) {
 			t.Errorf("execution didn't return error starlark.ErrExecutionCancelled")
 		}
 		if !errors.Is(err, cancelErr) {
@@ -1055,7 +1055,7 @@ func TestCancelWithError(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation cancelled: nope" {
 			t.Errorf("execution returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrExecutionCancelled) {
+		if !errors.Is(err, starlark.ErrExecutionCanceled) {
 			t.Errorf("execution didn't return error starlark.ErrExecutionCancelled")
 		}
 		if !errors.Is(err, cancelErr) {
@@ -1077,7 +1077,7 @@ func TestCancelWithError(t *testing.T) {
 		if fmt.Sprint(err) != `Starlark computation cancelled: "nope"` {
 			t.Errorf("execution returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrExecutionCancelled) {
+		if !errors.Is(err, starlark.ErrExecutionCanceled) {
 			t.Errorf("execution didn't return error starlark.ErrExecutionCancelled")
 		}
 		if !errors.Is(err, cancelErr) {
