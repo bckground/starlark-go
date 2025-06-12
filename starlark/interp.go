@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 
+	"errors"
 	"go.starlark.net/internal/compile"
 	"go.starlark.net/internal/spell"
 	"go.starlark.net/syntax"
 )
 
 const vmdebug = false // TODO(adonovan): use a bitfield of specific kinds of error.
+
+var ErrTooManySteps = errors.New("too many steps")
 
 // TODO(adonovan):
 // - optimize position table.
@@ -110,7 +113,7 @@ loop:
 			if thread.OnMaxSteps != nil {
 				thread.OnMaxSteps(thread)
 			} else {
-				thread.Cancel("too many steps")
+				thread.CancelWithError(ErrTooManySteps)
 			}
 		}
 		if reasonErr := thread.cancelReason.Load(); reasonErr != nil {
