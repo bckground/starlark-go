@@ -1001,8 +1001,9 @@ func TestCancel(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation canceled: nope" {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile didn't return error starlark.ErrCanceled")
+		var canceledErr *starlark.CanceledError
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile didn't return error starlark.CanceledError")
 		}
 
 		// cancellation is sticky
@@ -1010,8 +1011,8 @@ func TestCancel(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation canceled: nope" {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile didn't return error starlark.ErrCanceled")
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile didn't return error starlark.CanceledError")
 		}
 	}
 	// A thread canceled during a built-in executes no more code.
@@ -1027,8 +1028,9 @@ func TestCancel(t *testing.T) {
 		if fmt.Sprint(err) != `Starlark computation canceled: "nope"` {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile didn't return error starlark.ErrCanceled")
+		var cancelErr *starlark.CanceledError
+		if !errors.As(err, &cancelErr) {
+			t.Errorf("ExecFile didn't return error starlark.CanceledError")
 		}
 	}
 	// An external cancelation returns a wrapped starlark.ErrCanceled and the
@@ -1057,8 +1059,9 @@ f()
 		if fmt.Sprint(err) != "Starlark computation canceled: nope" {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile didn't return error starlark.ErrCanceled")
+		var canceledErr *starlark.CanceledError
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile didn't return error starlark.CanceledError")
 		}
 		evalErr, ok := err.(*starlark.EvalError)
 		if !ok {
@@ -1086,10 +1089,11 @@ func TestCancelWithError(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation canceled: nope" {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile didn't return error starlark.ErrCanceled")
+		var canceledErr *starlark.CanceledError
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile didn't return error starlark.CanceledError")
 		}
-		if !errors.Is(err, cancelErr) {
+		if !errors.Is(err, cancelErr) || errors.Unwrap(canceledErr) != cancelErr {
 			t.Errorf("ExecFile didn't return expected error")
 		}
 
@@ -1098,10 +1102,10 @@ func TestCancelWithError(t *testing.T) {
 		if fmt.Sprint(err) != "Starlark computation canceled: nope" {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile: !errors.Is(err, starlark.ErrCanceled); got %T, %v", err, err)
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile: !errors.Is(err, starlark.CanceledError); got %T, %v", err, err)
 		}
-		if !errors.Is(err, cancelErr) {
+		if !errors.Is(err, cancelErr) || errors.Unwrap(canceledErr) != cancelErr {
 			t.Errorf("ExecFile didn't return expected error")
 		}
 	}
@@ -1120,10 +1124,11 @@ func TestCancelWithError(t *testing.T) {
 		if fmt.Sprint(err) != `Starlark computation canceled: "nope"` {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile: !errors.Is(err, starlark.ErrCanceled); got %T, %v", err, err)
+		var canceledErr *starlark.CanceledError
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile: !errors.Is(err, starlark.CanceledError); got %T, %v", err, err)
 		}
-		if !errors.Is(err, cancelErr) {
+		if !errors.Is(err, cancelErr) || errors.Unwrap(canceledErr) != cancelErr {
 			t.Errorf("ExecFile didn't return expected error")
 		}
 	}
@@ -1154,10 +1159,11 @@ f()
 		if fmt.Sprint(err) != "Starlark computation canceled: nope" {
 			t.Errorf("ExecFile returned error %q, want cancellation", err)
 		}
-		if !errors.Is(err, starlark.ErrCanceled) {
-			t.Errorf("ExecFile didn't return error starlark.ErrCanceled")
+		var canceledErr *starlark.CanceledError
+		if !errors.As(err, &canceledErr) {
+			t.Errorf("ExecFile didn't return error starlark.CanceledError")
 		}
-		if !errors.Is(err, cancelErr) {
+		if !errors.Is(err, cancelErr) || errors.Unwrap(canceledErr) != cancelErr {
 			t.Errorf("ExecFile didn't return expected error")
 		}
 		evalErr, ok := err.(*starlark.EvalError)
@@ -1203,8 +1209,9 @@ func TestExecutionSteps(t *testing.T) {
 	if fmt.Sprint(err) != "Starlark computation canceled: too many steps" {
 		t.Errorf("execution returned error %q, want cancellation", err)
 	}
-	if !errors.Is(err, starlark.ErrCanceled) {
-		t.Errorf("exectution didn't return error starlark.ErrCanceled")
+	var canceledErr *starlark.CanceledError
+	if !errors.As(err, &canceledErr) {
+		t.Errorf("execution didn't return error starlark.CanceledError")
 	}
 
 	thread.Steps = 0
