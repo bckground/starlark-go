@@ -12,6 +12,13 @@ import (
 	"go.starlark.net/syntax"
 )
 
+// deferredCall represents a deferred function call.
+type deferredCall struct {
+	fn     Value
+	args   Tuple
+	kwargs []Tuple
+}
+
 const vmdebug = false // TODO(adonovan): use a bitfield of specific kinds of error.
 
 var ErrTooManySteps = errors.New("too many steps")
@@ -89,11 +96,25 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	// - there is exactly one return statement
 	// - there is no redefinition of 'err'.
 
-	var iterstack []Iterator // stack of active iterators
+	var iterstack []Iterator      // stack of active iterators
+	var deferstack []deferredCall // stack of deferred calls
 
 	// Use defer so that application panics can pass through
 	// interpreter without leaving thread in a bad state.
 	defer func() {
+		// Execute deferred calls in LIFO order (for panics/errors).
+		// Normal returns execute defers in the RETURN case.
+		for i := len(deferstack) - 1; i >= 0; i-- {
+			deferred := deferstack[i]
+			_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+			// If a deferred call fails and we don't already have an
+			// error, use it. We can instead use errors.Join once we
+			// require go >= 1.20.
+			if deferErr != nil && err == nil {
+				err = deferErr
+			}
+		}
+
 		// ITERPOP the rest of the iterator stack.
 		for _, iter := range iterstack {
 			iter.Done()
@@ -412,8 +433,61 @@ loop:
 		case compile.NOT:
 			stack[sp-1] = !stack[sp-1].Truth()
 
+		case compile.DEFER:
+			// Pop the arguments from the stack and save for later
+			// The stack has: fn, positional args, named args (key-value pairs)
+			// arg encoding: npos = arg >> 8, nnamed = arg & 0xff.
+			npos := int(arg >> 8)
+			nnamed := int(arg & 0xff)
+
+			// Extract kwargs (named arguments).
+			var kwargs []Tuple
+			for i := 0; i < nnamed; i++ {
+				v := stack[sp-1]
+				k := stack[sp-2]
+				sp -= 2
+				kwargs = append(kwargs, Tuple{k, v})
+			}
+			// Reverse kwargs to preserve order.
+			for i, j := 0, len(kwargs)-1; i < j; i, j = i+1, j-1 {
+				kwargs[i], kwargs[j] = kwargs[j], kwargs[i]
+			}
+
+			// Extract positional args.
+			args := make(Tuple, npos)
+			for i := npos - 1; i >= 0; i-- {
+				sp--
+				args[i] = stack[sp]
+			}
+
+			// Extract function.
+			sp--
+			fn := stack[sp]
+
+			// Push onto the defer stack.
+			deferstack = append(deferstack, deferredCall{
+				fn:     fn,
+				args:   args,
+				kwargs: kwargs,
+			})
+
 		case compile.RETURN:
 			result = stack[sp-1]
+
+			// Execute the deferred calls before returning (in LIFO
+			// order).
+			for i := len(deferstack) - 1; i >= 0; i-- {
+				deferred := deferstack[i]
+				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+				// If a deferred call fails and we don't already
+				// have an error, use it. We can instead use
+				// errors.Join once we require go >= 1.20.
+				if deferErr != nil && err == nil {
+					err = deferErr
+				}
+			}
+			deferstack = nil
+
 			break loop
 
 		case compile.SETINDEX:

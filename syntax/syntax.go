@@ -92,6 +92,7 @@ type Stmt interface {
 func (*AssignStmt) stmt() {}
 func (*BranchStmt) stmt() {}
 func (*DefStmt) stmt()    {}
+func (*DeferStmt) stmt()  {}
 func (*ExprStmt) stmt()   {}
 func (*ForStmt) stmt()    {}
 func (*WhileStmt) stmt()  {}
@@ -134,6 +135,18 @@ type DefStmt struct {
 func (x *DefStmt) Span() (start, end Position) {
 	_, end = x.Body[len(x.Body)-1].Span()
 	return x.Def, end
+}
+
+// A DeferStmt represents a defer statement: defer f(x).
+type DeferStmt struct {
+	commentsRef
+	Defer Position
+	Call  Expr // must be a CallExpr
+}
+
+func (x *DeferStmt) Span() (start, end Position) {
+	_, end = x.Call.Span()
+	return x.Defer, end
 }
 
 // An ExprStmt is an expression evaluated for side effects.
