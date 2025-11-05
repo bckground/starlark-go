@@ -84,6 +84,7 @@ const (
 	BREAK
 	CONTINUE
 	DEF
+	DEFER
 	ELIF
 	ELSE
 	FOR
@@ -187,6 +188,7 @@ var tokenNames = [...]string{
 	BREAK:         "break",
 	CONTINUE:      "continue",
 	DEF:           "def",
+	DEFER:         "defer",
 	ELIF:          "elif",
 	ELSE:          "else",
 	FOR:           "for",
@@ -1130,6 +1132,7 @@ var keywordToken = map[string]Token{
 	"break":    BREAK,
 	"continue": CONTINUE,
 	"def":      DEF,
+	"defer":    DEFER,
 	"elif":     ELIF,
 	"else":     ELSE,
 	"for":      FOR,

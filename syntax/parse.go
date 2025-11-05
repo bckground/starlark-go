@@ -304,6 +304,7 @@ func (p *parser) parseSimpleStmt(stmts []Stmt, consumeNL bool) []Stmt {
 // small_stmt = RETURN expr?
 //
 //	| PASS | BREAK | CONTINUE
+//	| DEFER expr
 //	| LOAD ...
 //	| expr ('=' | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=') expr   // assign
 //	| expr
@@ -316,6 +317,15 @@ func (p *parser) parseSmallStmt() Stmt {
 			result = p.parseExpr(false)
 		}
 		return &ReturnStmt{Return: pos, Result: result}
+
+	case DEFER:
+		pos := p.nextToken() // consume DEFER
+		call := p.parseExpr(false)
+		// Validate that the expression is a call.
+		if _, ok := call.(*CallExpr); !ok {
+			p.in.errorf(pos, "defer statement requires a function call")
+		}
+		return &DeferStmt{Defer: pos, Call: call}
 
 	case BREAK, CONTINUE, PASS:
 		tok := p.tok

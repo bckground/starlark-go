@@ -25,6 +25,7 @@ SimpleStmt = SmallStmt {';' SmallStmt} [';'] '\n' .
 
 SmallStmt = ReturnStmt
           | BreakStmt | ContinueStmt | PassStmt
+          | DeferStmt
           | AssignStmt
           | ExprStmt
           | LoadStmt
@@ -34,6 +35,7 @@ ReturnStmt   = 'return' [Expression] .
 BreakStmt    = 'break' .
 ContinueStmt = 'continue' .
 PassStmt     = 'pass' .
+DeferStmt    = 'defer' CallExpr .
 AssignStmt   = Expression ('=' | '+=' | '-=' | '*=' | '/=' | '//=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=') Expression .
 ExprStmt     = Expression .
 

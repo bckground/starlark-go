@@ -561,6 +561,12 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		r.stmts(stmt.Body)
 		r.loops--
 
+	case *syntax.DeferStmt:
+		if r.container().function == nil {
+			r.errorf(stmt.Defer, "defer statement not within a function")
+		}
+		r.expr(stmt.Call)
+
 	case *syntax.ReturnStmt:
 		if r.container().function == nil {
 			r.errorf(stmt.Return, "return statement not within a function")
