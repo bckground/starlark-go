@@ -544,6 +544,7 @@ func analyzeReturns(stmts []syntax.Stmt) int {
 					numReturns = count
 				} else if numReturns != count {
 					consistent = false
+					return false // stop walking once we know it's inconsistent
 				}
 
 			case *syntax.DefStmt:
@@ -552,6 +553,9 @@ func analyzeReturns(stmts []syntax.Stmt) int {
 			}
 			return true
 		})
+		if !consistent {
+			break // no need to check remaining statements
+		}
 	}
 
 	if !consistent {
