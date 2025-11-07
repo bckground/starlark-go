@@ -313,14 +313,14 @@ func (op Opcode) String() string {
 // Programs are serialized by the Program.Encode method,
 // which must be updated whenever this declaration is changed.
 type Program struct {
-	Loads     []Binding     // name (really, string) and position of each load stmt
-	Names     []string      // names of attributes and predeclared variables
-	Constants []interface{} // = string | int64 | float64 | *big.Int | Bytes
-	Functions []*Funcode
+	Loads                  []Binding     // name (really, string) and position of each load stmt
+	Names                  []string      // names of attributes and predeclared variables
+	Constants              []interface{} // = string | int64 | float64 | *big.Int | Bytes
+	Functions              []*Funcode
 	Globals                []Binding // for error messages and tracing
 	Toplevel               *Funcode  // module initialization function
 	Recursion              bool      // disable recursion check for functions in this file
-	StrictMultiValueReturn bool      // enable true multi-return values (not tuple packing)
+	StrictMultiValueReturn bool      // enable true multi-value returns (no tuple packing)
 }
 
 // The type of a bytes literal value, to distinguish from text string.
