@@ -19,6 +19,55 @@ type deferredCall struct {
 	kwargs []Tuple
 }
 
+// multiValue is an internal type used to represent multiple return values
+// when MultiReturn mode is enabled. It's not a true Starlark value and should
+// never escape to user code.
+type multiValue struct {
+	values []Value
+}
+
+// Implement Value interface (required but these should never be called)
+func (mv *multiValue) String() string {
+	return fmt.Sprintf("<multiValue with %d values>", len(mv.values))
+}
+
+func (mv *multiValue) Type() string { return "multiValue" }
+
+func (mv *multiValue) Freeze() {
+	for _, v := range mv.values {
+		v.Freeze()
+	}
+}
+
+func (mv *multiValue) Truth() Bool { return True }
+
+func (mv *multiValue) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: multiValue")
+}
+
+// Implement Iterable so multiValue can be used with *args
+func (mv *multiValue) Iterate() Iterator {
+	return &multiValueIterator{mv: mv, index: 0}
+}
+
+type multiValueIterator struct {
+	mv    *multiValue
+	index int
+}
+
+func (it *multiValueIterator) Next(p *Value) bool {
+	if it.index < len(it.mv.values) {
+		*p = it.mv.values[it.index]
+		it.index++
+		return true
+	}
+	return false
+}
+
+func (it *multiValueIterator) Done() {
+	// Nothing to clean up
+}
+
 const vmdebug = false // TODO(adonovan): use a bitfield of specific kinds of error.
 
 var ErrTooManySteps = errors.New("too many steps")
@@ -472,7 +521,19 @@ loop:
 			})
 
 		case compile.RETURN:
-			result = stack[sp-1]
+			// Handle multi-return values if enabled
+			if f.Prog.MultiReturn && f.NumReturns > 1 {
+				// Pop multiple values from stack and wrap in multiValue
+				values := make([]Value, f.NumReturns)
+				for i := f.NumReturns - 1; i >= 0; i-- {
+					sp--
+					values[i] = stack[sp]
+				}
+				result = &multiValue{values: values}
+			} else {
+				// Single return value (legacy behavior)
+				result = stack[sp-1]
+			}
 
 			// Execute the deferred calls before returning (in LIFO
 			// order).
@@ -575,26 +636,41 @@ loop:
 			n := int(arg)
 			iterable := stack[sp-1]
 			sp--
-			iter := Iterate(iterable)
-			if iter == nil {
-				err = fmt.Errorf("got %s in sequence assignment", iterable.Type())
-				break loop
-			}
-			i := 0
-			sp += n
-			for i < n && iter.Next(&stack[sp-1-i]) {
-				i++
-			}
-			var dummy Value
-			if iter.Next(&dummy) {
-				// NB: Len may return -1 here in obscure cases.
-				err = fmt.Errorf("too many values to unpack (got %d, want %d)", Len(iterable), n)
-				break loop
-			}
-			iter.Done()
-			if i < n {
-				err = fmt.Errorf("too few values to unpack (got %d, want %d)", i, n)
-				break loop
+
+			// Handle multiValue directly (from multi-return functions)
+			if mv, ok := iterable.(*multiValue); ok {
+				if len(mv.values) != n {
+					err = fmt.Errorf("expected %d values, got %d", n, len(mv.values))
+					break loop
+				}
+				// Push values onto stack (in reverse order to match standard unpacking)
+				sp += n
+				for i := 0; i < n; i++ {
+					stack[sp-1-i] = mv.values[i]
+				}
+			} else {
+				// Standard iteration-based unpacking
+				iter := Iterate(iterable)
+				if iter == nil {
+					err = fmt.Errorf("got %s in sequence assignment", iterable.Type())
+					break loop
+				}
+				i := 0
+				sp += n
+				for i < n && iter.Next(&stack[sp-1-i]) {
+					i++
+				}
+				var dummy Value
+				if iter.Next(&dummy) {
+					// NB: Len may return -1 here in obscure cases.
+					err = fmt.Errorf("too many values to unpack (got %d, want %d)", Len(iterable), n)
+					break loop
+				}
+				iter.Done()
+				if i < n {
+					err = fmt.Errorf("too few values to unpack (got %d, want %d)", i, n)
+					break loop
+				}
 			}
 
 		case compile.CJMP:
@@ -671,15 +747,30 @@ loop:
 			}
 
 		case compile.SETLOCAL:
-			locals[arg] = stack[sp-1]
+			val := stack[sp-1]
+			if mv, ok := val.(*multiValue); ok {
+				err = fmt.Errorf("expected 1 value, got %d", len(mv.values))
+				break loop
+			}
+			locals[arg] = val
 			sp--
 
 		case compile.SETLOCALCELL:
-			locals[arg].(*cell).v = stack[sp-1]
+			val := stack[sp-1]
+			if mv, ok := val.(*multiValue); ok {
+				err = fmt.Errorf("expected 1 value, got %d", len(mv.values))
+				break loop
+			}
+			locals[arg].(*cell).v = val
 			sp--
 
 		case compile.SETGLOBAL:
-			fn.module.globals[arg] = stack[sp-1]
+			val := stack[sp-1]
+			if mv, ok := val.(*multiValue); ok {
+				err = fmt.Errorf("expected 1 value, got %d", len(mv.values))
+				break loop
+			}
+			fn.module.globals[arg] = val
 			sp--
 
 		case compile.LOCAL:

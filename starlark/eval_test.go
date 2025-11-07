@@ -41,6 +41,7 @@ func getOptions(src string) *syntax.FileOptions {
 		GlobalReassign:    option(src, "globalreassign"),
 		LoadBindsGlobally: option(src, "loadbindsglobally"),
 		Recursion:         option(src, "recursion"),
+		MultiReturn:       option(src, "multireturn"),
 	}
 }
 
@@ -149,6 +150,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/list.star",
 		"testdata/math.star",
 		"testdata/misc.star",
+		"testdata/multireturn.star",
 		"testdata/proto.star",
 		"testdata/set.star",
 		"testdata/string.star",

@@ -46,7 +46,7 @@ var Disassemble = false
 const debug = false // make code generation verbose, for debugging the compiler
 
 // Increment this to force recompilation of saved bytecode files.
-const Version = 14
+const Version = 15
 
 type Opcode uint8
 
@@ -317,9 +317,10 @@ type Program struct {
 	Names     []string      // names of attributes and predeclared variables
 	Constants []interface{} // = string | int64 | float64 | *big.Int | Bytes
 	Functions []*Funcode
-	Globals   []Binding // for error messages and tracing
-	Toplevel  *Funcode  // module initialization function
-	Recursion bool      // disable recursion check for functions in this file
+	Globals     []Binding // for error messages and tracing
+	Toplevel    *Funcode  // module initialization function
+	Recursion   bool      // disable recursion check for functions in this file
+	MultiReturn bool      // enable true multi-return values (not tuple packing)
 }
 
 // The type of a bytes literal value, to distinguish from text string.
@@ -343,6 +344,7 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
+	NumReturns            int // number of return values: -1=unknown, 0=void, 1+=specific count
 
 	// -- transient state --
 
@@ -501,8 +503,9 @@ func Expr(opts *syntax.FileOptions, expr syntax.Expr, name string, locals []*res
 func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, name string, locals, globals []*resolve.Binding) *Program {
 	pcomp := &pcomp{
 		prog: &Program{
-			Globals:   bindings(globals),
-			Recursion: opts.Recursion,
+			Globals:     bindings(globals),
+			Recursion:   opts.Recursion,
+			MultiReturn: opts.MultiReturn,
 		},
 		names:     make(map[string]uint32),
 		constants: make(map[interface{}]uint32),
@@ -1227,11 +1230,42 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		fcomp.emit1(DEFER, arg)
 
 	case *syntax.ReturnStmt:
+		var numReturns int
 		if stmt.Result != nil {
-			fcomp.expr(stmt.Result)
+			// Check if we should use multi-return semantics
+			if fcomp.pcomp.prog.MultiReturn {
+				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
+					// Multi-return: emit elements without MAKETUPLE
+					numReturns = len(tuple.List)
+					for _, elem := range tuple.List {
+						fcomp.expr(elem)
+					}
+				} else {
+					// Single return value
+					numReturns = 1
+					fcomp.expr(stmt.Result)
+				}
+			} else {
+				// Legacy mode: normal tuple packing
+				numReturns = 1
+				fcomp.expr(stmt.Result)
+			}
 		} else {
+			// Return with no value (returns None)
+			numReturns = 1
 			fcomp.emit(NONE)
 		}
+
+		// Track and validate NumReturns for this function
+		if fcomp.fn.NumReturns == 0 {
+			// First return statement
+			fcomp.fn.NumReturns = numReturns
+		} else if fcomp.fn.NumReturns != numReturns {
+			// Inconsistent return counts
+			log.Panicf("%s: function %s has inconsistent return counts: %d vs %d",
+				stmt.Return, fcomp.fn.Name, fcomp.fn.NumReturns, numReturns)
+		}
+
 		fcomp.emit(RETURN)
 		fcomp.block = fcomp.newBlock() // dead code
 
