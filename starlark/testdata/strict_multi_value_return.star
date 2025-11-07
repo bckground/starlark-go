@@ -50,6 +50,20 @@ def array_return():
 def array_multi_value_return():
     return [1, 2], "foo"
 
+# Test bare return
+def test_bare_return():
+    v = no_value()
+    assert.eq(v, None)
+
+test_bare_return()
+
+# Test no return
+def test_no_return():
+    v = no_return()
+    assert.eq(v, None)
+
+test_no_return()
+
 # Test basic multi-return with 2 values
 def test_two_values():
     a, b = two_values()
