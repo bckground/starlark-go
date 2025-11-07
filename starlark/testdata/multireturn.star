@@ -4,36 +4,78 @@
 
 load("assert.star", "assert")
 
-# Basic multi-return with 2 values
+# Helper functions used across tests
 def two_values():
     return 1, 2
 
-a, b = two_values()
-assert.eq(a, 1)
-assert.eq(b, 2)
-
-# Multi-return with 3 values
 def three_values():
     return "x", "y", "z"
 
-x, y, z = three_values()
-assert.eq(x, "x")
-assert.eq(y, "y")
-assert.eq(z, "z")
-
-# Single return value
 def one_value():
     return 42
 
-val = one_value()
-assert.eq(val, 42)
-
-# Return with no explicit value (returns None)
 def no_value():
     return
 
-none_val = no_value()
-assert.eq(none_val, None)
+def swap(x, y):
+    return y, x
+
+def pair():
+    return 10, 20
+
+def mixed_types():
+    return 1, "two", 3.0, True, None
+
+def dynamic_return(x):
+    if x:
+        return 1, 2
+    else:
+        return 3
+
+def complex_dynamic(mode):
+    if mode == "single":
+        return "alone"
+    elif mode == "pair":
+        return "first", "second"
+    else:
+        return 1, 2, 3
+
+def array_return():
+    return [1, 2]
+
+def array_multi_value_return():
+    return [1, 2], "foo"
+
+# Test basic multi-return with 2 values
+def test_two_values():
+    a, b = two_values()
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_two_values()
+
+# Test multi-return with 3 values
+def test_three_values():
+    x, y, z = three_values()
+    assert.eq(x, "x")
+    assert.eq(y, "y")
+    assert.eq(z, "z")
+
+test_three_values()
+
+# Test single return value
+def test_single_return():
+    val = one_value()
+    assert.eq(val, 42)
+
+test_single_return()
+
+# Test return with no explicit value (returns None)
+def test_no_value_return():
+    none_val = no_value()
+    assert.eq(none_val, None)
+
+test_no_value_return()
 
 # Test mismatch errors: too few variables
 def test_too_few():
@@ -58,97 +100,84 @@ def test_one_var():
 
 assert.fails(test_one_var, "expected 1 value, got 2")
 
-# Multi-return in nested calls
-def swap(x, y):
-    return y, x
+# Test multi-return in nested calls with unpacking
+def test_nested_calls():
+    p, q = swap(*pair())
+    assert.eq(p, 20)
+    assert.eq(q, 10)
 
-def pair():
-    return 10, 20
+test_nested_calls()
 
-p, q = swap(*pair())
-assert.eq(p, 20)
-assert.eq(q, 10)
+# Test multi-return with different types
+def test_mixed_types():
+    int_val, str_val, float_val, bool_val, none_val = mixed_types()
+    assert.eq(int_val, 1)
+    assert.eq(str_val, "two")
+    assert.eq(float_val, 3.0)
+    assert.eq(bool_val, True)
+    assert.eq(none_val, None)
 
-# Multi-return with different types
-def mixed_types():
-    return 1, "two", 3.0, True, None
+test_mixed_types()
 
-int_val, str_val, float_val, bool_val, none_val2 = mixed_types()
-assert.eq(int_val, 1)
-assert.eq(str_val, "two")
-assert.eq(float_val, 3.0)
-assert.eq(bool_val, True)
-assert.eq(none_val2, None)
+# Test dynamic return counts (when called with True, returns 2 values)
+def test_dynamic_return_two():
+    a, b = dynamic_return(True)
+    assert.eq(a, 1)
+    assert.eq(b, 2)
 
-# Test dynamic return counts (inconsistent across branches)
-# These use tuple packing/unpacking with runtime validation
-def dynamic_return(x):
-    if x:
-        return 1, 2
-    else:
-        return 3
+test_dynamic_return_two()
 
-# When called with True, returns 2 values
-dyn_a, dyn_b = dynamic_return(True)
-assert.eq(dyn_a, 1)
-assert.eq(dyn_b, 2)
+# Test dynamic return counts (when called with False, returns 1 value)
+def test_dynamic_return_one():
+    c = dynamic_return(False)
+    assert.eq(c, 3)
 
-# When called with False, returns 1 value
-dyn_c = dynamic_return(False)
-assert.eq(dyn_c, 3)
+test_dynamic_return_one()
 
-# With strict multi-return mode, dynamic returns also enforce count matching
+# Test strict multi-return mode enforces count matching for dynamic returns
 def test_dynamic_single_var():
     # Expects 1 value but gets 2 - should fail even for dynamic returns
     x = dynamic_return(True)
 
 assert.fails(test_dynamic_single_var, "expected 1 value, got 2")
 
-# Unpacking validates count with clear error messages
+# Test unpacking validates count with clear error messages
 def test_dynamic_unpack_mismatch():
     # Expects 2 values but gets 1 (an int)
     x, y = dynamic_return(False)
 
 assert.fails(test_dynamic_unpack_mismatch, "expected 2 values, got 1")
 
-# More complex dynamic return
-def complex_dynamic(mode):
-    if mode == "single":
-        return "alone"
-    elif mode == "pair":
-        return "first", "second"
-    else:
-        return 1, 2, 3
+# Test complex dynamic return with multiple branches
+def test_complex_dynamic():
+    single_val = complex_dynamic("single")
+    assert.eq(single_val, "alone")
 
-single_val = complex_dynamic("single")
-assert.eq(single_val, "alone")
+    pair_a, pair_b = complex_dynamic("pair")
+    assert.eq(pair_a, "first")
+    assert.eq(pair_b, "second")
 
-pair_a, pair_b = complex_dynamic("pair")
-assert.eq(pair_a, "first")
-assert.eq(pair_b, "second")
+    triple_x, triple_y, triple_z = complex_dynamic("triple")
+    assert.eq(triple_x, 1)
+    assert.eq(triple_y, 2)
+    assert.eq(triple_z, 3)
 
-triple_x, triple_y, triple_z = complex_dynamic("triple")
-assert.eq(triple_x, 1)
-assert.eq(triple_y, 2)
-assert.eq(triple_z, 3)
+test_complex_dynamic()
 
-def array_return():
-    return [1, 2]
-
+# Test that arrays are single unpackable values in strict mode
 def test_array_return_mismatch():
     a, b = array_return()
 
 assert.fails(test_array_return_mismatch, "expected 2 values, got 1")
 
+# Test that arrays can be assigned to a single variable
 def test_array_return():
     single_array = array_return()
     assert.eq(single_array, [1, 2])
 
 test_array_return()
 
-def array_multi_value_return():
-    return [1, 2], "foo"
-
+# Test multi-return with array as one of the values
 def test_array_multi_return():
     single_array, s = array_multi_value_return()
     assert.eq(single_array, [1, 2])
