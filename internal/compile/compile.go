@@ -344,7 +344,7 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
-	NumReturns            int // number of return values: -1=unknown, 0=void, 1+=specific count
+	NumReturns            int // number of return values: -1=variable, 0=no explicit return, 1=consitent bare return or return single value, 2+=consistent specific count
 
 	// -- transient state --
 
