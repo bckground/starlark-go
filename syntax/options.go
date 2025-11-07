@@ -29,8 +29,10 @@ type FileOptions struct {
 	LoadBindsGlobally bool // load creates global not file-local bindings (deprecated)
 
 	// compiler
-	Recursion   bool // disable recursion check for functions in this file
-	MultiReturn bool // enable true multi-return values (not tuple packing)
+	Recursion bool // disable recursion check for functions in this file
+
+	// resolver and compiler
+	StrictMultiValueReturn bool // enable strict multi-value returns (no tuple packing)
 }
 
 // TODO(adonovan): provide a canonical flag parser for FileOptions.

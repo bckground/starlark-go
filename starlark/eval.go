@@ -65,13 +65,13 @@ type Thread struct {
 	// See example_test.go for some example implementations of Load.
 	Load func(thread *Thread, module string) (StringDict, error)
 
-	// MultiReturn enables true multi-return value semantics (similar to Go).
+	// StrictMultiValueReturn enables true multi-return value semantics (similar to Go).
 	// When enabled, functions can return multiple values that must be
 	// matched exactly by the caller's assignment statement.
 	// Example: def f(): return 1, 2
 	//          a, b = f()  # OK
 	//          x = f()     # runtime error: expected 1 value, got 2
-	MultiReturn bool
+	StrictMultiValueReturn bool
 
 	// OnMaxSteps is called when the thread reaches the limit set by
 	// SetMaxExecutionSteps.  The default behavior is to call
@@ -390,8 +390,8 @@ func ExecFile(thread *Thread, filename string, src interface{}, predeclared Stri
 func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, src interface{}, predeclared StringDict) (StringDict, error) {
 	// Merge thread-specific options with file options
 	mergedOpts := *opts // copy
-	if thread.MultiReturn {
-		mergedOpts.MultiReturn = true
+	if thread.StrictMultiValueReturn {
+		mergedOpts.StrictMultiValueReturn = true
 	}
 
 	// Parse, resolve, and compile a Starlark source file.

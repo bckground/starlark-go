@@ -317,10 +317,10 @@ type Program struct {
 	Names     []string      // names of attributes and predeclared variables
 	Constants []interface{} // = string | int64 | float64 | *big.Int | Bytes
 	Functions []*Funcode
-	Globals     []Binding // for error messages and tracing
-	Toplevel    *Funcode  // module initialization function
-	Recursion   bool      // disable recursion check for functions in this file
-	MultiReturn bool      // enable true multi-return values (not tuple packing)
+	Globals                []Binding // for error messages and tracing
+	Toplevel               *Funcode  // module initialization function
+	Recursion              bool      // disable recursion check for functions in this file
+	StrictMultiValueReturn bool      // enable true multi-return values (not tuple packing)
 }
 
 // The type of a bytes literal value, to distinguish from text string.
@@ -503,9 +503,9 @@ func Expr(opts *syntax.FileOptions, expr syntax.Expr, name string, locals []*res
 func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, name string, locals, globals []*resolve.Binding) *Program {
 	pcomp := &pcomp{
 		prog: &Program{
-			Globals:     bindings(globals),
-			Recursion:   opts.Recursion,
-			MultiReturn: opts.MultiReturn,
+			Globals:                bindings(globals),
+			Recursion:              opts.Recursion,
+			StrictMultiValueReturn: opts.StrictMultiValueReturn,
 		},
 		names:     make(map[string]uint32),
 		constants: make(map[interface{}]uint32),
@@ -586,7 +586,7 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 	}
 
 	// Pre-pass: Determine NumReturns by analyzing all return statements
-	if pcomp.prog.MultiReturn {
+	if pcomp.prog.StrictMultiValueReturn {
 		fcomp.fn.NumReturns = analyzeReturns(stmts)
 	}
 
@@ -1281,7 +1281,7 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
 			// Check if we should use multi-return semantics
-			if fcomp.pcomp.prog.MultiReturn && fcomp.fn.NumReturns > 1 {
+			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturns > 1 {
 				// Consistent multi-return: emit elements without MAKETUPLE
 				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
 					for _, elem := range tuple.List {

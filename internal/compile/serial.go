@@ -132,7 +132,7 @@ func (prog *Program) Encode() []byte {
 		e.function(fn)
 	}
 	e.int(b2i(prog.Recursion))
-	e.int(b2i(prog.MultiReturn))
+	e.int(b2i(prog.StrictMultiValueReturn))
 
 	// Patch in the offset of the string data section.
 	binary.LittleEndian.PutUint32(e.p[4:8], uint32(len(e.p)))
@@ -275,17 +275,17 @@ func DecodeProgram(data []byte) (_ *Program, err error) {
 		funcs[i] = d.function()
 	}
 	recursion := d.int() != 0
-	multiReturn := d.int() != 0
+	strictMultiValueReturn := d.int() != 0
 
 	prog := &Program{
-		Loads:       loads,
-		Names:       names,
-		Constants:   constants,
-		Globals:     globals,
-		Functions:   funcs,
-		Toplevel:    toplevel,
-		Recursion:   recursion,
-		MultiReturn: multiReturn,
+		Loads:                  loads,
+		Names:                  names,
+		Constants:              constants,
+		Globals:                globals,
+		Functions:              funcs,
+		Toplevel:               toplevel,
+		Recursion:              recursion,
+		StrictMultiValueReturn: strictMultiValueReturn,
 	}
 	toplevel.Prog = prog
 	for _, f := range funcs {

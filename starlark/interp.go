@@ -21,7 +21,7 @@ type deferredCall struct {
 }
 
 // multiValue is an internal type used to represent multiple return values
-// when MultiReturn mode is enabled. It's not a true Starlark value and should
+// when StrictMultiValueReturn mode is enabled. It's not a true Starlark value and should
 // never escape to user code.
 type multiValue struct {
 	values []Value
@@ -524,8 +524,8 @@ loop:
 		case compile.RETURN:
 			result = stack[sp-1]
 
-			// In MultiReturn mode, enforce strict validation for all returns
-			if f.Prog.MultiReturn {
+			// In StrictMultiValueReturn mode, enforce strict validation for all returns
+			if f.Prog.StrictMultiValueReturn {
 				if f.NumReturns > 1 {
 					// Consistent multi-return: values already on stack (no MAKETUPLE)
 					values := make([]Value, f.NumReturns)
@@ -657,8 +657,8 @@ loop:
 				for i := 0; i < n; i++ {
 					stack[sp-1-i] = mv.values[i]
 				}
-			} else if f.Prog.MultiReturn {
-				// In strict multi-return mode, only multiValue can be unpacked
+			} else if f.Prog.StrictMultiValueReturn {
+				// In strict multi-value return mode, only multiValue can be unpacked
 				// Regular iterables (lists, tuples) are treated as single atomic values
 				err = fmt.Errorf("expected %d values, got 1", n)
 				break loop

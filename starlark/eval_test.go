@@ -35,13 +35,13 @@ import (
 // A test may enable non-standard options by containing (e.g.) "option:recursion".
 func getOptions(src string) *syntax.FileOptions {
 	return &syntax.FileOptions{
-		Set:               option(src, "set"),
-		While:             option(src, "while"),
-		TopLevelControl:   option(src, "toplevelcontrol"),
-		GlobalReassign:    option(src, "globalreassign"),
-		LoadBindsGlobally: option(src, "loadbindsglobally"),
-		Recursion:         option(src, "recursion"),
-		MultiReturn:       option(src, "multireturn"),
+		Set:                    option(src, "set"),
+		While:                  option(src, "while"),
+		TopLevelControl:        option(src, "toplevelcontrol"),
+		GlobalReassign:         option(src, "globalreassign"),
+		LoadBindsGlobally:      option(src, "loadbindsglobally"),
+		Recursion:              option(src, "recursion"),
+		StrictMultiValueReturn: option(src, "strictmultivaluereturn"),
 	}
 }
 
@@ -150,7 +150,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/list.star",
 		"testdata/math.star",
 		"testdata/misc.star",
-		"testdata/multireturn.star",
+		"testdata/strict_multi_value_return.star",
 		"testdata/proto.star",
 		"testdata/set.star",
 		"testdata/string.star",

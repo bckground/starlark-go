@@ -1,6 +1,6 @@
 # Tests for multi-return values feature
 # This file tests the true multi-return semantics (not tuple packing)
-# option:multireturn
+# option:strictmultivaluereturn
 
 load("assert.star", "assert")
 
