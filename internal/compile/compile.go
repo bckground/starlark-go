@@ -516,11 +516,11 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 	return pcomp.prog
 }
 
-// analyzeReturns walks the AST to determine if all return statements
+// countFnReturns walks the AST to determine if all return statements
 // return the same number of values. Returns:
 //   -1 if return counts are inconsistent (dynamic)
 //    N if all returns consistently return N values
-func analyzeReturns(stmts []syntax.Stmt) int {
+func countFnReturns(stmts []syntax.Stmt) int {
 	numReturns := 0
 	consistent := true
 
@@ -591,7 +591,7 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 
 	// Pre-pass: Determine NumReturns by analyzing all return statements
 	if pcomp.prog.StrictMultiValueReturn {
-		fcomp.fn.NumReturns = analyzeReturns(stmts)
+		fcomp.fn.NumReturns = countFnReturns(stmts)
 	}
 
 	// Convert AST to a CFG of instructions.
