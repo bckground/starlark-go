@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"errors"
+
 	"go.starlark.net/internal/compile"
 	"go.starlark.net/internal/spell"
 	"go.starlark.net/syntax"
@@ -521,18 +522,26 @@ loop:
 			})
 
 		case compile.RETURN:
-			// Handle multi-return values if enabled
-			if f.Prog.MultiReturn && f.NumReturns > 1 {
-				// Pop multiple values from stack and wrap in multiValue
-				values := make([]Value, f.NumReturns)
-				for i := f.NumReturns - 1; i >= 0; i-- {
-					sp--
-					values[i] = stack[sp]
+			result = stack[sp-1]
+
+			// In MultiReturn mode, enforce strict validation for all returns
+			if f.Prog.MultiReturn {
+				if f.NumReturns > 1 {
+					// Consistent multi-return: values already on stack (no MAKETUPLE)
+					values := make([]Value, f.NumReturns)
+					for i := f.NumReturns - 1; i >= 0; i-- {
+						sp--
+						values[i] = stack[sp]
+					}
+					result = &multiValue{values: values}
+				} else if tuple, ok := result.(Tuple); ok && len(tuple) > 1 {
+					// Dynamic return that created a tuple - convert to multiValue
+					// This ensures strict validation even for dynamic returns
+					values := make([]Value, len(tuple))
+					copy(values, tuple)
+					result = &multiValue{values: values}
 				}
-				result = &multiValue{values: values}
-			} else {
-				// Single return value (legacy behavior)
-				result = stack[sp-1]
+				// Single value returns (NumReturns = 1 or empty tuple) stay as-is
 			}
 
 			// Execute the deferred calls before returning (in LIFO
@@ -648,11 +657,17 @@ loop:
 				for i := 0; i < n; i++ {
 					stack[sp-1-i] = mv.values[i]
 				}
+			} else if f.Prog.MultiReturn {
+				// In strict multi-return mode, only multiValue can be unpacked
+				// Regular iterables (lists, tuples) are treated as single atomic values
+				err = fmt.Errorf("expected %d values, got 1", n)
+				break loop
 			} else {
-				// Standard iteration-based unpacking
+				// Legacy mode: standard iteration-based unpacking
 				iter := Iterate(iterable)
 				if iter == nil {
-					err = fmt.Errorf("got %s in sequence assignment", iterable.Type())
+					// Non-iterable value (e.g., int) is effectively a single value
+					err = fmt.Errorf("expected %d values, got 1", n)
 					break loop
 				}
 				i := 0

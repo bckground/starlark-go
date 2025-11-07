@@ -516,6 +516,50 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 	return pcomp.prog
 }
 
+// analyzeReturns walks the AST to determine if all return statements
+// return the same number of values. Returns:
+//   -1 if return counts are inconsistent (dynamic)
+//    N if all returns consistently return N values
+func analyzeReturns(stmts []syntax.Stmt) int {
+	numReturns := 0
+	consistent := true
+
+	// Walk all statements using syntax.Walk
+	for _, stmt := range stmts {
+		syntax.Walk(stmt, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.ReturnStmt:
+				var count int
+				if n.Result != nil {
+					if tuple, ok := n.Result.(*syntax.TupleExpr); ok {
+						count = len(tuple.List)
+					} else {
+						count = 1
+					}
+				} else {
+					count = 1 // return with no value returns None
+				}
+
+				if numReturns == 0 {
+					numReturns = count
+				} else if numReturns != count {
+					consistent = false
+				}
+
+			case *syntax.DefStmt:
+				// Don't recurse into nested functions
+				return false
+			}
+			return true
+		})
+	}
+
+	if !consistent {
+		return -1
+	}
+	return numReturns
+}
+
 func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding) *Funcode {
 	fcomp := &fcomp{
 		pcomp: pcomp,
@@ -539,6 +583,11 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "start function(%s @ %s)\n", name, pos)
+	}
+
+	// Pre-pass: Determine NumReturns by analyzing all return statements
+	if pcomp.prog.MultiReturn {
+		fcomp.fn.NumReturns = analyzeReturns(stmts)
 	}
 
 	// Convert AST to a CFG of instructions.
@@ -1230,40 +1279,24 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		fcomp.emit1(DEFER, arg)
 
 	case *syntax.ReturnStmt:
-		var numReturns int
 		if stmt.Result != nil {
 			// Check if we should use multi-return semantics
-			if fcomp.pcomp.prog.MultiReturn {
+			if fcomp.pcomp.prog.MultiReturn && fcomp.fn.NumReturns > 1 {
+				// Consistent multi-return: emit elements without MAKETUPLE
 				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
-					// Multi-return: emit elements without MAKETUPLE
-					numReturns = len(tuple.List)
 					for _, elem := range tuple.List {
 						fcomp.expr(elem)
 					}
 				} else {
-					// Single return value
-					numReturns = 1
 					fcomp.expr(stmt.Result)
 				}
 			} else {
-				// Legacy mode: normal tuple packing
-				numReturns = 1
+				// Single return, dynamic return, or legacy mode: use normal tuple packing
 				fcomp.expr(stmt.Result)
 			}
 		} else {
 			// Return with no value (returns None)
-			numReturns = 1
 			fcomp.emit(NONE)
-		}
-
-		// Track and validate NumReturns for this function
-		if fcomp.fn.NumReturns == 0 {
-			// First return statement
-			fcomp.fn.NumReturns = numReturns
-		} else if fcomp.fn.NumReturns != numReturns {
-			// Inconsistent return counts
-			log.Panicf("%s: function %s has inconsistent return counts: %d vs %d",
-				stmt.Return, fcomp.fn.Name, fcomp.fn.NumReturns, numReturns)
 		}
 
 		fcomp.emit(RETURN)
