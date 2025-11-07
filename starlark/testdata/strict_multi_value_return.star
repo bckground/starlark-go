@@ -14,6 +14,10 @@ def three_values():
 def one_value():
     return 42
 
+def no_return():
+    # This function returns None.
+    42
+
 def no_value():
     return
 
@@ -184,3 +188,13 @@ def test_array_multi_return():
     assert.eq(s, "foo")
 
 test_array_multi_return()
+
+# Test no assignments
+def test_no_assignment():
+  no_value()
+  no_return()
+  one_value()
+  two_values()
+  three_values()
+
+test_no_assignment()
