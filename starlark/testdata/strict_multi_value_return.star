@@ -15,7 +15,8 @@ def one_value():
     return 42
 
 def no_return():
-    # This function returns None.
+    # Any function with no explicit return statement returns None. Therefore,
+    # this function returns None.
     42
 
 def no_value():
@@ -44,10 +45,10 @@ def complex_dynamic(mode):
     else:
         return 1, 2, 3
 
-def array_return():
+def list_return():
     return [1, 2]
 
-def array_multi_value_return():
+def list_multi_value_return():
     return [1, 2], "foo"
 
 def tuple_return():
@@ -190,34 +191,34 @@ def test_complex_dynamic():
 
 test_complex_dynamic()
 
-# Test that arrays cannot be implicitly unpacked when returned from functions
-def test_array_return_implicit_fail():
-    a, b = array_return()
+# Test that lists cannot be implicitly unpacked when returned from functions
+def test_list_return_implicit_fail():
+    a, b = list_return()
 
-assert.fails(test_array_return_implicit_fail, "expected 2 values, got 1")
+assert.fails(test_list_return_implicit_fail, "expected 2 values, got 1")
 
-# Test that arrays can be explicitly unpackd with brackets
-def test_array_return_explicit():
-    [a, b] = array_return()
+# Test that lists can be explicitly unpackd with brackets
+def test_list_return_explicit():
+    [a, b] = list_return()
     assert.eq(a, 1)
     assert.eq(b, 2)
 
-test_array_return_explicit()
+test_list_return_explicit()
 
-# Test that arrays can be assigned to a single variable
-def test_array_return():
-    single_array = array_return()
-    assert.eq(single_array, [1, 2])
+# Test that lists can be assigned to a single variable
+def test_list_return():
+    single_list = list_return()
+    assert.eq(single_list, [1, 2])
 
-test_array_return()
+test_list_return()
 
-# Test multi-return with array as one of the values
-def test_array_multi_return():
-    single_array, s = array_multi_value_return()
-    assert.eq(single_array, [1, 2])
+# Test multi-return with list as one of the values
+def test_list_multi_return():
+    single_list, s = list_multi_value_return()
+    assert.eq(single_list, [1, 2])
     assert.eq(s, "foo")
 
-test_array_multi_return()
+test_list_multi_return()
 
 # Test that tuples cannot be implicitly unpacked when returned from functions
 def test_tuple_return_implicit_fail():
@@ -266,8 +267,12 @@ def test_explicit_assignment_unpack():
 
 test_explicit_assignment_unpack()
 
-def test_implicit_assignment_unpack():
+def test_implicit_tuple_unpack():
     a, b  = (1, 2)
-    c, d = [1, 2]
 
-assert.fails(test_implicit_assignment_unpack, "expected 2 values, got 1")
+assert.fails(test_implicit_tuple_unpack, "expected 2 values, got 1")
+
+def test_implicit_list_unpack():
+    a, b = [1, 2]
+
+assert.fails(test_implicit_list_unpack, "expected 2 values, got 1")
