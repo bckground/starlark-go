@@ -29,21 +29,23 @@ type multiValue struct {
 
 // Implement Value interface (required but these should never be called).
 func (mv *multiValue) String() string {
-	return fmt.Sprintf("<multiValue with %d values>", len(mv.values))
+	panic("this shouldn't called")
 }
 
-func (mv *multiValue) Type() string { return "multiValue" }
+func (mv *multiValue) Type() string {
+	panic("this shouldn't called")
+}
 
 func (mv *multiValue) Freeze() {
-	for _, v := range mv.values {
-		v.Freeze()
-	}
+	panic("this shouldn't called")
 }
 
-func (mv *multiValue) Truth() Bool { return True }
+func (mv *multiValue) Truth() Bool {
+	panic("this shouldn't called")
+}
 
 func (mv *multiValue) Hash() (uint32, error) {
-	return 0, fmt.Errorf("unhashable type: multiValue")
+	panic("this shouldn't called")
 }
 
 // multiValue does not implement Iterate() to prevent splatting with *args.
