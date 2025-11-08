@@ -50,6 +50,14 @@ def array_return():
 def array_multi_value_return():
     return [1, 2], "foo"
 
+def tuple_return():
+    t = (1, 2)
+    return t
+
+def tuple_multi_value_return():
+    t = (1, 2)
+    return t, "foo"
+
 # Test bare return
 def test_bare_return():
     v = no_value()
@@ -182,11 +190,19 @@ def test_complex_dynamic():
 
 test_complex_dynamic()
 
-# Test that arrays are single unpackable values in strict mode
-def test_array_return_mismatch():
+# Test that arrays cannot be implicitly unpacked when returned from functions
+def test_array_return_implicit_fail():
     a, b = array_return()
 
-assert.fails(test_array_return_mismatch, "expected 2 values, got 1")
+assert.fails(test_array_return_implicit_fail, "expected 2 values, got 1")
+
+# Test that arrays can be explicitly unpackd with brackets
+def test_array_return_explicit():
+    [a, b] = array_return()
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_array_return_explicit()
 
 # Test that arrays can be assigned to a single variable
 def test_array_return():
@@ -203,12 +219,55 @@ def test_array_multi_return():
 
 test_array_multi_return()
 
+# Test that tuples cannot be implicitly unpacked when returned from functions
+def test_tuple_return_implicit_fail():
+    a, b = tuple_return()
+
+assert.fails(test_tuple_return_implicit_fail, "expected 2 values, got 1")
+
+# Test that tuples can be explicitly unpack with parentheses
+def test_tuple_return_explicit_parens():
+    (a, b) = tuple_return()
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_tuple_return_explicit_parens()
+
+# Test that tuples can be assigned to a single variable
+def test_tuple_return():
+    single_tuple = tuple_return()
+    assert.eq(single_tuple, (1, 2))
+
+test_tuple_return()
+
+# Test multi-return with tuple as one of the values
+def test_tuple_multi_return():
+    single_tuple, s = tuple_multi_value_return()
+    assert.eq(single_tuple, (1, 2))
+    assert.eq(s, "foo")
+
+test_tuple_multi_return()
+
 # Test no assignments
 def test_no_assignment():
-  no_value()
-  no_return()
-  one_value()
-  two_values()
-  three_values()
+    no_value()
+    no_return()
+    one_value()
+    two_values()
+    three_values()
 
 test_no_assignment()
+
+def test_explicit_assignment_unpack():
+    (a, b, c,) = (1, 2, 3) # trailing comma ok
+    (d, e, f,) = [1, 2, 3] # trailing comma ok
+    [g, h, i,] = (1, 2, 3) # trailing comma ok
+    [j, k, l,] = [1, 2, 3] # trailing comma ok
+
+test_explicit_assignment_unpack()
+
+def test_implicit_assignment_unpack():
+    a, b  = (1, 2)
+    c, d = [1, 2]
+
+assert.fails(test_implicit_assignment_unpack, "expected 2 values, got 1")

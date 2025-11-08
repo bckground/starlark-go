@@ -216,7 +216,7 @@ loop:
 
 		switch op {
 		case compile.NOP:
-			// nop
+		// nop
 
 		case compile.DUP:
 			stack[sp] = stack[sp-1]
@@ -524,28 +524,29 @@ loop:
 		case compile.RETURN:
 			result = stack[sp-1]
 
-			// In StrictMultiValueReturn mode, enforce strict validation for all returns
+			// In StrictMultiValueReturn mode, enforce strict validation for all returns.
 			if f.Prog.StrictMultiValueReturn {
 				if f.NumReturns > 1 {
-					// Consistent multi-return: values already on stack (no MAKETUPLE)
+					// Consistent multi-return: values already on stack (no MAKETUPLE).
 					values := make([]Value, f.NumReturns)
 					for i := f.NumReturns - 1; i >= 0; i-- {
 						sp--
 						values[i] = stack[sp]
 					}
 					result = &multiValue{values: values}
-				} else if tuple, ok := result.(Tuple); ok && len(tuple) > 1 {
-					// Dynamic return that created a tuple - convert to multiValue
-					// This ensures strict validation even for dynamic returns
-					values := make([]Value, len(tuple))
-					copy(values, tuple)
-					result = &multiValue{values: values}
+				} else if f.NumReturns == -1 {
+					// Dynamic/inconsistent return - convert tuples to multiValue for validation.
+					// This handles cases where different branches return different counts.
+					if tuple, ok := result.(Tuple); ok && len(tuple) > 1 {
+						values := make([]Value, len(tuple))
+						copy(values, tuple)
+						result = &multiValue{values: values}
+					}
 				}
-				// Single value returns (NumReturns = 1 or empty tuple) stay as-is
+				// Single value returns (NumReturns = 1 or empty tuple) stay as-is.
 			}
 
-			// Execute the deferred calls before returning (in LIFO
-			// order).
+			// Execute the deferred calls before returning (in LIFO order).
 			for i := len(deferstack) - 1; i >= 0; i-- {
 				deferred := deferstack[i]
 				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
@@ -642,28 +643,33 @@ loop:
 			sp++
 
 		case compile.UNPACK:
-			n := int(arg)
+			// Extract explicit destructuring flag from bit 31.
+			explicit := (arg & (1 << 31)) != 0
+			n := int(arg & 0x7FFFFFFF) // Mask off flag bit
 			iterable := stack[sp-1]
 			sp--
 
-			// Handle multiValue directly (from multi-return functions)
+			// Handle multiValue directly (from multi-return functions).
 			if mv, ok := iterable.(*multiValue); ok {
 				if len(mv.values) != n {
 					err = fmt.Errorf("expected %d values, got %d", n, len(mv.values))
 					break loop
 				}
-				// Push values onto stack (in reverse order to match standard unpacking)
+				// Push values onto stack (in reverse order to match standard unpacking).
 				sp += n
 				for i := 0; i < n; i++ {
 					stack[sp-1-i] = mv.values[i]
 				}
-			} else if f.Prog.StrictMultiValueReturn {
-				// In strict multi-value return mode, only multiValue can be unpacked
-				// Regular iterables (lists, tuples) are treated as single atomic values
+			} else if f.Prog.StrictMultiValueReturn && !explicit {
+				// In strict mode with implicit unpacking, i.e.,
+				// a, b = (1, 2)
+				// and not
+				// (a, b) = (1 ,2) or [a,b] = (1, 2)
+				// only multiValue can be unpacked.
 				err = fmt.Errorf("expected %d values, got 1", n)
 				break loop
 			} else {
-				// Legacy mode: standard iteration-based unpacking
+				// Legacy mode OR explicit destructuring: standard iteration-based unpacking.
 				iter := Iterate(iterable)
 				if iter == nil {
 					// Non-iterable value (e.g., int) is effectively a single value

@@ -788,7 +788,8 @@ func (insn *insn) stackeffect() int {
 		case MAKELIST, MAKETUPLE:
 			se = 1 - arg
 		case UNPACK:
-			se = arg - 1
+			// Mask off explicit destructuring flag (bit 31) before calculating stack effect.
+			se = (arg & 0x7FFFFFFF) - 1
 		default:
 			panic(insn.op)
 		}
@@ -1337,19 +1338,24 @@ func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
 	switch lhs := lhs.(type) {
 	case *syntax.ParenExpr:
 		// (lhs) = rhs
-		fcomp.assign(pos, lhs.X)
+		// Check if inner is a tuple - if so, it's explicit unpacking.
+		if tuple, ok := lhs.X.(*syntax.TupleExpr); ok {
+			fcomp.assignSequence(pos, tuple.List, true) // explicit: (a, b)
+		} else {
+			fcomp.assign(pos, lhs.X)
+		}
 
 	case *syntax.Ident:
 		// x = rhs
 		fcomp.set(lhs)
 
 	case *syntax.TupleExpr:
-		// x, y = rhs
-		fcomp.assignSequence(pos, lhs.List)
+		// x, y = rhs (implicit tuple unpacking)
+		fcomp.assignSequence(pos, lhs.List, false)
 
 	case *syntax.ListExpr:
-		// [x, y] = rhs
-		fcomp.assignSequence(pos, lhs.List)
+		// [x, y] = rhs (explicit list unpacking)
+		fcomp.assignSequence(pos, lhs.List, true)
 
 	case *syntax.IndexExpr:
 		// x[y] = rhs
@@ -1372,9 +1378,14 @@ func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
 	}
 }
 
-func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr) {
+func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr, explicit bool) {
 	fcomp.setPos(pos)
-	fcomp.emit1(UNPACK, uint32(len(lhs)))
+	count := uint32(len(lhs))
+	// Use bit 31 to encode explicit destructuring flag in strict mode
+	if explicit && fcomp.pcomp.prog.StrictMultiValueReturn {
+		count |= 1 << 31
+	}
+	fcomp.emit1(UNPACK, count)
 	for i := range lhs {
 		fcomp.assign(pos, lhs[i])
 	}
