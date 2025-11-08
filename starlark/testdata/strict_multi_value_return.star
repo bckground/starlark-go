@@ -1,10 +1,10 @@
-# Tests for multi-return values feature
-# This file tests the true multi-return semantics (not tuple packing)
+# Tests for strcit multi-value return mode.
+
 # option:strictmultivaluereturn
 
 load("assert.star", "assert")
 
-# Helper functions used across tests
+# Helper functions used across tests.
 def two_values():
     return 1, 2
 
@@ -19,7 +19,7 @@ def no_return():
     # this function returns None.
     42
 
-def no_value():
+def bare_return():
     return
 
 def swap(x, y):
@@ -59,66 +59,52 @@ def tuple_multi_value_return():
     t = (1, 2)
     return t, "foo"
 
-# Test bare return
-def test_bare_return():
-    v = no_value()
-    assert.eq(v, None)
-
-test_bare_return()
-
-# Test no return
 def test_no_return():
     v = no_return()
     assert.eq(v, None)
 
 test_no_return()
 
-# Test basic multi-return with 2 values
-def test_two_values():
+def test_bare_return():
+    v = bare_return()
+    assert.eq(v, None)
+
+test_bare_return()
+
+def test_return_one_value():
+    val = one_value()
+    assert.eq(val, 42)
+
+test_return_one_value()
+
+def test_return_two_values():
     a, b = two_values()
     assert.eq(a, 1)
     assert.eq(b, 2)
 
-test_two_values()
+test_return_two_values()
 
-# Test multi-return with 3 values
-def test_three_values():
+def test_return_three_values():
     x, y, z = three_values()
     assert.eq(x, "x")
     assert.eq(y, "y")
     assert.eq(z, "z")
 
-test_three_values()
+test_return_three_values()
 
-# Test single return value
-def test_single_return():
-    val = one_value()
-    assert.eq(val, 42)
-
-test_single_return()
-
-# Test return with no explicit value (returns None)
-def test_no_value_return():
-    none_val = no_value()
-    assert.eq(none_val, None)
-
-test_no_value_return()
-
-# Test mismatch errors: too few variables
-def test_too_few():
+def test_too_few_variables_fails():
     def f():
         return 1, 2
     x = f()  # Should error: expected 1 value, got 2
 
-assert.fails(test_too_few, "expected 1 value, got 2")
+assert.fails(test_too_few_variables_fails, "expected 1 value, got 2")
 
-# Test mismatch errors: too many variables
-def test_too_many():
+def test_too_many_variables_fails():
     def f():
         return 1, 2
     a, b, c = f()  # Should error: expected 3 values, got 2
 
-assert.fails(test_too_many, "expected 3 values, got 2")
+assert.fails(test_too_many_variables_fails, "expected 3 values, got 2")
 
 # Test mismatch errors: one variable for multi-return
 def test_one_var():
@@ -191,12 +177,6 @@ def test_complex_dynamic():
 
 test_complex_dynamic()
 
-# Test that lists cannot be implicitly unpacked when returned from functions
-def test_list_return_implicit_fail():
-    a, b = list_return()
-
-assert.fails(test_list_return_implicit_fail, "expected 2 values, got 1")
-
 # Test that lists can be explicitly unpackd with brackets
 def test_list_return_explicit():
     [a, b] = list_return()
@@ -220,28 +200,46 @@ def test_list_multi_return():
 
 test_list_multi_return()
 
-# Test that tuples cannot be implicitly unpacked when returned from functions
-def test_tuple_return_implicit_fail():
+# Test that tuples cannot be implicitly unpacked when returned from functions.
+def test_implicit_tuple_unpack_return_fail():
     a, b = tuple_return()
 
-assert.fails(test_tuple_return_implicit_fail, "expected 2 values, got 1")
+assert.fails(test_implicit_tuple_unpack_return_fail, "expected 2 values, got 1")
 
-# Test that tuples can be explicitly unpack with parentheses
-def test_tuple_return_explicit_parens():
+# Test that lists cannot be implicitly unpacked when returned from functions.
+def test_implicit_list_unpack_return_fail():
+    a, b = list_return()
+
+assert.fails(test_implicit_list_unpack_return_fail, "expected 2 values, got 1")
+
+# Test that tuples can be explicitly unpacked.
+def test_explicit_unpack_return():
     (a, b) = tuple_return()
     assert.eq(a, 1)
     assert.eq(b, 2)
 
-test_tuple_return_explicit_parens()
+    (c, d) = list_return()
+    assert.eq(c, 1)
+    assert.eq(d, 2)
 
-# Test that tuples can be assigned to a single variable
+    [e, f] = tuple_return()
+    assert.eq(e, 1)
+    assert.eq(f, 2)
+
+    [g, h] = list_return()
+    assert.eq(g, 1)
+    assert.eq(h, 2)    
+
+test_explicit_unpack_return()
+
+# Test that tuples can be assigned to a single variable.
 def test_tuple_return():
     single_tuple = tuple_return()
     assert.eq(single_tuple, (1, 2))
 
 test_tuple_return()
 
-# Test multi-return with tuple as one of the values
+# Test multi-return with tuple as one of the values.
 def test_tuple_multi_return():
     single_tuple, s = tuple_multi_value_return()
     assert.eq(single_tuple, (1, 2))
@@ -249,9 +247,8 @@ def test_tuple_multi_return():
 
 test_tuple_multi_return()
 
-# Test no assignments
 def test_no_assignment():
-    no_value()
+    bare_return()
     no_return()
     one_value()
     two_values()
@@ -259,20 +256,35 @@ def test_no_assignment():
 
 test_no_assignment()
 
-def test_explicit_assignment_unpack():
+def test_explicit_unpack_literal():
     (a, b, c,) = (1, 2, 3) # trailing comma ok
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+    assert.eq(c, 3)
+
     (d, e, f,) = [1, 2, 3] # trailing comma ok
+    assert.eq(d, 1)
+    assert.eq(e, 2)
+    assert.eq(f, 3)
+
     [g, h, i,] = (1, 2, 3) # trailing comma ok
+    assert.eq(g, 1)
+    assert.eq(h, 2)
+    assert.eq(i, 3)
+
     [j, k, l,] = [1, 2, 3] # trailing comma ok
+    assert.eq(j, 1)
+    assert.eq(k, 2)
+    assert.eq(l, 3)
 
-test_explicit_assignment_unpack()
+test_explicit_unpack_literal()
 
-def test_implicit_tuple_unpack():
+def test_implicit_tuple_unpack_literal_fail():
     a, b  = (1, 2)
 
-assert.fails(test_implicit_tuple_unpack, "expected 2 values, got 1")
+assert.fails(test_implicit_tuple_unpack_literal_fail, "expected 2 values, got 1")
 
-def test_implicit_list_unpack():
+def test_implicit_list_unpack_literal_fail():
     a, b = [1, 2]
 
-assert.fails(test_implicit_list_unpack, "expected 2 values, got 1")
+assert.fails(test_implicit_list_unpack_literal_fail, "expected 2 values, got 1")
