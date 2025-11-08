@@ -2,6 +2,53 @@
 
 # option:strictmultivaluereturn
 
+# The spec is the following:
+#
+# Literals:
+#
+# -- Valid --
+# a, b = 1, 2
+# a, b = (1, 2)
+# a, b = [1, 2]
+# (a, b) = 1, 2
+# [a, b] = 1, 2
+# (a, b) = (1, 2)
+# [a, b] = [1, 2)
+# (a, b) = [1, 2]
+# [a, b] = (1, 2)
+# a = (1, 2)
+# a = [1, 2]
+#
+# -- Invalid --
+# a = 1, 2
+#
+# Function calls:
+#
+# def two_values():
+#     return 1, 2
+#
+# def one_tuple():
+#     return (1, 2)
+#
+# def one_list():
+#     return [1, 2]
+#
+# -- Valid --
+# a, b = two_values()
+# (a, b) = two_values()
+# [a, b] = two_values()
+# (a, b) = one_tuple()
+# [a, b] = one_tuple()
+# (a, b) = one_list()
+# [a, b] = one_list()
+# a = one_tuple()
+# a = one_list()
+#
+# -- Invalid --
+# a = two_values()
+# a, b = one_tuple()
+# a, b = one_list()
+
 load("assert.star", "assert")
 
 # Helper functions used across tests.
