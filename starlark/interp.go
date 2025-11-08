@@ -28,25 +28,11 @@ type multiValue struct {
 }
 
 // Implement Value interface (required but these should never be called).
-func (mv *multiValue) String() string {
-	panic("this shouldn't called")
-}
-
-func (mv *multiValue) Type() string {
-	panic("this shouldn't called")
-}
-
-func (mv *multiValue) Freeze() {
-	panic("this shouldn't called")
-}
-
-func (mv *multiValue) Truth() Bool {
-	panic("this shouldn't called")
-}
-
-func (mv *multiValue) Hash() (uint32, error) {
-	panic("this shouldn't called")
-}
+func (mv *multiValue) String() string        { panic("this shouldn't called") }
+func (mv *multiValue) Type() string          { panic("this shouldn't called") }
+func (mv *multiValue) Freeze()               { panic("this shouldn't called") }
+func (mv *multiValue) Truth() Bool           { panic("this shouldn't called") }
+func (mv *multiValue) Hash() (uint32, error) { panic("this shouldn't called") }
 
 // multiValue does not implement Iterate() to prevent splatting with *args.
 // In strict multi-value return mode, you must explicitly unpack first:
