@@ -400,11 +400,13 @@ loop:
 				// Add elements from *args sequence.
 				iter := Iterate(args)
 				if iter == nil {
+					var errSuffix string
 					if _, ok := args.(*multiValue); ok {
-						err = fmt.Errorf("argument after * must be iterable, not a multi-value return")
+						errSuffix = "a multi-value return"
 					} else {
-						err = fmt.Errorf("argument after * must be iterable, not %s", args.Type())
+						errSuffix = args.Type()
 					}
+					err = fmt.Errorf("argument after * must be iterable, not %s", errSuffix)
 					break loop
 				}
 				var elem Value
