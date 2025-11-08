@@ -33,6 +33,9 @@
 # def one_list():
 #     return [1, 2]
 #
+# def swap(x, y):
+#     return y, x
+#
 # -- Valid --
 # a, b = two_values()
 # (a, b) = two_values()
@@ -43,11 +46,14 @@
 # [a, b] = one_list()
 # a = one_tuple()
 # a = one_list()
+# a, b = swap(*one_tuple())
+# a, b = swap(*one_list())
 #
 # -- Invalid --
 # a = two_values()
 # a, b = one_tuple()
 # a, b = one_list()
+# a, b = swap(*two_values())
 
 load("assert.star", "assert")
 
@@ -198,6 +204,22 @@ def test_nested_calls_splat_fails():
 
 # pair() returns multiValue which is not iterable
 assert.fails(test_nested_calls_splat_fails, "argument after \\* must be iterable, not a multi-value return")
+
+# Test that splatting a tuple from a function works
+def test_splat_tuple():
+    a, b = swap(*tuple_return())
+    assert.eq(a, 2)
+    assert.eq(b, 1)
+
+test_splat_tuple()
+
+# Test that splatting a list from a function works
+def test_splat_list():
+    a, b = swap(*list_return())
+    assert.eq(a, 2)
+    assert.eq(b, 1)
+
+test_splat_list()
 
 # Test multi-return in nested calls
 def test_nested_calls():
@@ -389,6 +411,22 @@ def test_implicit_bare_tuple_unpack():
     assert.eq(b, 2)
 
 test_implicit_bare_tuple_unpack()
+
+# Test that explicit parens on LHS with bare tuple on RHS works
+def test_explicit_parens_bare_tuple():
+    (a, b) = 1, 2
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_explicit_parens_bare_tuple()
+
+# Test that explicit brackets on LHS with bare tuple on RHS works
+def test_explicit_brackets_bare_tuple():
+    [a, b] = 1, 2
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_explicit_brackets_bare_tuple()
 
 # Note: "x = 1, 2" (implicit tuple creation) is a compile-time error in strict mode
 # and cannot be tested with assert.fails (which tests runtime errors).
