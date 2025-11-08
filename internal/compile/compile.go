@@ -1288,7 +1288,7 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
-			// Check if we should use multi-return semantics.
+			// Check if we should use strict multi-value return semantics.
 			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturns > 1 {
 				// Consistent multi-return: emit elements without MAKETUPLE.
 				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {

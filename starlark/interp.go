@@ -35,7 +35,7 @@ func (mv *multiValue) Truth() Bool           { panic("this shouldn't called") }
 func (mv *multiValue) Hash() (uint32, error) { panic("this shouldn't called") }
 
 // multiValue does not implement Iterate() to prevent splatting with *args.
-// In strict multi-value return mode, you must explicitly unpack first:
+// In strict multi-value return mode, one must explicitly unpack first:
 //   (a, b) = func()
 //   result = other(a, b)
 // Rather than:
