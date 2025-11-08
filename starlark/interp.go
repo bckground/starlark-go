@@ -517,7 +517,7 @@ loop:
 			// In StrictMultiValueReturn mode, enforce strict validation for all returns.
 			if f.Prog.StrictMultiValueReturn {
 				if f.NumReturns > 1 {
-					// Consistent multi-return: values already on stack (no MAKETUPLE).
+					// Consistent multi-value return: values already on stack (no MAKETUPLE).
 					values := make([]Value, f.NumReturns)
 					for i := f.NumReturns - 1; i >= 0; i-- {
 						sp--
