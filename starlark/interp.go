@@ -621,9 +621,13 @@ loop:
 			sp++
 
 		case compile.UNPACK:
-			// Extract explicit unpacking flag from bit 31.
+			// Extract flags and count from arg.
+			// Bit 31: explicit unpacking flag (a, b) = ... or [a, b] = ...
+			// Bit 30: literal flag (RHS is a literal tuple/list expression)
+			// Bits 0-29: count of values to unpack
 			explicit := (arg & (1 << 31)) != 0
-			n := int(arg & 0x7FFFFFFF) // Mask off flag bit
+			rhsIsLiteral := (arg & (1 << 30)) != 0
+			n := int(arg & 0x3FFFFFFF)
 			iterable := stack[sp-1]
 			sp--
 
@@ -640,20 +644,14 @@ loop:
 				for i := 0; i < n; i++ {
 					stack[sp-1-i] = mv.values[i]
 				}
-			} else if f.Prog.StrictMultiValueReturn && !explicit {
-				// In strict multi-value mode, we disallow
-				// implicit unpacking, i.e.,
-				//
-				// a, b = (1, 2)
-				//
-				// is invalid, while explicit unpacking is
-				// valid:
-				//
-				// (a, b) = (1, 2) or [a, b] = (1, 2)
+			} else if f.Prog.StrictMultiValueReturn && !explicit && !rhsIsLiteral {
+				// In strict mode, non-literal tuples/lists from functions can only be
+				// unpacked with explicit syntax: (a, b) = tuple_return() or [a, b] = tuple_return()
+				// But literals are OK: a, b = (1, 2) or a, b = [1, 2]
 				err = fmt.Errorf("expected %d values, got 1", n)
 				break loop
 			} else {
-				// Legacy mode OR explicit unpacking: standard iteration-based unpacking.
+				// Standard iteration-based unpacking (works for tuples, lists, etc.).
 				iter := Iterate(iterable)
 				if iter == nil {
 					// Non-iterable value (e.g., int) is effectively a single value

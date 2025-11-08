@@ -442,7 +442,14 @@ func SourceProgramOptions(opts *syntax.FileOptions, filename string, src interfa
 // a pre-declared identifier of the current module.
 // Its typical value is predeclared.Has,
 // where predeclared is a StringDict of pre-declared values.
-func FileProgram(f *syntax.File, isPredeclared func(string) bool) (*Program, error) {
+func FileProgram(f *syntax.File, isPredeclared func(string) bool) (prog *Program, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert panic from compile.File into an error
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+
 	if err := resolve.File(f, isPredeclared, Universe.Has); err != nil {
 		return nil, err
 	}

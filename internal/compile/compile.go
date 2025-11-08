@@ -788,8 +788,8 @@ func (insn *insn) stackeffect() int {
 		case MAKELIST, MAKETUPLE:
 			se = 1 - arg
 		case UNPACK:
-			// Mask off explicit unpacking flag (bit 31) before calculating stack effect.
-			se = (arg & 0x7FFFFFFF) - 1
+			// Mask off flags (bits 30-31) before calculating stack effect.
+			se = (arg & 0x3FFFFFFF) - 1
 		default:
 			panic(insn.op)
 		}
@@ -1160,8 +1160,32 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		switch stmt.Op {
 		case syntax.EQ:
 			// simple assignment: x = y
+
+			// In strict multi-value return mode, reject ambiguous implicit tuple creation
+			// like "x = 1, 2" (must use "x = (1, 2)" or "x = [1, 2]" for clarity).
+			if fcomp.pcomp.prog.StrictMultiValueReturn {
+				if _, lhsIsIdent := stmt.LHS.(*syntax.Ident); lhsIsIdent {
+					if tupleExpr, rhsIsTuple := stmt.RHS.(*syntax.TupleExpr); rhsIsTuple && len(tupleExpr.List) > 1 {
+						panic(fmt.Sprintf("%s: implicit tuple not allowed; use parentheses or brackets", stmt.OpPos))
+					}
+				}
+			}
+
+			// Check if RHS is a literal tuple or list expression
+			rhsIsLiteral := false
+			rhs := stmt.RHS
+			// Unwrap ParenExpr to check inner expression
+			if paren, ok := rhs.(*syntax.ParenExpr); ok {
+				rhs = paren.X
+			}
+			if _, ok := rhs.(*syntax.TupleExpr); ok {
+				rhsIsLiteral = true
+			} else if _, ok := rhs.(*syntax.ListExpr); ok {
+				rhsIsLiteral = true
+			}
+
 			fcomp.expr(stmt.RHS)
-			fcomp.assign(stmt.OpPos, stmt.LHS)
+			fcomp.assignWithLiteral(stmt.OpPos, stmt.LHS, rhsIsLiteral)
 
 		case syntax.PLUS_EQ,
 			syntax.MINUS_EQ,
@@ -1332,17 +1356,18 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 	}
 }
 
-// assign implements lhs = rhs for arbitrary expressions lhs.
+// assignWithLiteral implements lhs = rhs for arbitrary expressions lhs.
 // RHS is on top of stack, consumed.
-func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
+// rhsIsLiteral indicates whether the RHS is a literal tuple/list expression.
+func (fcomp *fcomp) assignWithLiteral(pos syntax.Position, lhs syntax.Expr, rhsIsLiteral bool) {
 	switch lhs := lhs.(type) {
 	case *syntax.ParenExpr:
 		// (lhs) = rhs
 		// Check if inner is a tuple - if so, it's explicit unpacking.
 		if tuple, ok := lhs.X.(*syntax.TupleExpr); ok {
-			fcomp.assignSequence(pos, tuple.List, true) // explicit: (a, b)
+			fcomp.assignSequence(pos, tuple.List, true, rhsIsLiteral) // explicit: (a, b)
 		} else {
-			fcomp.assign(pos, lhs.X)
+			fcomp.assignWithLiteral(pos, lhs.X, rhsIsLiteral)
 		}
 
 	case *syntax.Ident:
@@ -1351,11 +1376,11 @@ func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
 
 	case *syntax.TupleExpr:
 		// x, y = rhs (implicit tuple unpacking)
-		fcomp.assignSequence(pos, lhs.List, false)
+		fcomp.assignSequence(pos, lhs.List, false, rhsIsLiteral)
 
 	case *syntax.ListExpr:
 		// [x, y] = rhs (explicit list unpacking)
-		fcomp.assignSequence(pos, lhs.List, true)
+		fcomp.assignSequence(pos, lhs.List, true, rhsIsLiteral)
 
 	case *syntax.IndexExpr:
 		// x[y] = rhs
@@ -1378,12 +1403,64 @@ func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
 	}
 }
 
-func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr, explicit bool) {
+// assign implements lhs = rhs for arbitrary expressions lhs.
+// RHS is on top of stack, consumed.
+func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
+	switch lhs := lhs.(type) {
+	case *syntax.ParenExpr:
+		// (lhs) = rhs
+		// Check if inner is a tuple - if so, it's explicit unpacking.
+		if tuple, ok := lhs.X.(*syntax.TupleExpr); ok {
+			fcomp.assignSequence(pos, tuple.List, true, false) // explicit: (a, b), not literal
+		} else {
+			fcomp.assign(pos, lhs.X)
+		}
+
+	case *syntax.Ident:
+		// x = rhs
+		fcomp.set(lhs)
+
+	case *syntax.TupleExpr:
+		// x, y = rhs (implicit tuple unpacking)
+		fcomp.assignSequence(pos, lhs.List, false, false)
+
+	case *syntax.ListExpr:
+		// [x, y] = rhs (explicit list unpacking)
+		fcomp.assignSequence(pos, lhs.List, true, false)
+
+	case *syntax.IndexExpr:
+		// x[y] = rhs
+		fcomp.expr(lhs.X)
+		fcomp.emit(EXCH)
+		fcomp.expr(lhs.Y)
+		fcomp.emit(EXCH)
+		fcomp.setPos(lhs.Lbrack)
+		fcomp.emit(SETINDEX)
+
+	case *syntax.DotExpr:
+		// x.f = rhs
+		fcomp.expr(lhs.X)
+		fcomp.emit(EXCH)
+		fcomp.setPos(lhs.Dot)
+		fcomp.emit1(SETFIELD, fcomp.pcomp.nameIndex(lhs.Name.Name))
+
+	default:
+		panic(lhs)
+	}
+}
+
+func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr, explicit bool, rhsIsLiteral bool) {
 	fcomp.setPos(pos)
 	count := uint32(len(lhs))
 	// Use bit 31 to encode explicit unpacking flag in strict mode.
-	if explicit && fcomp.pcomp.prog.StrictMultiValueReturn {
-		count |= 1 << 31
+	// Use bit 30 to encode literal flag (whether RHS is a literal tuple/list expression).
+	if fcomp.pcomp.prog.StrictMultiValueReturn {
+		if explicit {
+			count |= 1 << 31
+		}
+		if rhsIsLiteral {
+			count |= 1 << 30
+		}
 	}
 	fcomp.emit1(UNPACK, count)
 	for i := range lhs {

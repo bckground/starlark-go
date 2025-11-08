@@ -240,17 +240,17 @@ def test_list_multi_return():
 
 test_list_multi_return()
 
-# Test that tuples cannot be implicitly unpacked when returned from functions.
-def test_implicit_tuple_unpack_return_fail():
+# Test that tuples from functions CANNOT be implicitly unpacked.
+def test_implicit_tuple_unpack_return_fails():
     a, b = tuple_return()
 
-assert.fails(test_implicit_tuple_unpack_return_fail, "expected 2 values, got 1")
+assert.fails(test_implicit_tuple_unpack_return_fails, "expected 2 values, got 1")
 
-# Test that lists cannot be implicitly unpacked when returned from functions.
-def test_implicit_list_unpack_return_fail():
+# Test that lists from functions CANNOT be implicitly unpacked.
+def test_implicit_list_unpack_return_fails():
     a, b = list_return()
 
-assert.fails(test_implicit_list_unpack_return_fail, "expected 2 values, got 1")
+assert.fails(test_implicit_list_unpack_return_fails, "expected 2 values, got 1")
 
 # Test that tuples can be explicitly unpacked.
 def test_explicit_unpack_return():
@@ -319,12 +319,44 @@ def test_explicit_unpack_literal():
 
 test_explicit_unpack_literal()
 
-def test_implicit_tuple_unpack_literal_fail():
-    a, b  = (1, 2)
+# Test that implicit unpacking of explicit tuples works
+def test_implicit_tuple_unpack_literal():
+    a, b = (1, 2)
+    assert.eq(a, 1)
+    assert.eq(b, 2)
 
-assert.fails(test_implicit_tuple_unpack_literal_fail, "expected 2 values, got 1")
+test_implicit_tuple_unpack_literal()
 
-def test_implicit_list_unpack_literal_fail():
+# Test that implicit unpacking of lists works
+def test_implicit_list_unpack_literal():
     a, b = [1, 2]
+    assert.eq(a, 1)
+    assert.eq(b, 2)
 
-assert.fails(test_implicit_list_unpack_literal_fail, "expected 2 values, got 1")
+test_implicit_list_unpack_literal()
+
+# Test that implicit unpacking of bare tuples works
+def test_implicit_bare_tuple_unpack():
+    a, b = 1, 2
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_implicit_bare_tuple_unpack()
+
+# Note: "x = 1, 2" (implicit tuple creation) is a compile-time error in strict mode
+# and cannot be tested with assert.fails (which tests runtime errors).
+# It's tested in a separate test file.
+
+# Test that explicit tuple creation works
+def test_explicit_tuple_creation():
+    x = (1, 2)
+    assert.eq(x, (1, 2))
+
+test_explicit_tuple_creation()
+
+# Test that list assignment works
+def test_list_assignment():
+    x = [1, 2]
+    assert.eq(x, [1, 2])
+
+test_list_assignment()
