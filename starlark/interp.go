@@ -661,11 +661,15 @@ loop:
 					stack[sp-1-i] = mv.values[i]
 				}
 			} else if f.Prog.StrictMultiValueReturn && !explicit {
-				// In strict mode with implicit unpacking, i.e.,
+				// In strict multi-value mode, we disallow
+				// implicit unpacking, i.e.,
+				//
 				// a, b = (1, 2)
-				// and not
-				// (a, b) = (1 ,2) or [a,b] = (1, 2)
-				// only multiValue can be unpacked.
+				//
+				// is invalid, while explicit unpacking is
+				// valid:
+				//
+				// (a, b) = (1, 2) or [a, b] = (1, 2)
 				err = fmt.Errorf("expected %d values, got 1", n)
 				break loop
 			} else {
