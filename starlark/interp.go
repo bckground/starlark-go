@@ -643,7 +643,7 @@ loop:
 			sp++
 
 		case compile.UNPACK:
-			// Extract explicit destructuring flag from bit 31.
+			// Extract explicit unpacking flag from bit 31.
 			explicit := (arg & (1 << 31)) != 0
 			n := int(arg & 0x7FFFFFFF) // Mask off flag bit
 			iterable := stack[sp-1]
@@ -669,7 +669,7 @@ loop:
 				err = fmt.Errorf("expected %d values, got 1", n)
 				break loop
 			} else {
-				// Legacy mode OR explicit destructuring: standard iteration-based unpacking.
+				// Legacy mode OR explicit unpacking: standard iteration-based unpacking.
 				iter := Iterate(iterable)
 				if iter == nil {
 					// Non-iterable value (e.g., int) is effectively a single value

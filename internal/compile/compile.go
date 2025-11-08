@@ -788,7 +788,7 @@ func (insn *insn) stackeffect() int {
 		case MAKELIST, MAKETUPLE:
 			se = 1 - arg
 		case UNPACK:
-			// Mask off explicit destructuring flag (bit 31) before calculating stack effect.
+			// Mask off explicit unpacking flag (bit 31) before calculating stack effect.
 			se = (arg & 0x7FFFFFFF) - 1
 		default:
 			panic(insn.op)
@@ -1288,9 +1288,9 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
-			// Check if we should use multi-return semantics
+			// Check if we should use multi-return semantics.
 			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturns > 1 {
-				// Consistent multi-return: emit elements without MAKETUPLE
+				// Consistent multi-return: emit elements without MAKETUPLE.
 				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
 					for _, elem := range tuple.List {
 						fcomp.expr(elem)
@@ -1299,11 +1299,11 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 					fcomp.expr(stmt.Result)
 				}
 			} else {
-				// Single return, dynamic return, or legacy mode: use normal tuple packing
+				// Single return, dynamic return, or legacy mode: use normal tuple packing.
 				fcomp.expr(stmt.Result)
 			}
 		} else {
-			// Return with no value (returns None)
+			// Return with no value (returns None).
 			fcomp.emit(NONE)
 		}
 
@@ -1381,7 +1381,7 @@ func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
 func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr, explicit bool) {
 	fcomp.setPos(pos)
 	count := uint32(len(lhs))
-	// Use bit 31 to encode explicit destructuring flag in strict mode
+	// Use bit 31 to encode explicit unpacking flag in strict mode.
 	if explicit && fcomp.pcomp.prog.StrictMultiValueReturn {
 		count |= 1 << 31
 	}
