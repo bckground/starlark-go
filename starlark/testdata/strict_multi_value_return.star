@@ -77,20 +77,52 @@ def test_return_one_value():
 
 test_return_one_value()
 
-def test_return_two_values():
-    a, b = two_values()
+# Test that implicit unpacking works for true multi-return values
+def test_implicit_unpack_two():
+    a, b = two_values()  # Implicit unpacking works for multiValue
     assert.eq(a, 1)
     assert.eq(b, 2)
 
-test_return_two_values()
+test_implicit_unpack_two()
 
-def test_return_three_values():
-    x, y, z = three_values()
+def test_implicit_unpack_three():
+    x, y, z = three_values()  # Implicit unpacking works for multiValue
     assert.eq(x, "x")
     assert.eq(y, "y")
     assert.eq(z, "z")
 
-test_return_three_values()
+test_implicit_unpack_three()
+
+# Test that explicit unpacking also works for multi-return values
+def test_explicit_unpack_two_parens():
+    (a, b) = two_values()
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_explicit_unpack_two_parens()
+
+def test_explicit_unpack_two_brackets():
+    [a, b] = two_values()
+    assert.eq(a, 1)
+    assert.eq(b, 2)
+
+test_explicit_unpack_two_brackets()
+
+def test_explicit_unpack_three_parens():
+    (x, y, z) = three_values()
+    assert.eq(x, "x")
+    assert.eq(y, "y")
+    assert.eq(z, "z")
+
+test_explicit_unpack_three_parens()
+
+def test_explicit_unpack_three_brackets():
+    [x, y, z] = three_values()
+    assert.eq(x, "x")
+    assert.eq(y, "y")
+    assert.eq(z, "z")
+
+test_explicit_unpack_three_brackets()
 
 def test_too_few_variables_fails():
     def f():
@@ -108,20 +140,28 @@ assert.fails(test_too_many_variables_fails, "expected 3 values, got 2")
 
 # Test mismatch errors: one variable for multi-return
 def test_one_var():
-    a, b = two_values()
+    a, b = two_values()  # Implicit unpacking works
     c = two_values()  # Should error: expected 1 value, got 2
 
 assert.fails(test_one_var, "expected 1 value, got 2")
 
-# Test multi-return in nested calls with unpacking
+# Test that splatting multiValue is not allowed
+def test_nested_calls_splat_fails():
+    p, q = swap(*pair())  # *pair() should fail - can't splat multiValue
+
+# pair() returns multiValue which is not iterable
+assert.fails(test_nested_calls_splat_fails, "argument after \\* must be iterable, not a multi-value return")
+
+# Test multi-return in nested calls
 def test_nested_calls():
-    p, q = swap(*pair())
-    assert.eq(p, 20)
-    assert.eq(q, 10)
+    p, q = pair()  # Implicit unpacking works
+    r, s = swap(p, q)  # Then pass as separate args
+    assert.eq(r, 20)
+    assert.eq(s, 10)
 
 test_nested_calls()
 
-# Test multi-return with different types
+# Test multi-return with different types using implicit unpacking
 def test_mixed_types():
     int_val, str_val, float_val, bool_val, none_val = mixed_types()
     assert.eq(int_val, 1)

@@ -27,7 +27,7 @@ type multiValue struct {
 	values []Value
 }
 
-// Implement Value interface (required but these should never be called)
+// Implement Value interface (required but these should never be called).
 func (mv *multiValue) String() string {
 	return fmt.Sprintf("<multiValue with %d values>", len(mv.values))
 }
@@ -46,28 +46,12 @@ func (mv *multiValue) Hash() (uint32, error) {
 	return 0, fmt.Errorf("unhashable type: multiValue")
 }
 
-// Implement Iterable so multiValue can be used with *args
-func (mv *multiValue) Iterate() Iterator {
-	return &multiValueIterator{mv: mv, index: 0}
-}
-
-type multiValueIterator struct {
-	mv    *multiValue
-	index int
-}
-
-func (it *multiValueIterator) Next(p *Value) bool {
-	if it.index < len(it.mv.values) {
-		*p = it.mv.values[it.index]
-		it.index++
-		return true
-	}
-	return false
-}
-
-func (it *multiValueIterator) Done() {
-	// Nothing to clean up
-}
+// multiValue does not implement Iterate() to prevent splatting with *args.
+// In strict multi-value return mode, you must explicitly unpack first:
+//   (a, b) = func()
+//   result = other(a, b)
+// Rather than:
+//   result = other(*func())  // Not allowed
 
 const vmdebug = false // TODO(adonovan): use a bitfield of specific kinds of error.
 
@@ -428,7 +412,11 @@ loop:
 				// Add elements from *args sequence.
 				iter := Iterate(args)
 				if iter == nil {
-					err = fmt.Errorf("argument after * must be iterable, not %s", args.Type())
+					if _, ok := args.(*multiValue); ok {
+						err = fmt.Errorf("argument after * must be iterable, not a multi-value return")
+					} else {
+						err = fmt.Errorf("argument after * must be iterable, not %s", args.Type())
+					}
 					break loop
 				}
 				var elem Value
@@ -649,8 +637,10 @@ loop:
 			iterable := stack[sp-1]
 			sp--
 
-			// Handle multiValue directly (from multi-return functions).
+			// Handle multiValue directly (from multi-value return functions).
 			if mv, ok := iterable.(*multiValue); ok {
+				// multiValue can be unpacked both implicitly and explicitly
+				// This allows: a, b = two_values() and (a, b) = two_values()
 				if len(mv.values) != n {
 					err = fmt.Errorf("expected %d values, got %d", n, len(mv.values))
 					break loop
