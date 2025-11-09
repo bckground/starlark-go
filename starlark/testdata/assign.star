@@ -14,7 +14,7 @@ assert.eq(c, 3)
 
 (d, e, f,) = (1, 2, 3) # trailing comma ok
 ---
-(a, b, c) = 1 ### "got int in sequence assignment"
+(a, b, c) = 1 ### "expected 3 values, got 1"
 ---
 (a, b) = () ### "too few values to unpack"
 ---
@@ -24,7 +24,7 @@ assert.eq(c, 3)
 ---
 (a, b) = (1, 2, 3) ### "too many values to unpack"
 ---
-() = 1 ### "got int in sequence assignment"
+() = 1 ### "expected 0 values, got 1"
 ---
 () = (1,) ### "too many values to unpack"
 ---
@@ -42,7 +42,7 @@ assert.eq(c, 3)
 
 [d, e, f,] = [1, 2, 3] # trailing comma ok
 ---
-[a, b, c] = 1 ### "got int in sequence assignment"
+[a, b, c] = 1 ### "expected 3 values, got 1"
 ---
 [a, b] = [] ### "too few values to unpack"
 ---
@@ -52,7 +52,7 @@ assert.eq(c, 3)
 ---
 [a, b] = [1, 2, 3] ### "too many values to unpack"
 ---
-[] = 1 ### "got int in sequence assignment"
+[] = 1 ### "expected 0 values, got 1"
 ---
 [] = [1] ### "too many values to unpack"
 ---
