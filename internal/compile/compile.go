@@ -527,7 +527,7 @@ func (err *inconsistentReturnCount) Error() string {
 // countFnReturns walks the AST to determine if all return statements
 // return the same number of values. Returns:
 //
-// * < 0 if return counts are inconsistent
+// * -1 if return counts are inconsistent (and an error)
 // * 0 if there are no returns
 // * 1 if all returns are bare of return a single value
 // * N if all returns consistently return N values
