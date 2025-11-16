@@ -505,22 +505,15 @@ loop:
 			// In StrictMultiValueReturn mode, enforce strict validation for all returns.
 			if f.Prog.StrictMultiValueReturn {
 				if f.NumReturns > 1 {
-					// Consistent multi-value return: values already on stack (no MAKETUPLE).
+					// Multi-value return: values already on stack (no MAKETUPLE).
 					values := make([]Value, f.NumReturns)
 					for i := f.NumReturns - 1; i >= 0; i-- {
 						sp--
 						values[i] = stack[sp]
 					}
 					result = &multiValue{values: values}
-				} else if f.NumReturns == -1 {
-					// Dynamic/inconsistent return - convert tuples to multiValue for validation.
-					// This handles cases where different branches return different counts.
-					if tuple, ok := result.(Tuple); ok && len(tuple) > 1 {
-						values := make([]Value, len(tuple))
-						copy(values, tuple)
-						result = &multiValue{values: values}
-					}
 				}
+
 				// Single value returns (NumReturns = 1 or empty tuple) stay as-is.
 			}
 
