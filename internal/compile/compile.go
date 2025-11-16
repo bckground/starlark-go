@@ -532,14 +532,14 @@ func (err *inconsistentReturnCount) Error() string {
 	return fmt.Sprintf("multi-value return count mismatch: found %d and %d values", err.prevCount, err.newCount)
 }
 
-// countFnReturns walks the AST to determine if all return statements
+// countFnReturnValues walks the AST to determine if all return statements
 // return the same number of values. Returns:
 //
 // * -1 if return counts are inconsistent (and an error)
 // * 0 if there are no returns
 // * 1 if all returns are bare of return a single value
 // * N if all returns consistently return N values
-func countFnReturns(stmts []syntax.Stmt) (int, error) {
+func countFnReturnValues(stmts []syntax.Stmt) (int, error) {
 	numReturns := 0
 	var err error
 	for _, stmt := range stmts {
@@ -602,14 +602,15 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 		fmt.Fprintf(os.Stderr, "start function(%s @ %s)\n", name, pos)
 	}
 
-	// Pre-pass: Determine NumReturns by analyzing all return statements.
+	// Pre-pass: Determine NumReturnValues by analyzing all return
+	// statements.
 	if pcomp.prog.StrictMultiValueReturn {
-		numReturns, err := countFnReturns(stmts)
+		numReturnValues, err := countFnReturnValues(stmts)
 		if err != nil {
 			panic(err)
 		}
 
-		fcomp.fn.NumReturnValues = numReturns
+		fcomp.fn.NumReturnValues = numReturnValues
 	}
 
 	// Convert AST to a CFG of instructions.
