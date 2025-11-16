@@ -65,12 +65,16 @@ type Thread struct {
 	// See example_test.go for some example implementations of Load.
 	Load func(thread *Thread, module string) (StringDict, error)
 
-	// StrictMultiValueReturn enables true multi-return value semantics (similar to Go).
-	// When enabled, functions can return multiple values that must be
-	// matched exactly by the caller's assignment statement.
-	// Example: def f(): return 1, 2
-	//          a, b = f()  # OK
-	//          x = f()     # runtime error: expected 1 value, got 2
+	// StrictMultiValueReturn enables true multi-return value semantics
+	// (similar to Go). When enabled, functions can return multiple values
+	// that must be matched exactly by the caller's assignment statement.
+	//
+	// Example:
+	//
+	//   def f():
+	//     return 1, 2
+	//   a, b = f()  # OK
+	//   x = f()     # runtime time error: expected 1 value, got 2
 	StrictMultiValueReturn bool
 
 	// OnMaxSteps is called when the thread reaches the limit set by
