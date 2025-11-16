@@ -116,6 +116,18 @@ def test_return_one_value():
 
 test_return_one_value()
 
+# NOTE:
+#
+# def foo(x):
+#   if x:
+#     return true
+#   else:
+#     return false, 42
+#
+# (inconsistent number of values in different return statements) is a
+# compile-time error in strict mode and cannot be tested with assert.fails
+# (which tests runtime errors). It's tested in a separate test file.
+
 # Test that implicit unpacking works for true multi-return values
 def test_implicit_unpack_two():
     a, b = two_values()  # Implicit unpacking works for multiValue
@@ -369,9 +381,13 @@ def test_explicit_brackets_bare_tuple():
 
 test_explicit_brackets_bare_tuple()
 
-# Note: "x = 1, 2" (implicit tuple creation) is a compile-time error in strict mode
-# and cannot be tested with assert.fails (which tests runtime errors).
-# It's tested in a separate test file.
+# NOTE:
+#
+# x = 1, 2
+#
+# (implicit tuple creation) is a compile-time error in strict mode and cannot be
+# tested with assert.fails (which tests runtime errors).  It's tested in a
+# separate test file.
 
 # Test that explicit tuple creation works
 def test_explicit_tuple_creation():
