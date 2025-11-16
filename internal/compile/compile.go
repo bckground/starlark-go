@@ -344,7 +344,15 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
-	NumReturns            int // number of return values: -1=variable, 0=no explicit return, 1=consitent bare return or return single value, 2+=consistent specific count
+	// NumReturnValues is the number of return values.
+	//
+	// 0: no explicit return
+	// 1: bare return or return single value
+	// >= 2: multiple-values
+	//
+	// This is only calculated when strict multi-value return mode is
+	// enabled.
+	NumReturnValues int
 
 	// -- transient state --
 
@@ -601,7 +609,7 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 			panic(err)
 		}
 
-		fcomp.fn.NumReturns = numReturns
+		fcomp.fn.NumReturnValues = numReturns
 	}
 
 	// Convert AST to a CFG of instructions.
@@ -1320,7 +1328,7 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
 			// Check if we should use strict multi-value return semantics.
-			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturns > 1 {
+			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturnValues > 1 {
 				// Consistent multi-return: emit elements without MAKETUPLE.
 				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
 					for _, elem := range tuple.List {

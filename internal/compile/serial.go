@@ -202,7 +202,7 @@ func (e *encoder) function(fn *Funcode) {
 	e.int(fn.NumKwonlyParams)
 	e.int(b2i(fn.HasVarargs))
 	e.int(b2i(fn.HasKwargs))
-	e.int(fn.NumReturns)
+	e.int(fn.NumReturnValues)
 }
 
 func b2i(b bool) int {
@@ -400,6 +400,6 @@ func (d *decoder) function() *Funcode {
 		NumKwonlyParams: numKwonlyParams,
 		HasVarargs:      hasVarargs,
 		HasKwargs:       hasKwargs,
-		NumReturns:      numReturns,
+		NumReturnValues: numReturns,
 	}
 }
