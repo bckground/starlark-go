@@ -1330,7 +1330,7 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		if stmt.Result != nil {
 			// Check if we should use strict multi-value return semantics.
 			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturnValues > 1 {
-				// Consistent multi-return: emit elements without MAKETUPLE.
+				// Multi-value return: emit elements without MAKETUPLE.
 				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
 					for _, elem := range tuple.List {
 						fcomp.expr(elem)
@@ -1339,7 +1339,7 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 					fcomp.expr(stmt.Result)
 				}
 			} else {
-				// Single return, dynamic return, or legacy mode: use normal tuple packing.
+				// Single return or legacy mode: use normal tuple packing.
 				fcomp.expr(stmt.Result)
 			}
 		} else {
