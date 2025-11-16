@@ -84,20 +84,6 @@ def pair():
 def mixed_types():
     return 1, "two", 3.0, True, None
 
-def dynamic_return(x):
-    if x:
-        return 1, 2
-    else:
-        return 3
-
-def complex_dynamic(mode):
-    if mode == "single":
-        return "alone"
-    elif mode == "pair":
-        return "first", "second"
-    else:
-        return 1, 2, 3
-
 def list_return():
     return [1, 2]
 
@@ -240,51 +226,6 @@ def test_mixed_types():
     assert.eq(none_val, None)
 
 test_mixed_types()
-
-# Test dynamic return counts (when called with True, returns 2 values)
-def test_dynamic_return_two():
-    a, b = dynamic_return(True)
-    assert.eq(a, 1)
-    assert.eq(b, 2)
-
-test_dynamic_return_two()
-
-# Test dynamic return counts (when called with False, returns 1 value)
-def test_dynamic_return_one():
-    c = dynamic_return(False)
-    assert.eq(c, 3)
-
-test_dynamic_return_one()
-
-# Test strict multi-return mode enforces count matching for dynamic returns
-def test_dynamic_single_var():
-    # Expects 1 value but gets 2 - should fail even for dynamic returns
-    x = dynamic_return(True)
-
-assert.fails(test_dynamic_single_var, "expected 1 value, got 2")
-
-# Test unpacking validates count with clear error messages
-def test_dynamic_unpack_mismatch():
-    # Expects 2 values but gets 1 (an int)
-    x, y = dynamic_return(False)
-
-assert.fails(test_dynamic_unpack_mismatch, "expected 2 values, got 1")
-
-# Test complex dynamic return with multiple branches
-def test_complex_dynamic():
-    single_val = complex_dynamic("single")
-    assert.eq(single_val, "alone")
-
-    pair_a, pair_b = complex_dynamic("pair")
-    assert.eq(pair_a, "first")
-    assert.eq(pair_b, "second")
-
-    triple_x, triple_y, triple_z = complex_dynamic("triple")
-    assert.eq(triple_x, 1)
-    assert.eq(triple_y, 2)
-    assert.eq(triple_z, 3)
-
-test_complex_dynamic()
 
 # Test that lists can be explicitly unpackd with brackets
 def test_list_return_explicit():

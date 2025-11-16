@@ -516,18 +516,24 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 	return pcomp.prog
 }
 
+type inconsistentReturnCount struct {
+	prevCount, newCount int
+}
+
+func (err *inconsistentReturnCount) Error() string {
+	return fmt.Sprintf("multi-value return count mismatch: found %d and %d values", err.prevCount, err.newCount)
+}
+
 // countFnReturns walks the AST to determine if all return statements
 // return the same number of values. Returns:
 //
-// * -1 if return counts are inconsistent (dynamic)
+// * < 0 if return counts are inconsistent
 // * 0 if there are no returns
 // * 1 if all returns are bare of return a single value
 // * N if all returns consistently return N values
-func countFnReturns(stmts []syntax.Stmt) int {
+func countFnReturns(stmts []syntax.Stmt) (int, error) {
 	numReturns := 0
-	consistent := true
-
-	// Walk all statements using syntax.Walk
+	var err error
 	for _, stmt := range stmts {
 		syntax.Walk(stmt, func(n syntax.Node) bool {
 			switch n := n.(type) {
@@ -546,25 +552,21 @@ func countFnReturns(stmts []syntax.Stmt) int {
 				if numReturns == 0 {
 					numReturns = count
 				} else if numReturns != count {
-					consistent = false
+					err = &inconsistentReturnCount{prevCount: numReturns, newCount: count}
 					return false // stop walking once we know it's inconsistent
 				}
-
 			case *syntax.DefStmt:
 				// Don't recurse into nested functions
 				return false
 			}
 			return true
 		})
-		if !consistent {
-			break // no need to check remaining statements
+		if err != nil {
+			return -1, err // no need to check remaining statements
 		}
 	}
 
-	if !consistent {
-		return -1
-	}
-	return numReturns
+	return numReturns, nil
 }
 
 func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding) *Funcode {
@@ -594,7 +596,12 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 
 	// Pre-pass: Determine NumReturns by analyzing all return statements.
 	if pcomp.prog.StrictMultiValueReturn {
-		fcomp.fn.NumReturns = countFnReturns(stmts)
+		numReturns, err := countFnReturns(stmts)
+		if err != nil {
+			panic(err)
+		}
+
+		fcomp.fn.NumReturns = numReturns
 	}
 
 	// Convert AST to a CFG of instructions.
