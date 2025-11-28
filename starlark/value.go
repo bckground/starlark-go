@@ -1173,6 +1173,25 @@ func (it *tupleIterator) Next(p *Value) bool {
 
 func (it *tupleIterator) Done() {}
 
+// A MultiReturnValues is an internal type used to represent multiple return
+// values when StrictMultiValueReturn mode is enabled. It's not a true Starlark
+// value and should never escape to user code.
+type MultiReturnValues []Value
+
+// Implement Value interface (required but these should never be called).
+func (mv MultiReturnValues) String() string        { panic("unreachable") }
+func (mv MultiReturnValues) Type() string          { panic("unreachable") }
+func (mv MultiReturnValues) Freeze()               { panic("unreachable") }
+func (mv MultiReturnValues) Truth() Bool           { panic("unreachable") }
+func (mv MultiReturnValues) Hash() (uint32, error) { panic("unreachable") }
+
+// MultiReturnValues does not implement Iterate() to prevent splatting with
+// *args. In strict multi-value return mode, one must explicitly unpack first:
+//   (a, b) = func()
+//   result = other(a, b)
+// Rather than:
+//   result = other(*func())  // Not allowed
+
 // A Set represents a Starlark set value.
 // The zero value of Set is a valid empty set.
 // If you know the exact final number of elements,

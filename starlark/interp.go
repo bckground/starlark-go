@@ -20,27 +20,6 @@ type deferredCall struct {
 	kwargs []Tuple
 }
 
-// MultiReturnValues is an internal type used to represent multiple return values
-// when StrictMultiValueReturn mode is enabled. It's not a true Starlark value and should
-// never escape to user code.
-type MultiReturnValues struct {
-	values []Value
-}
-
-// Implement Value interface (required but these should never be called).
-func (mv *MultiReturnValues) String() string        { panic("unreachable") }
-func (mv *MultiReturnValues) Type() string          { panic("unreachable") }
-func (mv *MultiReturnValues) Freeze()               { panic("unreachable") }
-func (mv *MultiReturnValues) Truth() Bool           { panic("unreachable") }
-func (mv *MultiReturnValues) Hash() (uint32, error) { panic("unreachable") }
-
-// multiValue does not implement Iterate() to prevent splatting with *args.
-// In strict multi-value return mode, one must explicitly unpack first:
-//   (a, b) = func()
-//   result = other(a, b)
-// Rather than:
-//   result = other(*func())  // Not allowed
-
 const vmdebug = false // TODO(adonovan): use a bitfield of specific kinds of error.
 
 var ErrTooManySteps = errors.New("too many steps")
@@ -401,7 +380,7 @@ loop:
 				iter := Iterate(args)
 				if iter == nil {
 					var errSuffix string
-					if _, ok := args.(*MultiReturnValues); ok {
+					if _, ok := args.(MultiReturnValues); ok {
 						errSuffix = "a multi-value return"
 					} else {
 						errSuffix = args.Type()
@@ -511,7 +490,7 @@ loop:
 						sp--
 						values[i] = stack[sp]
 					}
-					result = &MultiReturnValues{values: values}
+					result = MultiReturnValues(values)
 				}
 
 				// Single value returns (NumReturns = 1 or empty tuple) stay as-is.
@@ -625,17 +604,17 @@ loop:
 			sp--
 
 			// Handle multiValue directly (from multi-value return functions).
-			if mv, ok := iterable.(*MultiReturnValues); ok {
-				// multiValue can be unpacked both implicitly and explicitly
+			if mrv, ok := iterable.(MultiReturnValues); ok {
+				// MultiReturnValues can be unpacked both implicitly and explicitly
 				// This allows: a, b = two_values() and (a, b) = two_values()
-				if len(mv.values) != n {
-					err = fmt.Errorf("expected %d values, got %d", n, len(mv.values))
+				if len(mrv) != n {
+					err = fmt.Errorf("expected %d values, got %d", n, len(mrv))
 					break loop
 				}
 				// Push values onto stack (in reverse order to match standard unpacking).
 				sp += n
 				for i := 0; i < n; i++ {
-					stack[sp-1-i] = mv.values[i]
+					stack[sp-1-i] = mrv[i]
 				}
 			} else if f.Prog.StrictMultiValueReturn && !explicit && !rhsIsLiteral {
 				// In strict mode, non-literal tuples/lists from functions can only be
@@ -744,8 +723,8 @@ loop:
 
 		case compile.SETLOCAL:
 			val := stack[sp-1]
-			if mv, ok := val.(*MultiReturnValues); ok {
-				err = fmt.Errorf("expected 1 value, got %d", len(mv.values))
+			if mrv, ok := val.(MultiReturnValues); ok {
+				err = fmt.Errorf("expected 1 value, got %d", len(mrv))
 				break loop
 			}
 			locals[arg] = val
@@ -753,8 +732,8 @@ loop:
 
 		case compile.SETLOCALCELL:
 			val := stack[sp-1]
-			if mv, ok := val.(*MultiReturnValues); ok {
-				err = fmt.Errorf("expected 1 value, got %d", len(mv.values))
+			if mrv, ok := val.(MultiReturnValues); ok {
+				err = fmt.Errorf("expected 1 value, got %d", len(mrv))
 				break loop
 			}
 			locals[arg].(*cell).v = val
@@ -762,8 +741,8 @@ loop:
 
 		case compile.SETGLOBAL:
 			val := stack[sp-1]
-			if mv, ok := val.(*MultiReturnValues); ok {
-				err = fmt.Errorf("expected 1 value, got %d", len(mv.values))
+			if mrv, ok := val.(MultiReturnValues); ok {
+				err = fmt.Errorf("expected 1 value, got %d", len(mrv))
 				break loop
 			}
 			fn.module.globals[arg] = val
