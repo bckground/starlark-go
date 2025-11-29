@@ -1383,3 +1383,63 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }
+
+// TestMultiReturnValuesBecomeTuples verifies that when StrictMultiValueReturn
+// is false, a Go function returning MultiReturnValues is converted to a Tuple.
+func TestMultiReturnValuesBecomeTuples(t *testing.T) {
+	multiReturnFunc := starlark.NewBuiltin("multi_return", func(
+		thread *starlark.Thread,
+		b *starlark.Builtin,
+		args starlark.Tuple,
+		kwargs []starlark.Tuple,
+	) (starlark.Value, error) {
+		return starlark.MultiReturnValues{
+			starlark.MakeInt(1),
+			starlark.MakeInt(2),
+			starlark.String("three"),
+		}, nil
+	})
+	predeclared := starlark.StringDict{
+		"multi_return": multiReturnFunc,
+	}
+
+	code := `
+x = multi_return()
+`
+
+	thread := &starlark.Thread{
+		Name:                   "test",
+		StrictMultiValueReturn: false,
+	}
+	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, "test.star", code, predeclared)
+	if err != nil {
+		t.Fatalf("Test failed: %v", err)
+	}
+
+	// Check that x is a Tuple.
+	x := globals["x"]
+	tuple, ok := x.(starlark.Tuple)
+	if !ok {
+		t.Fatalf("Expected x to be a Tuple, got %T", x)
+	}
+	if len(tuple) != 3 {
+		t.Fatalf("Expected x to have 3 elements, got %d", len(tuple))
+	}
+
+	// Verify the tuple contents.
+	if v, err := starlark.AsInt32(tuple[0]); err != nil {
+		t.Fatal(err)
+	} else if v != 1 {
+		t.Errorf("tuple[0] = %d, want %d", v, 1)
+	}
+	if v, err := starlark.AsInt32(tuple[1]); err != nil {
+		t.Fatal(err)
+	} else if v != 2 {
+		t.Errorf("tuple[1] = %d, want %d", v, 2)
+	}
+	if v, ok := starlark.AsString(tuple[2]); !ok {
+		t.Errorf("tuple[2] isn't a string")
+	} else if v != "three" {
+		t.Errorf("tuple[2] = %s, want %s", v, "\"three\"")
+	}
+}

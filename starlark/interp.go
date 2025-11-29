@@ -409,6 +409,15 @@ loop:
 				err = err2
 				break loop
 			}
+
+			// When StrictMultiValueReturn is false, cast MultiReturnValues to Tuple
+			// for compatibility with tuple-based multi-value returns.
+			if !f.Prog.StrictMultiValueReturn {
+				if mrv, ok := z.(MultiReturnValues); ok {
+					z = Tuple(mrv)
+				}
+			}
+
 			if vmdebug {
 				fmt.Printf("Resuming %s @ %s\n", f.Name, f.Position(0))
 			}
