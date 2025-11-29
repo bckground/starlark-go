@@ -46,7 +46,7 @@ var Disassemble = false
 const debug = false // make code generation verbose, for debugging the compiler
 
 // Increment this to force recompilation of saved bytecode files.
-const Version = 14
+const Version = 15
 
 type Opcode uint8
 
@@ -313,13 +313,14 @@ func (op Opcode) String() string {
 // Programs are serialized by the Program.Encode method,
 // which must be updated whenever this declaration is changed.
 type Program struct {
-	Loads     []Binding     // name (really, string) and position of each load stmt
-	Names     []string      // names of attributes and predeclared variables
-	Constants []interface{} // = string | int64 | float64 | *big.Int | Bytes
-	Functions []*Funcode
-	Globals   []Binding // for error messages and tracing
-	Toplevel  *Funcode  // module initialization function
-	Recursion bool      // disable recursion check for functions in this file
+	Loads                  []Binding     // name (really, string) and position of each load stmt
+	Names                  []string      // names of attributes and predeclared variables
+	Constants              []interface{} // = string | int64 | float64 | *big.Int | Bytes
+	Functions              []*Funcode
+	Globals                []Binding // for error messages and tracing
+	Toplevel               *Funcode  // module initialization function
+	Recursion              bool      // disable recursion check for functions in this file
+	StrictMultiValueReturn bool      // enable true multi-value returns (no tuple packing)
 }
 
 // The type of a bytes literal value, to distinguish from text string.
@@ -343,6 +344,15 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
+	// NumReturnValues is the number of return values.
+	//
+	// 0: no explicit return
+	// 1: bare return or return single value
+	// >= 2: multiple-values
+	//
+	// This is only calculated when strict multi-value return mode is
+	// enabled.
+	NumReturnValues int
 
 	// -- transient state --
 
@@ -501,8 +511,9 @@ func Expr(opts *syntax.FileOptions, expr syntax.Expr, name string, locals []*res
 func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, name string, locals, globals []*resolve.Binding) *Program {
 	pcomp := &pcomp{
 		prog: &Program{
-			Globals:   bindings(globals),
-			Recursion: opts.Recursion,
+			Globals:                bindings(globals),
+			Recursion:              opts.Recursion,
+			StrictMultiValueReturn: opts.StrictMultiValueReturn,
 		},
 		names:     make(map[string]uint32),
 		constants: make(map[interface{}]uint32),
@@ -511,6 +522,59 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 	pcomp.prog.Toplevel = pcomp.function(name, pos, stmts, locals, nil)
 
 	return pcomp.prog
+}
+
+type inconsistentReturnCount struct {
+	prevCount, newCount int
+}
+
+func (err *inconsistentReturnCount) Error() string {
+	return fmt.Sprintf("multi-value return count mismatch: found %d and %d values", err.prevCount, err.newCount)
+}
+
+// countFnReturnValues walks the AST to determine if all return statements
+// return the same number of values. Returns:
+//
+// * -1 if return counts are inconsistent (and an error)
+// * 0 if there are no returns
+// * 1 if all returns are bare of return a single value
+// * N if all returns consistently return N values
+func countFnReturnValues(stmts []syntax.Stmt) (int, error) {
+	numReturns := 0
+	var err error
+	for _, stmt := range stmts {
+		syntax.Walk(stmt, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.ReturnStmt:
+				var count int
+				if n.Result != nil {
+					if tuple, ok := n.Result.(*syntax.TupleExpr); ok {
+						count = len(tuple.List)
+					} else {
+						count = 1
+					}
+				} else {
+					count = 1 // return with no value returns None
+				}
+
+				if numReturns == 0 {
+					numReturns = count
+				} else if numReturns != count {
+					err = &inconsistentReturnCount{prevCount: numReturns, newCount: count}
+					return false // stop walking once we know it's inconsistent
+				}
+			case *syntax.DefStmt:
+				// Don't recurse into nested functions
+				return false
+			}
+			return true
+		})
+		if err != nil {
+			return -1, err // no need to check remaining statements
+		}
+	}
+
+	return numReturns, nil
 }
 
 func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding) *Funcode {
@@ -536,6 +600,17 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "start function(%s @ %s)\n", name, pos)
+	}
+
+	// Pre-pass: Determine NumReturnValues by analyzing all return
+	// statements.
+	if pcomp.prog.StrictMultiValueReturn {
+		numReturnValues, err := countFnReturnValues(stmts)
+		if err != nil {
+			panic(err)
+		}
+
+		fcomp.fn.NumReturnValues = numReturnValues
 	}
 
 	// Convert AST to a CFG of instructions.
@@ -729,7 +804,8 @@ func (insn *insn) stackeffect() int {
 		case MAKELIST, MAKETUPLE:
 			se = 1 - arg
 		case UNPACK:
-			se = arg - 1
+			// Mask off flags (bits 30-31) before calculating stack effect.
+			se = (arg & 0x3FFFFFFF) - 1
 		default:
 			panic(insn.op)
 		}
@@ -1100,8 +1176,32 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		switch stmt.Op {
 		case syntax.EQ:
 			// simple assignment: x = y
+
+			// In strict multi-value return mode, reject ambiguous implicit tuple creation
+			// like "x = 1, 2" (must use "x = (1, 2)" or "x = [1, 2]" for clarity).
+			if fcomp.pcomp.prog.StrictMultiValueReturn {
+				if _, lhsIsIdent := stmt.LHS.(*syntax.Ident); lhsIsIdent {
+					if tupleExpr, rhsIsTuple := stmt.RHS.(*syntax.TupleExpr); rhsIsTuple && len(tupleExpr.List) > 1 {
+						panic(fmt.Sprintf("%s: implicit tuple not allowed; use parentheses or brackets", stmt.OpPos))
+					}
+				}
+			}
+
+			// Check if RHS is a literal tuple or list expression
+			rhsIsLiteral := false
+			rhs := stmt.RHS
+			// Unwrap ParenExpr to check inner expression
+			if paren, ok := rhs.(*syntax.ParenExpr); ok {
+				rhs = paren.X
+			}
+			if _, ok := rhs.(*syntax.TupleExpr); ok {
+				rhsIsLiteral = true
+			} else if _, ok := rhs.(*syntax.ListExpr); ok {
+				rhsIsLiteral = true
+			}
+
 			fcomp.expr(stmt.RHS)
-			fcomp.assign(stmt.OpPos, stmt.LHS)
+			fcomp.assignWithLiteral(stmt.OpPos, stmt.LHS, rhsIsLiteral)
 
 		case syntax.PLUS_EQ,
 			syntax.MINUS_EQ,
@@ -1228,10 +1328,25 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
-			fcomp.expr(stmt.Result)
+			// Check if we should use strict multi-value return semantics.
+			if fcomp.pcomp.prog.StrictMultiValueReturn && fcomp.fn.NumReturnValues > 1 {
+				// Multi-value return: emit elements without MAKETUPLE.
+				if tuple, ok := stmt.Result.(*syntax.TupleExpr); ok {
+					for _, elem := range tuple.List {
+						fcomp.expr(elem)
+					}
+				} else {
+					fcomp.expr(stmt.Result)
+				}
+			} else {
+				// Single return or legacy mode: use normal tuple packing.
+				fcomp.expr(stmt.Result)
+			}
 		} else {
+			// Return with no value (returns None).
 			fcomp.emit(NONE)
 		}
+
 		fcomp.emit(RETURN)
 		fcomp.block = fcomp.newBlock() // dead code
 
@@ -1257,25 +1372,31 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 	}
 }
 
-// assign implements lhs = rhs for arbitrary expressions lhs.
+// assignWithLiteral implements lhs = rhs for arbitrary expressions lhs.
 // RHS is on top of stack, consumed.
-func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
+// rhsIsLiteral indicates whether the RHS is a literal tuple/list expression.
+func (fcomp *fcomp) assignWithLiteral(pos syntax.Position, lhs syntax.Expr, rhsIsLiteral bool) {
 	switch lhs := lhs.(type) {
 	case *syntax.ParenExpr:
 		// (lhs) = rhs
-		fcomp.assign(pos, lhs.X)
+		// Check if inner is a tuple - if so, it's explicit unpacking.
+		if tuple, ok := lhs.X.(*syntax.TupleExpr); ok {
+			fcomp.assignSequence(pos, tuple.List, true, rhsIsLiteral) // explicit: (a, b)
+		} else {
+			fcomp.assignWithLiteral(pos, lhs.X, rhsIsLiteral)
+		}
 
 	case *syntax.Ident:
 		// x = rhs
 		fcomp.set(lhs)
 
 	case *syntax.TupleExpr:
-		// x, y = rhs
-		fcomp.assignSequence(pos, lhs.List)
+		// x, y = rhs (implicit tuple unpacking)
+		fcomp.assignSequence(pos, lhs.List, false, rhsIsLiteral)
 
 	case *syntax.ListExpr:
-		// [x, y] = rhs
-		fcomp.assignSequence(pos, lhs.List)
+		// [x, y] = rhs (explicit list unpacking)
+		fcomp.assignSequence(pos, lhs.List, true, rhsIsLiteral)
 
 	case *syntax.IndexExpr:
 		// x[y] = rhs
@@ -1298,9 +1419,66 @@ func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
 	}
 }
 
-func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr) {
+// assign implements lhs = rhs for arbitrary expressions lhs.
+// RHS is on top of stack, consumed.
+func (fcomp *fcomp) assign(pos syntax.Position, lhs syntax.Expr) {
+	switch lhs := lhs.(type) {
+	case *syntax.ParenExpr:
+		// (lhs) = rhs
+		// Check if inner is a tuple - if so, it's explicit unpacking.
+		if tuple, ok := lhs.X.(*syntax.TupleExpr); ok {
+			fcomp.assignSequence(pos, tuple.List, true, false) // explicit: (a, b), not literal
+		} else {
+			fcomp.assign(pos, lhs.X)
+		}
+
+	case *syntax.Ident:
+		// x = rhs
+		fcomp.set(lhs)
+
+	case *syntax.TupleExpr:
+		// x, y = rhs (implicit tuple unpacking)
+		fcomp.assignSequence(pos, lhs.List, false, false)
+
+	case *syntax.ListExpr:
+		// [x, y] = rhs (explicit list unpacking)
+		fcomp.assignSequence(pos, lhs.List, true, false)
+
+	case *syntax.IndexExpr:
+		// x[y] = rhs
+		fcomp.expr(lhs.X)
+		fcomp.emit(EXCH)
+		fcomp.expr(lhs.Y)
+		fcomp.emit(EXCH)
+		fcomp.setPos(lhs.Lbrack)
+		fcomp.emit(SETINDEX)
+
+	case *syntax.DotExpr:
+		// x.f = rhs
+		fcomp.expr(lhs.X)
+		fcomp.emit(EXCH)
+		fcomp.setPos(lhs.Dot)
+		fcomp.emit1(SETFIELD, fcomp.pcomp.nameIndex(lhs.Name.Name))
+
+	default:
+		panic(lhs)
+	}
+}
+
+func (fcomp *fcomp) assignSequence(pos syntax.Position, lhs []syntax.Expr, explicit bool, rhsIsLiteral bool) {
 	fcomp.setPos(pos)
-	fcomp.emit1(UNPACK, uint32(len(lhs)))
+	count := uint32(len(lhs))
+	// Use bit 31 to encode explicit unpacking flag in strict mode.
+	// Use bit 30 to encode literal flag (whether RHS is a literal tuple/list expression).
+	if fcomp.pcomp.prog.StrictMultiValueReturn {
+		if explicit {
+			count |= 1 << 31
+		}
+		if rhsIsLiteral {
+			count |= 1 << 30
+		}
+	}
+	fcomp.emit1(UNPACK, count)
 	for i := range lhs {
 		fcomp.assign(pos, lhs[i])
 	}

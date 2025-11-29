@@ -132,6 +132,7 @@ func (prog *Program) Encode() []byte {
 		e.function(fn)
 	}
 	e.int(b2i(prog.Recursion))
+	e.int(b2i(prog.StrictMultiValueReturn))
 
 	// Patch in the offset of the string data section.
 	binary.LittleEndian.PutUint32(e.p[4:8], uint32(len(e.p)))
@@ -201,6 +202,7 @@ func (e *encoder) function(fn *Funcode) {
 	e.int(fn.NumKwonlyParams)
 	e.int(b2i(fn.HasVarargs))
 	e.int(b2i(fn.HasKwargs))
+	e.int(fn.NumReturnValues)
 }
 
 func b2i(b bool) int {
@@ -273,15 +275,17 @@ func DecodeProgram(data []byte) (_ *Program, err error) {
 		funcs[i] = d.function()
 	}
 	recursion := d.int() != 0
+	strictMultiValueReturn := d.int() != 0
 
 	prog := &Program{
-		Loads:     loads,
-		Names:     names,
-		Constants: constants,
-		Globals:   globals,
-		Functions: funcs,
-		Toplevel:  toplevel,
-		Recursion: recursion,
+		Loads:                  loads,
+		Names:                  names,
+		Constants:              constants,
+		Globals:                globals,
+		Functions:              funcs,
+		Toplevel:               toplevel,
+		Recursion:              recursion,
+		StrictMultiValueReturn: strictMultiValueReturn,
 	}
 	toplevel.Prog = prog
 	for _, f := range funcs {
@@ -380,6 +384,7 @@ func (d *decoder) function() *Funcode {
 	numKwonlyParams := d.int()
 	hasVarargs := d.int() != 0
 	hasKwargs := d.int() != 0
+	numReturns := d.int()
 	return &Funcode{
 		// Prog is filled in later.
 		Pos:             id.Pos,
@@ -395,5 +400,6 @@ func (d *decoder) function() *Funcode {
 		NumKwonlyParams: numKwonlyParams,
 		HasVarargs:      hasVarargs,
 		HasKwargs:       hasKwargs,
+		NumReturnValues: numReturns,
 	}
 }

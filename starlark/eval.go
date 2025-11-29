@@ -65,6 +65,18 @@ type Thread struct {
 	// See example_test.go for some example implementations of Load.
 	Load func(thread *Thread, module string) (StringDict, error)
 
+	// StrictMultiValueReturn enables true multi-return value semantics
+	// (similar to Go). When enabled, functions can return multiple values
+	// that must be matched exactly by the caller's assignment statement.
+	//
+	// Example:
+	//
+	//   def f():
+	//     return 1, 2
+	//   a, b = f()  # OK
+	//   x = f()     # runtime time error: expected 1 value, got 2
+	StrictMultiValueReturn bool
+
 	// OnMaxSteps is called when the thread reaches the limit set by
 	// SetMaxExecutionSteps.  The default behavior is to call
 	// thread.CancelWithError(starlark.ErrTooManySteps).
@@ -380,8 +392,14 @@ func ExecFile(thread *Thread, filename string, src interface{}, predeclared Stri
 // If ExecFileOptions fails during evaluation, it returns an *EvalError
 // containing a backtrace.
 func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, src interface{}, predeclared StringDict) (StringDict, error) {
+	// Merge thread-specific options with file options
+	mergedOpts := *opts // copy
+	if thread.StrictMultiValueReturn {
+		mergedOpts.StrictMultiValueReturn = true
+	}
+
 	// Parse, resolve, and compile a Starlark source file.
-	_, mod, err := SourceProgramOptions(opts, filename, src, predeclared.Has)
+	_, mod, err := SourceProgramOptions(&mergedOpts, filename, src, predeclared.Has)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +446,14 @@ func SourceProgramOptions(opts *syntax.FileOptions, filename string, src interfa
 // a pre-declared identifier of the current module.
 // Its typical value is predeclared.Has,
 // where predeclared is a StringDict of pre-declared values.
-func FileProgram(f *syntax.File, isPredeclared func(string) bool) (*Program, error) {
+func FileProgram(f *syntax.File, isPredeclared func(string) bool) (prog *Program, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert panic from compile.File into an error
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+
 	if err := resolve.File(f, isPredeclared, Universe.Has); err != nil {
 		return nil, err
 	}

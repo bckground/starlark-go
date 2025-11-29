@@ -30,6 +30,9 @@ type FileOptions struct {
 
 	// compiler
 	Recursion bool // disable recursion check for functions in this file
+
+	// resolver and compiler
+	StrictMultiValueReturn bool // enable strict multi-value returns (no tuple packing)
 }
 
 // TODO(adonovan): provide a canonical flag parser for FileOptions.
