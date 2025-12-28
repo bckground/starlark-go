@@ -356,7 +356,7 @@ func (r *resolver) bind(id *syntax.Ident) bool {
 func (r *resolver) bindLocal(id *syntax.Ident) bool {
 	// Mark this name as local to current block.
 	// Assign it a new local (positive) index in the current container.
-	_, ok := r.env.bindings[id.Name]
+	bind, ok := r.env.bindings[id.Name]
 	if !ok {
 		var locals *[]*Binding
 		if fn := r.container().function; fn != nil {
@@ -364,7 +364,7 @@ func (r *resolver) bindLocal(id *syntax.Ident) bool {
 		} else {
 			locals = &r.moduleLocals
 		}
-		bind := &Binding{
+		bind = &Binding{
 			First: id,
 			Scope: Local,
 			Index: len(*locals),
@@ -372,6 +372,8 @@ func (r *resolver) bindLocal(id *syntax.Ident) bool {
 		r.env.bind(id.Name, bind)
 		*locals = append(*locals, bind)
 	}
+	// Set the binding on the identifier
+	id.Binding = bind
 
 	r.use(id)
 	return ok
@@ -781,12 +783,15 @@ func (r *resolver) expr(e syntax.Expr) {
 			// Value form: just resolve the fallback expression
 			r.expr(e.FallbackExpr)
 		} else {
-			// Block form: bind error variable in current scope (no new scope)
-			// Catch blocks follow if-statement scoping: variables can leak out
-			r.bind(e.ErrorVar) // bind the error variable, may shadow existing variable
+			// Block form: create a new scope for the catch block
+			// This allows the error variable to shadow outer variables
+			// and prevents variables defined in the catch block from leaking out
+			r.push(&block{})
+			r.bind(e.ErrorVar) // bind the error variable in the new scope
 			r.catchBlocks++
 			r.stmts(e.FallbackBlock)
 			r.catchBlocks--
+			r.pop()
 		}
 
 	case *syntax.BinaryExpr:
