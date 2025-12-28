@@ -186,15 +186,23 @@ func (p *parser) parseDefStmt() Stmt {
 	lparen := p.consume(LPAREN)
 	params := p.parseParams()
 	rparen := p.consume(RPAREN)
+
+	// Check for optional '!' to mark error-returning function
+	var exclaim Position
+	if p.tok == EXCLAIM {
+		exclaim = p.nextToken()
+	}
+
 	p.consume(COLON)
 	body := p.parseSuite()
 	return &DefStmt{
-		Def:    defpos,
-		Name:   id,
-		Lparen: lparen,
-		Params: params,
-		Rparen: rparen,
-		Body:   body,
+		Def:     defpos,
+		Name:    id,
+		Lparen:  lparen,
+		Params:  params,
+		Rparen:  rparen,
+		Exclaim: exclaim,
+		Body:    body,
 	}
 }
 
@@ -548,11 +556,24 @@ func (p *parser) parseExprs(exprs []Expr, allowTrailingComma bool) []Expr {
 
 // parseTest parses a 'test', a single-component expression.
 func (p *parser) parseTest() Expr {
+	// try <expr>
+	if p.tok == TRY {
+		trypos := p.nextToken()
+		x := p.parseTest()
+		return &TryExpr{Try: trypos, X: x}
+	}
+
 	if p.tok == LAMBDA {
 		return p.parseLambda(true)
 	}
 
 	x := p.parseTestPrec(0)
+
+	// catch expression (expr CATCH value/block)
+	// Parse catch before IF to give it higher precedence
+	if p.tok == CATCH {
+		x = p.parseCatchSuffix(x)
+	}
 
 	// conditional expression (t IF cond ELSE f)
 	if p.tok == IF {
@@ -576,6 +597,22 @@ func (p *parser) parseTestNoCond() Expr {
 		return p.parseLambda(false)
 	}
 	return p.parseTestPrec(0)
+}
+
+// parseCatchSuffix parses the catch suffix of an expression.
+// For Phase 3, only the value form is implemented: expr catch value
+// Phase 4 will add block form: expr catch e: statements
+func (p *parser) parseCatchSuffix(x Expr) Expr {
+	catchpos := p.nextToken() // consume CATCH
+
+	// For now, only implement value form: catch <expr>
+	// Block form (catch e: ...) will be added in Phase 4
+	fallback := p.parseTestNoCond()
+	return &CatchExpr{
+		X:            x,
+		Catch:        catchpos,
+		FallbackExpr: fallback,
+	}
 }
 
 // parseLambda parses a lambda expression.

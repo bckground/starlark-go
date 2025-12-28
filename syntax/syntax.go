@@ -122,12 +122,13 @@ func (x *AssignStmt) Span() (start, end Position) {
 // A DefStmt represents a function definition.
 type DefStmt struct {
 	commentsRef
-	Def    Position
-	Name   *Ident
-	Lparen Position
-	Params []Expr // param = ident | ident=expr | * | *ident | **ident
-	Rparen Position
-	Body   []Stmt
+	Def     Position
+	Name    *Ident
+	Lparen  Position
+	Params  []Expr // param = ident | ident=expr | * | *ident | **ident
+	Rparen  Position
+	Exclaim Position // position of '!' if function can return errors (invalid if not error-returning)
+	Body    []Stmt
 
 	Function interface{} // a *resolve.Function, set by resolver
 }
@@ -237,6 +238,7 @@ type Expr interface {
 
 func (*BinaryExpr) expr()    {}
 func (*CallExpr) expr()      {}
+func (*CatchExpr) expr()     {}
 func (*Comprehension) expr() {}
 func (*CondExpr) expr()      {}
 func (*DictEntry) expr()     {}
@@ -249,6 +251,7 @@ func (*ListExpr) expr()      {}
 func (*Literal) expr()       {}
 func (*ParenExpr) expr()     {}
 func (*SliceExpr) expr()     {}
+func (*TryExpr) expr()       {}
 func (*TupleExpr) expr()     {}
 func (*UnaryExpr) expr()     {}
 
@@ -491,6 +494,40 @@ func (x *UnaryExpr) Span() (start, end Position) {
 		end = x.OpPos.add("*")
 	}
 	return x.OpPos, end
+}
+
+// A TryExpr represents try <expr> which propagates errors up.
+type TryExpr struct {
+	commentsRef
+	Try Position
+	X   Expr
+}
+
+func (x *TryExpr) Span() (start, end Position) {
+	_, end = x.X.Span()
+	return x.Try, end
+}
+
+// A CatchExpr represents: expr catch value OR expr catch e: statements
+// This is the first expression type that can contain statements (in block form).
+type CatchExpr struct {
+	commentsRef
+	X             Expr      // expression that may fail
+	Catch         Position  // position of 'catch'
+	ErrorVar      *Ident    // error binding (nil for value form)
+	Colon         Position  // position of ':' (invalid if value form)
+	FallbackExpr  Expr      // fallback value (nil if block form)
+	FallbackBlock []Stmt    // fallback statements (nil if value form)
+}
+
+func (x *CatchExpr) Span() (start, end Position) {
+	start, _ = x.X.Span()
+	if x.FallbackExpr != nil {
+		_, end = x.FallbackExpr.Span()
+	} else {
+		_, end = x.FallbackBlock[len(x.FallbackBlock)-1].Span()
+	}
+	return start, end
 }
 
 // A BinaryExpr represents a binary expression: X Op Y.
