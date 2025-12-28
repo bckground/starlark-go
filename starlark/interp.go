@@ -482,14 +482,27 @@ loop:
 
 		case compile.CATCH_CHECK:
 			// Check if there's a pending error from a ! function call.
-			// If so, clear it and jump to the catch handler.
+			// If so, jump to the catch handler.
 			// Otherwise, continue normally.
+			// Note: pendingError is NOT cleared here - LOAD_ERROR will clear it
+			// after materializing it for the catch block.
 			if thread.pendingError != nil {
-				// Clear the pending error and jump to handler
-				thread.pendingError = nil
 				pc = arg
 			}
 			// If no error, fall through (pc already incremented)
+
+		case compile.LOAD_ERROR:
+			// Materialize pendingError as a string on the stack.
+			// This is used in catch blocks to bind the error message to a variable.
+			if thread.pendingError != nil {
+				stack[sp] = String(thread.pendingError.Error())
+				thread.pendingError = nil
+			} else {
+				// Should not happen - LOAD_ERROR should only be executed
+				// after CATCH_CHECK has confirmed there's an error
+				stack[sp] = String("(no error)")
+			}
+			sp++
 
 		case compile.RETURN:
 			result = stack[sp-1]
