@@ -152,7 +152,7 @@ const (
 	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingError, jump to handler]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = ERRDEFER
+	OpcodeMax    = CATCH_CHECK
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -1478,7 +1478,9 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 		fcomp.block = handler
 		fcomp.emit(POP) // discard the result from the failed expression
 		if e.FallbackExpr != nil {
-			// Value form: just compile the fallback expression
+			// Value form: clear pendingError and compile the fallback expression
+			fcomp.emit(LOAD_ERROR) // materialize and clear pendingError
+			fcomp.emit(POP)         // discard the error message (we don't need it)
 			fcomp.expr(e.FallbackExpr)
 		} else {
 			// Block form: load error, bind to variable, compile statements
