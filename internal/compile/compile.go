@@ -148,10 +148,11 @@ const (
 	CALL_KW     // fn positional named       **kwargs CALL_KW<n>     result
 	CALL_VAR_KW // fn positional named *args **kwargs CALL_VAR_KW<n> result
 	DEFER       // fn positional named                DEFER<n>       -           [deferred call]
+	ERRDEFER    // fn positional named                ERRDEFER<n>    -           [deferred call on error only]
 	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingError, jump to handler]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = CATCH_CHECK
+	OpcodeMax    = ERRDEFER
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -168,6 +169,7 @@ var opcodeNames = [...]string{
 	CJMP:         "cjmp",
 	CONSTANT:     "constant",
 	DEFER:        "defer",
+	ERRDEFER:     "errdefer",
 	DUP2:         "dup2",
 	DUP:          "dup",
 	EQL:          "eql",
@@ -247,6 +249,7 @@ var stackEffect = [...]int8{
 	CJMP:         -1,
 	CONSTANT:     +1,
 	DEFER:        variableStackEffect,
+	ERRDEFER:     variableStackEffect,
 	DUP2:         +2,
 	DUP:          +1,
 	EQL:          -1,
@@ -725,8 +728,8 @@ func (insn *insn) stackeffect() int {
 	if se == variableStackEffect {
 		arg := int(insn.arg)
 		switch insn.op {
-		case DEFER:
-			// DEFER consumes the entire call: fn + args + kwargs
+		case DEFER, ERRDEFER:
+			// DEFER/ERRDEFER consumes the entire call: fn + args + kwargs
 			se = -int(2*(insn.arg&0xff)+insn.arg>>8) - 1
 		case CALL, CALL_KW, CALL_VAR, CALL_VAR_KW:
 			se = -int(2*(insn.arg&0xff) + insn.arg>>8)
@@ -1241,6 +1244,15 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		fcomp.setPos(call.Lparen)
 		// DEFER opcode captures the call for later execution.
 		fcomp.emit1(DEFER, arg)
+
+	case *syntax.ErrDeferStmt:
+		// Compile the call expression to push fn, args, kwargs on the stack.
+		call := stmt.Call.(*syntax.CallExpr)
+		fcomp.expr(call.Fn)
+		_, arg := fcomp.args(call)
+		fcomp.setPos(call.Lparen)
+		// ERRDEFER opcode captures the call for later execution on error.
+		fcomp.emit1(ERRDEFER, arg)
 
 	case *syntax.RecoverStmt:
 		// Evaluate the result expression
