@@ -150,9 +150,10 @@ const (
 	DEFER       // fn positional named                DEFER<n>       -           [deferred call]
 	ERRDEFER    // fn positional named                ERRDEFER<n>    -           [deferred call on error only]
 	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingError, jump to handler]
+	RECOVER     //             value RECOVER<addr>     -          [clear pendingError, set result, jump to done]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = CATCH_CHECK
+	OpcodeMax    = RECOVER
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -227,6 +228,7 @@ var opcodeNames = [...]string{
 	TRY:          "try",
 	CATCH_CHECK:  "catch_check",
 	LOAD_ERROR:   "load_error",
+	RECOVER:      "recover",
 	UMINUS:       "uminus",
 	UNIVERSAL:    "universal",
 	UNPACK:       "unpack",
@@ -305,6 +307,7 @@ var stackEffect = [...]int8{
 	TRY:          0,
 	CATCH_CHECK:  0,
 	LOAD_ERROR:   +1,
+	RECOVER:      0,
 	UMINUS:       0,
 	UNIVERSAL:    +1,
 	UNPACK:       variableStackEffect,
@@ -608,7 +611,7 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 				case ITERJMP:
 					isiterjmp = 1
 					fallthrough
-				case CJMP, CATCH_CHECK:
+				case CJMP, CATCH_CHECK, RECOVER:
 					cjmpAddr = &b.insns[i].arg
 					pc += 4
 				default:
@@ -819,7 +822,7 @@ func (fcomp *fcomp) generate(blocks []*block, codelen uint32) {
 			code = append(code, byte(insn.op))
 			pc++
 			if insn.op >= OpcodeArgMin {
-				if insn.op == CJMP || insn.op == ITERJMP || insn.op == CATCH_CHECK {
+				if insn.op == CJMP || insn.op == ITERJMP || insn.op == CATCH_CHECK || insn.op == RECOVER {
 					code = addUint32(code, insn.arg, 4) // pad arg to 4 bytes
 				} else {
 					code = addUint32(code, insn.arg, 0)
@@ -1257,9 +1260,14 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 	case *syntax.RecoverStmt:
 		// Evaluate the result expression
 		fcomp.expr(stmt.Result)
-		// Jump to the done block of the enclosing catch
+		// Emit RECOVER opcode which will:
+		// 1. Clear pendingError
+		// 2. Pop the value from stack and save as the catch result
+		// 3. Jump to the done block
 		ctx := fcomp.catchBlocks[len(fcomp.catchBlocks)-1]
-		fcomp.jump(ctx.done)
+		fcomp.setPos(stmt.Recover)
+		fcomp.emit1(RECOVER, 0) // address filled in later
+		fcomp.block.jmp = ctx.done
 		fcomp.block = fcomp.newBlock() // dead code after recover
 
 	case *syntax.ReturnStmt:

@@ -525,9 +525,13 @@ loop:
 		case compile.TRY:
 			// Check if there's a pending error from a ! function call.
 			// If so, propagate it by returning from the current function.
+			// Leave pendingError set so the caller can handle it.
 			if thread.pendingError != nil {
-				err = thread.pendingError
-				thread.pendingError = nil
+				// Don't convert to Go error - leave pendingError set
+				// and just break the loop to return from this function.
+				// The RETURN statement handling (or lack thereof) will
+				// ensure pendingError propagates to the caller.
+				result = None
 				break loop
 			}
 
@@ -554,6 +558,15 @@ loop:
 				stack[sp] = String("(no error)")
 			}
 			sp++
+
+		case compile.RECOVER:
+			// The recover value is already on the stack (from evaluating the expression).
+			// Clear pendingError and jump to the done block.
+			// The value stays on the stack as the result of the catch expression.
+			thread.pendingError = nil
+			pc = arg
+			// Note: We don't pop or modify the stack - the value stays
+			// as the result of the catch expression.
 
 		case compile.RETURN:
 			result = stack[sp-1]
