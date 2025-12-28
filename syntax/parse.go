@@ -366,6 +366,15 @@ func (p *parser) parseSmallStmt() Stmt {
 		}
 		return &DeferStmt{Defer: pos, Call: call}
 
+	case ERRDEFER:
+		pos := p.nextToken() // consume ERRDEFER
+		call := p.parseExpr(false)
+		// Validate that the expression is a call.
+		if _, ok := call.(*CallExpr); !ok {
+			p.in.errorf(pos, "errdefer statement requires a function call")
+		}
+		return &ErrDeferStmt{Errdefer: pos, Call: call}
+
 	case BREAK, CONTINUE, PASS:
 		tok := p.tok
 		pos := p.nextToken() // consume it
