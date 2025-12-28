@@ -89,11 +89,12 @@ type Stmt interface {
 	stmt()
 }
 
-func (*AssignStmt) stmt()  {}
-func (*BranchStmt) stmt()  {}
-func (*DefStmt) stmt()     {}
-func (*DeferStmt) stmt()   {}
-func (*ExprStmt) stmt()    {}
+func (*AssignStmt) stmt()   {}
+func (*BranchStmt) stmt()   {}
+func (*DefStmt) stmt()      {}
+func (*DeferStmt) stmt()    {}
+func (*ErrDeferStmt) stmt() {}
+func (*ExprStmt) stmt()     {}
 func (*ForStmt) stmt()     {}
 func (*WhileStmt) stmt()   {}
 func (*IfStmt) stmt()      {}
@@ -149,6 +150,19 @@ type DeferStmt struct {
 func (x *DeferStmt) Span() (start, end Position) {
 	_, end = x.Call.Span()
 	return x.Defer, end
+}
+
+// An ErrDeferStmt is a deferred call that only executes if the function returns an error.
+// It is only valid in error-returning functions (functions marked with !).
+type ErrDeferStmt struct {
+	commentsRef
+	Errdefer Position
+	Call     Expr // must be a CallExpr
+}
+
+func (x *ErrDeferStmt) Span() (start, end Position) {
+	_, end = x.Call.Span()
+	return x.Errdefer, end
 }
 
 // An ExprStmt is an expression evaluated for side effects.
