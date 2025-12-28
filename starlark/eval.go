@@ -82,6 +82,10 @@ type Thread struct {
 	// caught by a catch expression. It is checked by the TRY opcode.
 	pendingError error
 
+	// pendingErrorValue holds the original Starlark Error value when pendingError
+	// is set. This allows catch blocks to access the actual Error value for comparison.
+	pendingErrorValue Value
+
 	// cancelReason records the reason from the first call to Cancel.
 	cancelReason atomic.Pointer[error]
 

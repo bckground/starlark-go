@@ -547,11 +547,17 @@ loop:
 			// If no error, fall through (pc already incremented)
 
 		case compile.LOAD_ERROR:
-			// Materialize pendingError as a string on the stack.
-			// This is used in catch blocks to bind the error message to a variable.
+			// Materialize pendingError as the original Error value on the stack.
+			// This is used in catch blocks to bind the error to a variable.
 			if thread.pendingError != nil {
-				stack[sp] = String(thread.pendingError.Error())
+				if thread.pendingErrorValue != nil {
+					stack[sp] = thread.pendingErrorValue
+				} else {
+					// Fallback to string if no Error value (shouldn't happen normally)
+					stack[sp] = String(thread.pendingError.Error())
+				}
 				thread.pendingError = nil
+				thread.pendingErrorValue = nil
 			} else {
 				// Should not happen - LOAD_ERROR should only be executed
 				// after CATCH_CHECK has confirmed there's an error
@@ -576,6 +582,7 @@ loop:
 			if f.CanReturnError {
 				if errVal, ok := result.(*Error); ok {
 					thread.pendingError = fmt.Errorf("%s", errVal.name)
+					thread.pendingErrorValue = errVal  // Store the original Error value
 					result = None // ! functions that return errors don't return a value
 				}
 			}
