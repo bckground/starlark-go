@@ -530,10 +530,11 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 	case *syntax.DefStmt:
 		r.bind(stmt.Name)
 		fn := &Function{
-			Name:   stmt.Name.Name,
-			Pos:    stmt.Def,
-			Params: stmt.Params,
-			Body:   stmt.Body,
+			Name:           stmt.Name.Name,
+			Pos:            stmt.Def,
+			Params:         stmt.Params,
+			Body:           stmt.Body,
+			CanReturnError: stmt.Exclaim.IsValid(),
 		}
 		stmt.Function = fn
 		r.function(fn, stmt.Def)
@@ -730,6 +731,20 @@ func (r *resolver) expr(e syntax.Expr) {
 
 	case *syntax.UnaryExpr:
 		r.expr(e.X)
+
+	case *syntax.TryExpr:
+		r.expr(e.X)
+
+	case *syntax.CatchExpr:
+		r.expr(e.X)
+		if e.FallbackExpr != nil {
+			// Value form: just resolve the fallback expression
+			r.expr(e.FallbackExpr)
+		} else {
+			// Block form: will be implemented in Phase 4
+			// For now, this should not be reached
+			r.errorf(e.Catch, "catch blocks not yet implemented")
+		}
 
 	case *syntax.BinaryExpr:
 		r.expr(e.X)
