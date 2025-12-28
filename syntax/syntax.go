@@ -89,16 +89,17 @@ type Stmt interface {
 	stmt()
 }
 
-func (*AssignStmt) stmt() {}
-func (*BranchStmt) stmt() {}
-func (*DefStmt) stmt()    {}
-func (*DeferStmt) stmt()  {}
-func (*ExprStmt) stmt()   {}
-func (*ForStmt) stmt()    {}
-func (*WhileStmt) stmt()  {}
-func (*IfStmt) stmt()     {}
-func (*LoadStmt) stmt()   {}
-func (*ReturnStmt) stmt() {}
+func (*AssignStmt) stmt()  {}
+func (*BranchStmt) stmt()  {}
+func (*DefStmt) stmt()     {}
+func (*DeferStmt) stmt()   {}
+func (*ExprStmt) stmt()    {}
+func (*ForStmt) stmt()     {}
+func (*WhileStmt) stmt()   {}
+func (*IfStmt) stmt()      {}
+func (*LoadStmt) stmt()    {}
+func (*RecoverStmt) stmt() {}
+func (*ReturnStmt) stmt()  {}
 
 // An AssignStmt represents an assignment:
 //
@@ -228,6 +229,19 @@ func (x *ReturnStmt) Span() (start, end Position) {
 	}
 	_, end = x.Result.Span()
 	return x.Return, end
+}
+
+// A RecoverStmt recovers from an error in a catch block,
+// providing the result value for the catch expression.
+type RecoverStmt struct {
+	commentsRef
+	Recover Position
+	Result  Expr // the value to use as the catch expression's result
+}
+
+func (x *RecoverStmt) Span() (start, end Position) {
+	_, end = x.Result.Span()
+	return x.Recover, end
 }
 
 // An Expr is a Starlark expression.
