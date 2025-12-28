@@ -326,9 +326,12 @@ func (p *parser) parseSimpleStmt(stmts []Stmt, consumeNL bool) []Stmt {
 	// EOF without NEWLINE occurs in `if x: pass`, for example.
 	// OUTDENT without NEWLINE occurs when an expression contains a suite
 	// (e.g., catch blocks: `x = f() catch e: recover 42`)
+	// In the OUTDENT case, we need to consume it to continue parsing the outer suite.
 	if p.tok == NEWLINE && consumeNL {
 		p.consume(NEWLINE)
-	} else if p.tok != EOF && p.tok != OUTDENT && consumeNL {
+	} else if p.tok == OUTDENT && consumeNL {
+		p.consume(OUTDENT) // consume OUTDENT from expression suite
+	} else if p.tok != EOF && consumeNL {
 		p.consume(NEWLINE) // will fail with error
 	}
 
