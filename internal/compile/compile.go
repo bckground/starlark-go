@@ -1262,12 +1262,12 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		fcomp.expr(stmt.Result)
 		// Emit RECOVER opcode which will:
 		// 1. Clear pendingError
-		// 2. Pop the value from stack and save as the catch result
-		// 3. Jump to the done block
+		// 2. Leave the value on the stack as the catch result
+		// 3. Jump to the done block (via cjmp mechanism)
 		ctx := fcomp.catchBlocks[len(fcomp.catchBlocks)-1]
 		fcomp.setPos(stmt.Recover)
-		fcomp.emit1(RECOVER, 0) // address filled in later
-		fcomp.block.jmp = ctx.done
+		fcomp.emit1(RECOVER, 0) // address filled in later via cjmp
+		fcomp.block.cjmp = ctx.done
 		fcomp.block = fcomp.newBlock() // dead code after recover
 
 	case *syntax.ReturnStmt:
@@ -1497,7 +1497,17 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 
 			// Bind error message to the error variable
 			bind := e.ErrorVar.Binding.(*resolve.Binding)
-			fcomp.emit1(SETLOCAL, uint32(bind.Index))
+			switch bind.Scope {
+			case resolve.Local:
+				fcomp.emit1(SETLOCAL, uint32(bind.Index))
+			case resolve.Cell:
+				fcomp.emit1(SETLOCALCELL, uint32(bind.Index))
+			case resolve.Global:
+				fcomp.emit1(SETGLOBAL, uint32(bind.Index))
+			default:
+				log.Panicf("%s: catch error var %s: not global/local/cell (%d)",
+					e.Catch, e.ErrorVar.Name, bind.Scope)
+			}
 
 			// Track catch context for recover statements
 			ctx := catchContext{
