@@ -658,6 +658,10 @@ func (p *parser) parseCatchSuffix(x Expr) Expr {
 			// Block form: catch e: statements
 			colonPos := p.nextToken() // consume COLON
 			body := p.parseSuite()
+			// Note: Do NOT consume OUTDENT here.
+			// parseSuite() leaves OUTDENT unconsumed, and the containing
+			// statement (via parseSimpleStmt) will handle it appropriately.
+			// See parseSimpleStmt lines 326-331.
 			return &CatchExpr{
 				X:             x,
 				Catch:         catchpos,
