@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -48,6 +49,7 @@ func init() {
 		"dict":      NewBuiltin("dict", dict),
 		"dir":       NewBuiltin("dir", dir),
 		"enumerate": NewBuiltin("enumerate", enumerate),
+		"error":     NewBuiltin("error", error_),
 		"fail":      NewBuiltin("fail", fail),
 		"float":     NewBuiltin("float", float),
 		"getattr":   NewBuiltin("getattr", getattr),
@@ -363,6 +365,30 @@ func enumerate(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, e
 	}
 
 	return NewList(pairs), nil
+}
+
+// error creates an error set with the specified error names.
+// error("ErrA", "ErrB") creates an error_set with attributes ErrA and ErrB.
+func error_(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, error) {
+	if len(kwargs) > 0 {
+		return nil, fmt.Errorf("error() takes no keyword arguments")
+	}
+
+	names := make([]string, len(args))
+	for i, arg := range args {
+		s, ok := AsString(arg)
+		if !ok {
+			return nil, fmt.Errorf("error() argument %d must be string, not %s", i+1, arg.Type())
+		}
+		names[i] = s
+	}
+
+	es := &ErrorSet{names: names, attrs: make(StringDict)}
+	for _, name := range names {
+		id := atomic.AddUint64(&errorIDCounter, 1)
+		es.attrs[name] = &Error{name: name, id: id}
+	}
+	return es, nil
 }
 
 // https://github.com/google/starlark-go/blob/master/doc/spec.md#fail

@@ -73,6 +73,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -1715,4 +1716,65 @@ func (b Bytes) Has(y Value) (bool, error) {
 	default:
 		return false, fmt.Errorf("'in bytes' requires bytes or int as left operand, not %s", y.Type())
 	}
+}
+
+// Error represents a Starlark error value from an error set.
+type Error struct {
+	name string
+	id   uint64 // unique identifier for this error instance
+}
+
+var errorIDCounter uint64
+
+func (e *Error) String() string        { return e.name }
+func (e *Error) Type() string          { return "error" }
+func (e *Error) Freeze()               {} // errors are immutable
+func (e *Error) Truth() Bool           { return False }
+func (e *Error) Hash() (uint32, error) { return uint32(e.id), nil }
+
+func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
+	y := y_.(*Error)
+	switch op {
+	case syntax.EQL:
+		return x.id == y.id, nil
+	case syntax.NEQ:
+		return x.id != y.id, nil
+	default:
+		return false, fmt.Errorf("error does not support ordered comparison")
+	}
+}
+
+// ErrorSet represents a namespace of error values.
+type ErrorSet struct {
+	names []string
+	attrs StringDict
+}
+
+func (es *ErrorSet) String() string {
+	if len(es.names) == 0 {
+		return "error_set()"
+	}
+	return fmt.Sprintf("error_set(%s)", strings.Join(es.names, ", "))
+}
+
+func (es *ErrorSet) Type() string          { return "error_set" }
+func (es *ErrorSet) Freeze()               {} // error sets are immutable
+func (es *ErrorSet) Truth() Bool           { return True }
+func (es *ErrorSet) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: error_set") }
+
+func (es *ErrorSet) Attr(name string) (Value, error) {
+	v, ok := es.attrs[name]
+	if !ok {
+		return nil, NoSuchAttrError(fmt.Sprintf("error_set has no attribute %q", name))
+	}
+	return v, nil
+}
+
+func (es *ErrorSet) AttrNames() []string {
+	names := make([]string, 0, len(es.attrs))
+	for name := range es.attrs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
