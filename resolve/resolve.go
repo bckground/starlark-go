@@ -569,6 +569,15 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		}
 		r.expr(stmt.Call)
 
+	case *syntax.ErrDeferStmt:
+		fn := r.container().function
+		if fn == nil {
+			r.errorf(stmt.Errdefer, "errdefer statement not within a function")
+		} else if !fn.CanReturnError {
+			r.errorf(stmt.Errdefer, "errdefer statement only allowed in error-returning functions (functions marked with !)")
+		}
+		r.expr(stmt.Call)
+
 	case *syntax.ReturnStmt:
 		if r.container().function == nil {
 			r.errorf(stmt.Return, "return statement not within a function")
