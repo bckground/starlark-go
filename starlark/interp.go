@@ -471,8 +471,37 @@ loop:
 				kwargs: kwargs,
 			})
 
+		case compile.TRY:
+			// Check if there's a pending error from a ! function call.
+			// If so, propagate it by returning from the current function.
+			if thread.pendingError != nil {
+				err = thread.pendingError
+				thread.pendingError = nil
+				break loop
+			}
+
+		case compile.CATCH_CHECK:
+			// Check if there's a pending error from a ! function call.
+			// If so, clear it and jump to the catch handler.
+			// Otherwise, continue normally.
+			if thread.pendingError != nil {
+				// Clear the pending error and jump to handler
+				thread.pendingError = nil
+				pc = arg
+			}
+			// If no error, fall through (pc already incremented)
+
 		case compile.RETURN:
 			result = stack[sp-1]
+
+			// If this is an error-returning function (marked with !)
+			// and the result is an Error value, set pendingError.
+			if f.CanReturnError {
+				if errVal, ok := result.(*Error); ok {
+					thread.pendingError = fmt.Errorf("%s", errVal.name)
+					result = None // ! functions that return errors don't return a value
+				}
+			}
 
 			// Execute the deferred calls before returning (in LIFO
 			// order).

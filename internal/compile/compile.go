@@ -146,9 +146,11 @@ const (
 	CALL_KW     // fn positional named       **kwargs CALL_KW<n>     result
 	CALL_VAR_KW // fn positional named *args **kwargs CALL_VAR_KW<n> result
 	DEFER       // fn positional named                DEFER<n>       -           [deferred call]
+	TRY         //                 - TRY              -           [check pendingError, propagate if set]
+	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingError, jump to handler]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = DEFER
+	OpcodeMax    = CATCH_CHECK
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -219,6 +221,8 @@ var opcodeNames = [...]string{
 	STAR:         "star",
 	TILDE:        "tilde",
 	TRUE:         "true",
+	TRY:          "try",
+	CATCH_CHECK:  "catch_check",
 	UMINUS:       "uminus",
 	UNIVERSAL:    "universal",
 	UNPACK:       "unpack",
@@ -293,6 +297,8 @@ var stackEffect = [...]int8{
 	SLICE:        -3,
 	STAR:         -1,
 	TRUE:         +1,
+	TRY:          0,
+	CATCH_CHECK:  0,
 	UMINUS:       0,
 	UNIVERSAL:    +1,
 	UNPACK:       variableStackEffect,
@@ -343,6 +349,7 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
+	CanReturnError        bool // true if function is marked with !
 
 	// -- transient state --
 
@@ -589,7 +596,7 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 				case ITERJMP:
 					isiterjmp = 1
 					fallthrough
-				case CJMP:
+				case CJMP, CATCH_CHECK:
 					cjmpAddr = &b.insns[i].arg
 					pc += 4
 				default:
@@ -800,7 +807,7 @@ func (fcomp *fcomp) generate(blocks []*block, codelen uint32) {
 			code = append(code, byte(insn.op))
 			pc++
 			if insn.op >= OpcodeArgMin {
-				if insn.op == CJMP || insn.op == ITERJMP {
+				if insn.op == CJMP || insn.op == ITERJMP || insn.op == CATCH_CHECK {
 					code = addUint32(code, insn.arg, 4) // pad arg to 4 bytes
 				} else {
 					code = addUint32(code, insn.arg, 0)
@@ -1410,6 +1417,49 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 			log.Panicf("%s: unexpected unary op: %s", e.OpPos, e.Op)
 		}
 
+	case *syntax.TryExpr:
+		fcomp.expr(e.X)
+		fcomp.setPos(e.Try)
+		fcomp.emit(TRY)
+
+	case *syntax.CatchExpr:
+		// For value form: expr catch fallback
+		// Compile as:
+		//   compile X
+		//   CATCH_CHECK <handler>
+		//   JMP <done>
+		// handler:
+		//   POP (discard failed result)
+		//   compile fallback
+		// done:
+		//   result on stack
+		handler := fcomp.newBlock()
+		done := fcomp.newBlock()
+
+		// Compile the main expression
+		fcomp.expr(e.X)
+
+		// Check for pending error and jump to handler if set
+		fcomp.setPos(e.Catch)
+		fcomp.emit1(CATCH_CHECK, 0) // address filled in later
+		fcomp.block.cjmp = handler
+		fcomp.jump(done)
+
+		// Handler: pop the failed result and compile fallback expression
+		fcomp.block = handler
+		fcomp.emit(POP) // discard the result from the failed expression
+		if e.FallbackExpr != nil {
+			// Value form
+			fcomp.expr(e.FallbackExpr)
+		} else {
+			// Block form - will be implemented in Phase 4
+			// For now, this should not be reached due to resolver check
+			panic("catch block form not yet implemented in compiler")
+		}
+		fcomp.jump(done)
+
+		fcomp.block = done
+
 	case *syntax.BinaryExpr:
 		switch e.Op {
 		// short-circuit operators
@@ -1883,6 +1933,7 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 	funcode.NumKwonlyParams = f.NumKwonlyParams
 	funcode.HasVarargs = f.HasVarargs
 	funcode.HasKwargs = f.HasKwargs
+	funcode.CanReturnError = f.CanReturnError
 	fcomp.emit1(MAKEFUNC, fcomp.pcomp.functionIndex(funcode))
 }
 

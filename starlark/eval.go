@@ -78,6 +78,10 @@ type Thread struct {
 	// The precise meaning of "step" is not specified and may change.
 	Steps, maxSteps uint64
 
+	// pendingError holds an error from a ! function call that has not been
+	// caught by a catch expression. It is checked by the TRY opcode.
+	pendingError error
+
 	// cancelReason records the reason from the first call to Cancel.
 	cancelReason atomic.Pointer[error]
 
