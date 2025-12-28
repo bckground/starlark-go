@@ -112,6 +112,8 @@ const (
 	INPLACE_ADD  //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
 	INPLACE_PIPE //            x y INPLACE_PIPE z      where z is x|y
 	MAKEDICT     //              - MAKEDICT     dict
+	TRY          //              - TRY          -           [check pendingError, propagate if set]
+	LOAD_ERROR   //              - LOAD_ERROR   error_msg   [materialize pendingError as string, clear it]
 
 	// --- opcodes with an argument must go below this line ---
 
@@ -146,7 +148,6 @@ const (
 	CALL_KW     // fn positional named       **kwargs CALL_KW<n>     result
 	CALL_VAR_KW // fn positional named *args **kwargs CALL_VAR_KW<n> result
 	DEFER       // fn positional named                DEFER<n>       -           [deferred call]
-	TRY         //                 - TRY              -           [check pendingError, propagate if set]
 	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingError, jump to handler]
 
 	OpcodeArgMin = JMP
@@ -223,6 +224,7 @@ var opcodeNames = [...]string{
 	TRUE:         "true",
 	TRY:          "try",
 	CATCH_CHECK:  "catch_check",
+	LOAD_ERROR:   "load_error",
 	UMINUS:       "uminus",
 	UNIVERSAL:    "universal",
 	UNPACK:       "unpack",
@@ -299,6 +301,7 @@ var stackEffect = [...]int8{
 	TRUE:         +1,
 	TRY:          0,
 	CATCH_CHECK:  0,
+	LOAD_ERROR:   +1,
 	UMINUS:       0,
 	UNIVERSAL:    +1,
 	UNPACK:       variableStackEffect,
@@ -381,14 +384,20 @@ type pcomp struct {
 type fcomp struct {
 	fn *Funcode // what we're building
 
-	pcomp *pcomp
-	pos   syntax.Position // current position of generated code
-	loops []loop
-	block *block
+	pcomp       *pcomp
+	pos         syntax.Position // current position of generated code
+	loops       []loop
+	catchBlocks []catchContext
+	block       *block
 }
 
 type loop struct {
 	break_, continue_ *block
+}
+
+type catchContext struct {
+	done         *block   // where recover should jump to
+	errorVarIdx  uint32   // index of error variable binding
 }
 
 type block struct {
@@ -1233,6 +1242,14 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		// DEFER opcode captures the call for later execution.
 		fcomp.emit1(DEFER, arg)
 
+	case *syntax.RecoverStmt:
+		// Evaluate the result expression
+		fcomp.expr(stmt.Result)
+		// Jump to the done block of the enclosing catch
+		ctx := fcomp.catchBlocks[len(fcomp.catchBlocks)-1]
+		fcomp.jump(ctx.done)
+		fcomp.block = fcomp.newBlock() // dead code after recover
+
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
 			fcomp.expr(stmt.Result)
@@ -1449,12 +1466,29 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 		fcomp.block = handler
 		fcomp.emit(POP) // discard the result from the failed expression
 		if e.FallbackExpr != nil {
-			// Value form
+			// Value form: just compile the fallback expression
 			fcomp.expr(e.FallbackExpr)
 		} else {
-			// Block form - will be implemented in Phase 4
-			// For now, this should not be reached due to resolver check
-			panic("catch block form not yet implemented in compiler")
+			// Block form: load error, bind to variable, compile statements
+			fcomp.setPos(e.Catch)
+			fcomp.emit(LOAD_ERROR) // pushes error message on stack
+
+			// Bind error message to the error variable
+			bind := e.ErrorVar.Binding.(*resolve.Binding)
+			fcomp.emit1(SETLOCAL, uint32(bind.Index))
+
+			// Track catch context for recover statements
+			ctx := catchContext{
+				done:        done,
+				errorVarIdx: uint32(bind.Index),
+			}
+			fcomp.catchBlocks = append(fcomp.catchBlocks, ctx)
+			fcomp.stmts(e.FallbackBlock)
+			fcomp.catchBlocks = fcomp.catchBlocks[:len(fcomp.catchBlocks)-1]
+
+			// If no recover was executed, push None as the result
+			// (or we could error - for now use None)
+			fcomp.emit(NONE)
 		}
 		fcomp.jump(done)
 
