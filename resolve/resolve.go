@@ -236,8 +236,9 @@ type resolver struct {
 	// isGlobal may be nil.
 	isGlobal, isPredeclared, isUniversal func(name string) bool
 
-	loops   int // number of enclosing for/while loops in current function (or file, if top-level)
-	ifstmts int // number of enclosing if statements loops
+	loops        int // number of enclosing for/while loops in current function (or file, if top-level)
+	ifstmts      int // number of enclosing if statements loops
+	catchBlocks  int // number of enclosing catch blocks (for validating recover)
 
 	errors ErrorList
 }
@@ -513,7 +514,7 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		}
 
 	case *syntax.IfStmt:
-		if !r.options.TopLevelControl && r.container().function == nil {
+		if !r.options.TopLevelControl && r.container().function == nil && r.catchBlocks == 0 {
 			r.errorf(stmt.If, "if statement not within a function")
 		}
 		r.expr(stmt.Cond)
@@ -540,7 +541,7 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		r.function(fn, stmt.Def)
 
 	case *syntax.ForStmt:
-		if !r.options.TopLevelControl && r.container().function == nil {
+		if !r.options.TopLevelControl && r.container().function == nil && r.catchBlocks == 0 {
 			r.errorf(stmt.For, "for loop not within a function")
 		}
 		r.expr(stmt.X)
@@ -554,7 +555,7 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		if !r.options.While {
 			r.errorf(stmt.While, doesnt+"support while loops")
 		}
-		if !r.options.TopLevelControl && r.container().function == nil {
+		if !r.options.TopLevelControl && r.container().function == nil && r.catchBlocks == 0 {
 			r.errorf(stmt.While, "while loop not within a function")
 		}
 		r.expr(stmt.Cond)
@@ -575,6 +576,12 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		if stmt.Result != nil {
 			r.expr(stmt.Result)
 		}
+
+	case *syntax.RecoverStmt:
+		if r.catchBlocks == 0 {
+			r.errorf(stmt.Recover, "recover statement not within a catch block")
+		}
+		r.expr(stmt.Result)
 
 	case *syntax.LoadStmt:
 		// A load statement may not be nested in any other statement.
@@ -741,9 +748,13 @@ func (r *resolver) expr(e syntax.Expr) {
 			// Value form: just resolve the fallback expression
 			r.expr(e.FallbackExpr)
 		} else {
-			// Block form: will be implemented in Phase 4
-			// For now, this should not be reached
-			r.errorf(e.Catch, "catch blocks not yet implemented")
+			// Block form: create new scope and bind error variable
+			r.push(&block{})
+			r.bind(e.ErrorVar) // bind the error variable in the new scope
+			r.catchBlocks++
+			r.stmts(e.FallbackBlock)
+			r.catchBlocks--
+			r.pop()
 		}
 
 	case *syntax.BinaryExpr:
