@@ -781,13 +781,12 @@ func (r *resolver) expr(e syntax.Expr) {
 			// Value form: just resolve the fallback expression
 			r.expr(e.FallbackExpr)
 		} else {
-			// Block form: create new scope and bind error variable
-			r.push(&block{})
-			r.bind(e.ErrorVar) // bind the error variable in the new scope
+			// Block form: bind error variable in current scope (no new scope)
+			// Catch blocks follow if-statement scoping: variables can leak out
+			r.bind(e.ErrorVar) // bind the error variable, may shadow existing variable
 			r.catchBlocks++
 			r.stmts(e.FallbackBlock)
 			r.catchBlocks--
-			r.pop()
 		}
 
 	case *syntax.BinaryExpr:
