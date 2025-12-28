@@ -64,12 +64,12 @@ var (
 func LoadAssertModule() (starlark.StringDict, error) {
 	once.Do(func() {
 		predeclared := starlark.StringDict{
-			"error":    starlark.NewBuiltin("error", error_),
-			"catch":    starlark.NewBuiltin("catch", catch),
-			"matches":  starlark.NewBuiltin("matches", matches),
-			"module":   starlark.NewBuiltin("module", starlarkstruct.MakeModule),
-			"_freeze":  starlark.NewBuiltin("freeze", freeze),
-			"_floateq": starlark.NewBuiltin("floateq", floateq),
+			"error":       starlark.NewBuiltin("error", error_),
+			"catch_error": starlark.NewBuiltin("catch_error", catch),
+			"matches":     starlark.NewBuiltin("matches", matches),
+			"module":      starlark.NewBuiltin("module", starlarkstruct.MakeModule),
+			"_freeze":     starlark.NewBuiltin("freeze", freeze),
+			"_floateq":    starlark.NewBuiltin("floateq", floateq),
 		}
 		thread := new(starlark.Thread)
 		assert, assertErr = starlark.ExecFile(thread, "assert.star", assertFileSrc, predeclared)
@@ -77,11 +77,11 @@ func LoadAssertModule() (starlark.StringDict, error) {
 	return assert, assertErr
 }
 
-// catch(f) evaluates f() and returns its evaluation error message
+// catch_error(f) evaluates f() and returns its evaluation error message
 // if it failed or None if it succeeded.
 func catch(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var fn starlark.Callable
-	if err := starlark.UnpackArgs("catch", args, kwargs, "fn", &fn); err != nil {
+	if err := starlark.UnpackArgs("catch_error", args, kwargs, "fn", &fn); err != nil {
 		return nil, err
 	}
 	if _, err := starlark.Call(thread, fn, nil, nil); err != nil {
