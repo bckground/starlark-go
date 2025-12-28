@@ -147,17 +147,17 @@ def test_recover_shadow():
 
 test_recover_shadow()
 
-# Test multiple recovers in same catch (last one wins).
+# Test multiple recovers in same catch (first one wins - rest is dead code).
 def test_multiple_recovers():
     def may_fail()!:
         return errors.Err
 
     result = may_fail() catch e:
         recover "first"
-        recover "second"
-        recover "third"
+        recover "second"  # Dead code - never executed
+        recover "third"   # Dead code - never executed
 
-    # Last recover should set the value.
-    assert.eq(result, "third")
+    # First recover executes and jumps away, rest is unreachable.
+    assert.eq(result, "first")
 
 test_multiple_recovers()

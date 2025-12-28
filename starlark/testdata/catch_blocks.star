@@ -9,7 +9,7 @@ def test_catch_block_binding():
         return errors.ErrA
 
     result = may_fail() catch e:
-        "caught: " + str(e)
+        recover "caught: " + str(e)
 
     assert.eq(result, "caught: ErrA")
 
@@ -22,9 +22,9 @@ def test_catch_block_inspect_error():
 
     result = may_fail() catch e:
         if e == network_errors.Timeout:
-            "timeout_handled"
+            recover "timeout_handled"
         else:
-            "other_error"
+            recover "other_error"
 
     assert.eq(result, "timeout_handled")
 
@@ -39,7 +39,7 @@ def test_catch_block_multiple_statements():
     result = may_fail() catch e:
         log.append("caught")
         log.append(str(e))
-        "handled"
+        recover "handled"
 
     assert.eq(result, "handled")
     assert.eq(log, ["caught", "ErrA"])
@@ -72,15 +72,15 @@ def test_catch_block_conditional():
 
     result1 = may_fail(1) catch e:
         if e == errors.ErrA:
-            "handled_A"
+            recover "handled_A"
         else:
-            "handled_other"
+            recover "handled_other"
 
     result2 = may_fail(2) catch e:
         if e == errors.ErrA:
-            "handled_A"
+            recover "handled_A"
         else:
-            "handled_B"
+            recover "handled_B"
 
     assert.eq(result1, "handled_A")
     assert.eq(result2, "handled_B")
@@ -97,8 +97,8 @@ def test_nested_catch_blocks():
 
     result = outer_fail() catch e1:
         value = inner_fail() catch e2:
-            "inner_caught: " + str(e2)
-        value + " outer: " + str(e1)
+            recover "inner_caught: " + str(e2)
+        recover value + " outer: " + str(e1)
 
     assert.eq(result, "inner_caught: ErrA outer: ErrB")
 
@@ -112,7 +112,7 @@ def test_catch_block_outer_scope():
         return errors.ErrA
 
     result = may_fail() catch e:
-        prefix + str(e)
+        recover prefix + str(e)
 
     assert.eq(result, "prefix:ErrA")
 

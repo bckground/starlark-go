@@ -8,7 +8,7 @@ def test_error_variable_no_leak():
         return errors.Err
 
     result = may_fail() catch e:
-        "caught"
+        recover "caught"
 
     # Variable 'e' should not be accessible here.
     # This test validates that referencing 'e' outside the catch block fails.
@@ -26,7 +26,7 @@ def test_catch_block_shadows_outer():
 
     result = may_fail() catch e:
         # This 'e' is the error, not "outer_e".
-        "caught: " + str(e)
+        recover "caught: " + str(e)
 
     # After catch, 'e' should still be "outer_e".
     assert.eq(e, "outer_e")
@@ -41,7 +41,7 @@ def test_catch_block_local_vars_dont_leak():
 
     result = may_fail() catch e:
         local_var = "local"
-        local_var + "_" + str(e)
+        recover local_var + "_" + str(e)
 
     assert.eq(result, "local_Err")
     # local_var should not be accessible here (would need manual test).
@@ -57,7 +57,7 @@ def test_catch_block_modifies_outer():
 
     result = may_fail() catch e:
         outer_list.append(str(e))
-        "handled"
+        recover "handled"
 
     assert.eq(result, "handled")
     assert.eq(outer_list, ["Err"])
@@ -76,8 +76,8 @@ def test_nested_catch_scopes():
 
     result = fail1() catch e:
         inner_result = fail2() catch e:  # This 'e' shadows outer catch's 'e'.
-            "inner_" + str(e)
-        inner_result + "_outer_" + str(e)
+            recover "inner_" + str(e)
+        recover inner_result + "_outer_" + str(e)
 
     # outer_e should remain unchanged.
     assert.eq(outer_e, "outer")
@@ -92,7 +92,7 @@ def test_catch_shadow_parameter():
             return errors.Err
 
         result = may_fail() catch e:  # Shadows parameter.
-            "caught: " + str(e)
+            recover "caught: " + str(e)
 
         # After catch, 'e' is still the parameter.
         return result + " param: " + e

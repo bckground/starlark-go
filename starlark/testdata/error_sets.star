@@ -64,7 +64,7 @@ test_error_single()
 # Test accessing non-existent error attribute.
 def test_error_nonexistent_attribute():
     errs = error("Err1")
-    # Accessing non-existent attribute should return None or fail.
-    assert.fails(lambda: errs.Err2, "no such attribute")
+    # Accessing non-existent attribute should fail with a helpful message.
+    assert.fails(lambda: errs.Err2, "has no attribute")
 
 test_error_nonexistent_attribute()
