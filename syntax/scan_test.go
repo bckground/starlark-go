@@ -257,7 +257,8 @@ pass`, "pass newline pass EOF"}, // consecutive newlines are consolidated
 		{"0123.", `1.230000e+02 EOF`},
 		{"0123.1", `1.231000e+02 EOF`},
 		// github.com/google/skylark/issues/16
-		{"x ! 0", "foo.star:1:3: unexpected input character '!'"},
+		// Note: '!' is now a valid token (EXCLAIM) for error-returning function signatures
+		{"x ! 0", "x ! 0 EOF"},
 		// github.com/google/starlark-go/issues/80
 		{"([{<>}])", "( [ { < > } ] ) EOF"},
 		{"f();", "f ( ) ; EOF"},
