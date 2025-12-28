@@ -98,11 +98,24 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 
 	var iterstack []Iterator      // stack of active iterators
 	var deferstack []deferredCall // stack of deferred calls
+	var errDeferstack []deferredCall // stack of error-only deferred calls
 
 	// Use defer so that application panics can pass through
 	// interpreter without leaving thread in a bad state.
 	defer func() {
-		// Execute deferred calls in LIFO order (for panics/errors).
+		// Execute error deferred calls first, but only if there's an error.
+		// These are errdefer statements that only run on error paths.
+		if err != nil {
+			for i := len(errDeferstack) - 1; i >= 0; i-- {
+				deferred := errDeferstack[i]
+				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+				if deferErr != nil && err == nil {
+					err = deferErr
+				}
+			}
+		}
+
+		// Execute regular deferred calls in LIFO order (for panics/errors).
 		// Normal returns execute defers in the RETURN case.
 		for i := len(deferstack) - 1; i >= 0; i-- {
 			deferred := deferstack[i]
@@ -471,6 +484,44 @@ loop:
 				kwargs: kwargs,
 			})
 
+		case compile.ERRDEFER:
+			// Pop the arguments from the stack and save for later (error-only)
+			// The stack has: fn, positional args, named args (key-value pairs)
+			// arg encoding: npos = arg >> 8, nnamed = arg & 0xff.
+			npos := int(arg >> 8)
+			nnamed := int(arg & 0xff)
+
+			// Extract kwargs (named arguments).
+			var kwargs []Tuple
+			for i := 0; i < nnamed; i++ {
+				v := stack[sp-1]
+				k := stack[sp-2]
+				sp -= 2
+				kwargs = append(kwargs, Tuple{k, v})
+			}
+			// Reverse kwargs to preserve order.
+			for i, j := 0, len(kwargs)-1; i < j; i, j = i+1, j-1 {
+				kwargs[i], kwargs[j] = kwargs[j], kwargs[i]
+			}
+
+			// Extract positional args.
+			args := make(Tuple, npos)
+			for i := npos - 1; i >= 0; i-- {
+				sp--
+				args[i] = stack[sp]
+			}
+
+			// Extract function.
+			sp--
+			fn := stack[sp]
+
+			// Push onto the error defer stack (only executed on error).
+			errDeferstack = append(errDeferstack, deferredCall{
+				fn:     fn,
+				args:   args,
+				kwargs: kwargs,
+			})
+
 		case compile.TRY:
 			// Check if there's a pending error from a ! function call.
 			// If so, propagate it by returning from the current function.
@@ -516,14 +567,25 @@ loop:
 				}
 			}
 
-			// Execute the deferred calls before returning (in LIFO
-			// order).
+			// Execute error deferred calls first, but only if there's an error.
+			if thread.pendingError != nil {
+				for i := len(errDeferstack) - 1; i >= 0; i-- {
+					deferred := errDeferstack[i]
+					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+					if deferErr != nil && err == nil {
+						err = deferErr
+					}
+				}
+			}
+			errDeferstack = nil
+
+			// Execute the regular deferred calls before returning (in LIFO order).
 			for i := len(deferstack) - 1; i >= 0; i-- {
 				deferred := deferstack[i]
 				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
 				// If a deferred call fails and we don't already
-				// have an error, use it. We can instead use
-				// errors.Join once we require go >= 1.20.
+				// have an error, use it. We can instead use errors.Join once we
+				// require go >= 1.20.
 				if deferErr != nil && err == nil {
 					err = deferErr
 				}
