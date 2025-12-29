@@ -112,8 +112,9 @@ const (
 	INPLACE_ADD  //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
 	INPLACE_PIPE //            x y INPLACE_PIPE z      where z is x|y
 	MAKEDICT     //              - MAKEDICT     dict
-	TRY          //              - TRY          -           [check pendingError, propagate if set]
-	LOAD_ERROR   //              - LOAD_ERROR   error_msg   [materialize pendingError as string, clear it]
+	TRY                //              - TRY                   -           [check pendingError, propagate if set]
+	LOAD_ERROR         //              - LOAD_ERROR            error_msg   [materialize pendingError as string, clear it]
+	CATCH_BLOCK_ERROR  //              - CATCH_BLOCK_ERROR     -           [runtime error: catch block must end with recover or return]
 
 	// --- opcodes with an argument must go below this line ---
 
@@ -304,10 +305,11 @@ var stackEffect = [...]int8{
 	SLICE:        -3,
 	STAR:         -1,
 	TRUE:         +1,
-	TRY:          0,
-	CATCH_CHECK:  0,
-	LOAD_ERROR:   +1,
-	RECOVER:      0,
+	TRY:               0,
+	CATCH_CHECK:       0,
+	LOAD_ERROR:        +1,
+	CATCH_BLOCK_ERROR: 0,
+	RECOVER:           0,
 	UMINUS:       0,
 	UNIVERSAL:    +1,
 	UNPACK:       variableStackEffect,
@@ -1518,9 +1520,11 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 			fcomp.stmts(e.FallbackBlock)
 			fcomp.catchBlocks = fcomp.catchBlocks[:len(fcomp.catchBlocks)-1]
 
-			// If no recover was executed, push None as the result
-			// (or we could error - for now use None)
+			// If no recover was executed, this is a runtime error.
+			// Catch blocks must end with either recover or return.
+			// Push a dummy value first to satisfy stack depth analysis.
 			fcomp.emit(NONE)
+			fcomp.emit(CATCH_BLOCK_ERROR)
 		}
 		fcomp.jump(done)
 

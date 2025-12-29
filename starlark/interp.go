@@ -565,6 +565,9 @@ loop:
 			}
 			sp++
 
+		case compile.CATCH_BLOCK_ERROR:
+			err = fmt.Errorf("catch block must end with recover or return")
+
 		case compile.RECOVER:
 			// The recover value is already on the stack (from evaluating the expression).
 			// Clear pendingError and jump to the done block.
