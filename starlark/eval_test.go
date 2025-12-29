@@ -142,6 +142,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/catch_blocks.star",
 		"testdata/catch_scope.star",
 		"testdata/catch_toplevel.star",
+		"testdata/catch_unpack.star",
 		"testdata/control.star",
 		"testdata/defer.star",
 		"testdata/dict.star",
