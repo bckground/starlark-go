@@ -19,6 +19,7 @@
 //	*Set            -- set
 //	*Function       -- function (implemented in Starlark)
 //	*Builtin        -- builtin_function_or_method (function or method implemented in Go)
+//	*Error          -- error
 //
 // Client applications may define new data types that satisfy at least
 // the Value interface.  Such types may provide additional operations by
@@ -1778,4 +1779,28 @@ func (es *ErrorSet) AttrNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func (es *ErrorSet) Binary(op syntax.Token, y Value, side Side) (Value, error) {
+	if op == syntax.PIPE {
+		if other, ok := y.(*ErrorSet); ok {
+			// Merge the two error sets.
+			merged := &ErrorSet{
+				attrs: make(StringDict, len(es.attrs)+len(other.attrs)),
+			}
+			for _, name := range es.names {
+				merged.names = append(merged.names, name)
+				merged.attrs[name] = es.attrs[name]
+			}
+			for _, name := range other.names {
+				if _, exists := merged.attrs[name]; !exists {
+					merged.names = append(merged.names, name)
+					merged.attrs[name] = other.attrs[name]
+				}
+			}
+			return merged, nil
+		}
+	}
+
+	return nil, nil
 }
