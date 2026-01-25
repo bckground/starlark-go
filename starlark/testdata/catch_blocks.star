@@ -117,3 +117,13 @@ def test_catch_block_outer_scope():
     assert.eq(result, "prefix:ErrA")
 
 test_catch_block_outer_scope()
+
+---
+# Test: catch block without recover or return is a runtime error.
+errors = error("Err")
+
+def may_fail()!:
+    return errors.Err
+
+result = may_fail() catch e:  ### "catch block must end with recover or return"
+    x = 1
