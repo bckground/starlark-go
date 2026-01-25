@@ -393,3 +393,41 @@ load("module", "x") # ok
 ---
 _ = x # forward ref to file-local
 load("module", "x") # ok
+
+---
+# defer statement must be within a function
+
+def noop(): pass
+
+defer noop() ### "defer statement not within a function"
+
+---
+# errdefer statement must be within a function
+
+def noop(): pass
+
+errdefer noop() ### "errdefer statement not within a function"
+
+---
+# errdefer statement only allowed in error-returning functions
+
+def noop(): pass
+
+def f():
+  errdefer noop() ### "errdefer statement only allowed in error-returning functions"
+
+---
+# defer is allowed in non-error-returning functions
+
+def noop(): pass
+
+def f():
+  defer noop() # ok
+
+---
+# errdefer is allowed in error-returning functions
+
+def noop(): pass
+
+def f()!:
+  errdefer noop() # ok

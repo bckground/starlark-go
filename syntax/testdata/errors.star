@@ -210,3 +210,23 @@ a = max(range(10))) ### `unexpected '\)'`
 ---
 # github.com/google/starlark-go/issues/85
 s = "\x-0" ### `invalid escape sequence`
+
+---
+# defer requires a function call
+def f():
+  defer 1 + 2 ### `defer statement requires a function call`
+
+---
+# defer with identifier is not a call
+def f():
+  defer x ### `defer statement requires a function call`
+
+---
+# errdefer requires a function call
+def f()!:
+  errdefer 1 + 2 ### `errdefer statement requires a function call`
+
+---
+# errdefer with identifier is not a call
+def f()!:
+  errdefer x ### `errdefer statement requires a function call`
