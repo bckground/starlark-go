@@ -1782,7 +1782,7 @@ func (es *ErrorSet) AttrNames() []string {
 }
 
 func (es *ErrorSet) Binary(op syntax.Token, y Value, side Side) (Value, error) {
-	if op == syntax.PIPE {
+	if op == syntax.PIPE || op == syntax.PLUS {
 		if other, ok := y.(*ErrorSet); ok {
 			// Merge the two error sets.
 			merged := &ErrorSet{

@@ -69,17 +69,24 @@ def test_error_nonexistent_attribute():
 
 test_error_nonexistent_attribute()
 
-# Test merging error sets with |.
+# Test merging error sets with | and +.
 def test_error_set_merge():
     errs1 = error("ErrA", "ErrB")
     errs2 = error("ErrC", "ErrD")
-    merged = errs1 | errs2
-    assert.eq(type(merged), "error_set")
-    # All errors should be accessible
-    assert.eq(str(merged.ErrA), "ErrA")
-    assert.eq(str(merged.ErrB), "ErrB")
-    assert.eq(str(merged.ErrC), "ErrC")
-    assert.eq(str(merged.ErrD), "ErrD")
+    # Test | operator
+    merged_pipe = errs1 | errs2
+    assert.eq(type(merged_pipe), "error_set")
+    assert.eq(str(merged_pipe.ErrA), "ErrA")
+    assert.eq(str(merged_pipe.ErrB), "ErrB")
+    assert.eq(str(merged_pipe.ErrC), "ErrC")
+    assert.eq(str(merged_pipe.ErrD), "ErrD")
+    # Test + operator
+    merged_plus = errs1 + errs2
+    assert.eq(type(merged_plus), "error_set")
+    assert.eq(str(merged_plus.ErrA), "ErrA")
+    assert.eq(str(merged_plus.ErrB), "ErrB")
+    assert.eq(str(merged_plus.ErrC), "ErrC")
+    assert.eq(str(merged_plus.ErrD), "ErrD")
 
 test_error_set_merge()
 
@@ -87,10 +94,14 @@ test_error_set_merge()
 def test_error_set_merge_preserves_left():
     errs1 = error("Err")
     errs2 = error("Err")  # Same name, different set
-    merged = errs1 | errs2
-    # The merged set should have the error from the left operand
-    assert.eq(merged.Err, errs1.Err)
-    assert.ne(merged.Err, errs2.Err)
+    # Test | operator
+    merged_pipe = errs1 | errs2
+    assert.eq(merged_pipe.Err, errs1.Err)
+    assert.ne(merged_pipe.Err, errs2.Err)
+    # Test + operator
+    merged_plus = errs1 + errs2
+    assert.eq(merged_plus.Err, errs1.Err)
+    assert.ne(merged_plus.Err, errs2.Err)
 
 test_error_set_merge_preserves_left()
 
@@ -98,10 +109,12 @@ test_error_set_merge_preserves_left()
 def test_error_set_merge_empty():
     errs = error("Err")
     empty = error()
-    merged1 = errs | empty
-    merged2 = empty | errs
-    assert.eq(str(merged1.Err), "Err")
-    assert.eq(str(merged2.Err), "Err")
+    # Test | operator
+    assert.eq(str((errs | empty).Err), "Err")
+    assert.eq(str((empty | errs).Err), "Err")
+    # Test + operator
+    assert.eq(str((errs + empty).Err), "Err")
+    assert.eq(str((empty + errs).Err), "Err")
 
 test_error_set_merge_empty()
 
@@ -110,9 +123,15 @@ def test_error_set_merge_chain():
     errs1 = error("A")
     errs2 = error("B")
     errs3 = error("C")
-    merged = errs1 | errs2 | errs3
-    assert.eq(str(merged.A), "A")
-    assert.eq(str(merged.B), "B")
-    assert.eq(str(merged.C), "C")
+    # Test | operator
+    merged_pipe = errs1 | errs2 | errs3
+    assert.eq(str(merged_pipe.A), "A")
+    assert.eq(str(merged_pipe.B), "B")
+    assert.eq(str(merged_pipe.C), "C")
+    # Test + operator
+    merged_plus = errs1 + errs2 + errs3
+    assert.eq(str(merged_plus.A), "A")
+    assert.eq(str(merged_plus.B), "B")
+    assert.eq(str(merged_plus.C), "C")
 
 test_error_set_merge_chain()
