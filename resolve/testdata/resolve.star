@@ -431,3 +431,55 @@ def noop(): pass
 
 def f()!:
   errdefer noop() # ok
+
+---
+# calling ! function without try/catch in non-! function is an error
+
+def may_fail()!:
+  pass
+
+def caller():
+  may_fail() ### "call to error-returning function .* must be handled with try or catch"
+
+---
+# calling ! function with catch is allowed in non-! function
+
+def may_fail()!:
+  pass
+
+def caller():
+  x = may_fail() catch "default" # ok
+
+---
+# calling ! function with try is allowed in ! function
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  x = try may_fail() # ok
+
+---
+# calling ! function without try/catch in ! function is allowed (propagates)
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  may_fail() # ok - error propagates
+
+---
+# calling ! function without try/catch at module level is an error
+
+def may_fail()!:
+  pass
+
+may_fail() ### "call to error-returning function .* must be handled with try or catch"
+
+---
+# calling ! function with catch at module level is allowed
+
+def may_fail()!:
+  pass
+
+x = may_fail() catch "default" # ok
