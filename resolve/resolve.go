@@ -1116,6 +1116,34 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 		}
 	}
 
+	// isErrorReturningCall checks if an expression is a call to an error-returning function
+	isErrorReturningCall := func(expr syntax.Expr) bool {
+		call, ok := expr.(*syntax.CallExpr)
+		if !ok {
+			return false
+		}
+		ident, ok := call.Fn.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		binding, ok := ident.Binding.(*Binding)
+		if !ok {
+			return false
+		}
+		// Check if this binding is in errorFuncs directly
+		if r.errorFuncs[binding] {
+			return true
+		}
+		// For Free bindings, check the original binding via First
+		// (Free bindings preserve First from the original Local binding)
+		if binding.Scope == Free && binding.First != nil {
+			if origBinding, ok := binding.First.Binding.(*Binding); ok {
+				return r.errorFuncs[origBinding]
+			}
+		}
+		return false
+	}
+
 	validateExpr = func(expr syntax.Expr, currentFunc *Function, inTryContext bool) {
 		if expr == nil {
 			return
@@ -1123,10 +1151,20 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 
 		switch e := expr.(type) {
 		case *syntax.TryExpr:
+			// Validate that try is used on an error-returning function call
+			if !isErrorReturningCall(e.X) {
+				pos, _ := e.X.Span()
+				r.errorf(pos, "try requires call to error-returning function")
+			}
 			// Inside try, error calls are allowed
 			validateExpr(e.X, currentFunc, true)
 
 		case *syntax.CatchExpr:
+			// Validate that catch is used on an error-returning function call
+			if !isErrorReturningCall(e.X) {
+				pos, _ := e.X.Span()
+				r.errorf(pos, "catch requires call to error-returning function")
+			}
 			// The main expression is in try context
 			validateExpr(e.X, currentFunc, true)
 
@@ -1148,7 +1186,14 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 			// Check if this is a call to an error-returning function
 			if ident, ok := e.Fn.(*syntax.Ident); ok {
 				if binding, ok := ident.Binding.(*Binding); ok {
-					if r.errorFuncs[binding] {
+					isErrorFunc := r.errorFuncs[binding]
+					// For Free bindings, check the original binding via First
+					if !isErrorFunc && binding.Scope == Free && binding.First != nil {
+						if origBinding, ok := binding.First.Binding.(*Binding); ok {
+							isErrorFunc = r.errorFuncs[origBinding]
+						}
+					}
+					if isErrorFunc {
 						// This is a call to a ! function
 						canPropagate := currentFunc != nil && currentFunc.CanReturnError
 

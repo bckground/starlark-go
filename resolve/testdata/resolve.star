@@ -483,3 +483,74 @@ def may_fail()!:
   pass
 
 x = may_fail() catch "default" # ok
+
+---
+# using try on non-! function is an error
+
+def normal():
+  pass
+
+def caller()!:
+  x = try normal() ### "try requires call to error-returning function"
+
+---
+# using catch on non-! function is an error
+
+def normal():
+  pass
+
+def caller():
+  x = normal() catch "default" ### "catch requires call to error-returning function"
+
+---
+# using catch block on non-! function is an error
+
+def normal():
+  pass
+
+def caller():
+  x = normal() catch e: ### "catch requires call to error-returning function"
+    recover "default"
+
+---
+# try on ! function is allowed
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  x = try may_fail() # ok
+
+---
+# catch on ! function is allowed
+
+def may_fail()!:
+  pass
+
+def caller():
+  x = may_fail() catch "default" # ok
+
+---
+# using try on non-! function at module level is an error
+
+def normal():
+  pass
+
+x = try normal() ### "try requires call to error-returning function"
+
+---
+# using catch on non-! function at module level is an error
+
+def normal():
+  pass
+
+x = normal() catch "default" ### "catch requires call to error-returning function"
+
+---
+# using catch block on non-! function at module level is an error
+
+def normal():
+  pass
+
+x = normal() catch e: ### "catch requires call to error-returning function"
+  recover "default"

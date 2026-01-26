@@ -36,21 +36,6 @@ def test_propagation_stops_at_catch():
 
 test_propagation_stops_at_catch()
 
-# Test try propagation with non-error-returning function.
-def test_try_non_error_function():
-    def normal_func():
-        return "value"
-
-    def caller()!:
-        # Calling non-! function with try should work (no error to propagate).
-        x = try normal_func()
-        return x
-
-    result = caller() catch "error"
-    assert.eq(result, "value")
-
-test_try_non_error_function()
-
 # Test error propagates through try chain.
 def test_error_chain():
     def step1()!:
