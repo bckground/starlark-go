@@ -554,3 +554,43 @@ def normal():
 
 x = normal() catch e: ### "catch requires call to error-returning function"
   recover "default"
+
+---
+# try on ! function from a nested functions is allowed
+
+def outer()!:
+  def may_fail()!:
+    pass
+  def caller()!:
+    x = try may_fail()
+  return try caller()
+
+---
+# catch on ! function from a nested functions is allowed
+
+def outer():
+  def may_fail()!:
+    pass
+  def caller():
+    x = may_fail() catch "default"
+  caller()
+
+---
+# try on non-! function from a nested functions is an error
+
+def outer()!:
+  def normal():
+    pass
+  def caller()!:
+    x = try normal() ### "try requires call to error-returning function"
+  return try caller()
+
+---
+# catch on non-! function from a nested function is an error
+
+def outer():
+  def normal():
+    pass
+  def caller():
+    x = normal() catch "default" ### "catch requires call to error-returning function"
+  caller()
