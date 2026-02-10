@@ -78,12 +78,9 @@ type Thread struct {
 	// The precise meaning of "step" is not specified and may change.
 	Steps, maxSteps uint64
 
-	// pendingError holds an error from a ! function call that has not been
-	// caught by a catch expression. It is checked by the TRY opcode.
-	pendingError error
-
-	// pendingErrorValue holds the original Starlark Error value when pendingError
-	// is set. This allows catch blocks to access the actual Error value for comparison.
+	// pendingErrorValue holds the Starlark Error value from a ! function call
+	// that has not been caught by a catch expression. It is checked by TRY and
+	// CATCH_CHECK opcodes, and materialized onto the stack by LOAD_ERROR.
 	pendingErrorValue Value
 
 	// cancelReason records the reason from the first call to Cancel.

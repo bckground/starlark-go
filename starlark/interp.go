@@ -525,12 +525,8 @@ loop:
 		case compile.TRY:
 			// Check if there's a pending error from a ! function call.
 			// If so, propagate it by returning from the current function.
-			// Leave pendingError set so the caller can handle it.
-			if thread.pendingError != nil {
-				// Don't convert to Go error - leave pendingError set
-				// and just break the loop to return from this function.
-				// The RETURN statement handling (or lack thereof) will
-				// ensure pendingError propagates to the caller.
+			// Leave pendingErrorValue set so the caller can handle it.
+			if thread.pendingErrorValue != nil {
 				result = None
 				break loop
 			}
@@ -539,30 +535,19 @@ loop:
 			// Check if there's a pending error from a ! function call.
 			// If so, jump to the catch handler.
 			// Otherwise, continue normally.
-			// Note: pendingError is NOT cleared here - LOAD_ERROR will clear it
-			// after materializing it for the catch block.
-			if thread.pendingError != nil {
+			// Note: pendingErrorValue is NOT cleared here - LOAD_ERROR will
+			// clear it after materializing it for the catch block.
+			if thread.pendingErrorValue != nil {
 				pc = arg
 			}
-			// If no error, fall through (pc already incremented)
 
 		case compile.LOAD_ERROR:
-			// Materialize pendingError as the original Error value on the stack.
+			// Materialize pendingErrorValue onto the stack.
 			// This is used in catch blocks to bind the error to a variable.
-			if thread.pendingError != nil {
-				if thread.pendingErrorValue != nil {
-					stack[sp] = thread.pendingErrorValue
-				} else {
-					// Fallback to string if no Error value (shouldn't happen normally)
-					stack[sp] = String(thread.pendingError.Error())
-				}
-				thread.pendingError = nil
-				thread.pendingErrorValue = nil
-			} else {
-				// Should not happen - LOAD_ERROR should only be executed
-				// after CATCH_CHECK has confirmed there's an error
-				stack[sp] = String("(no error)")
-			}
+			// LOAD_ERROR should only be executed after CATCH_CHECK has
+			// confirmed there's an error.
+			stack[sp] = thread.pendingErrorValue
+			thread.pendingErrorValue = nil
 			sp++
 
 		case compile.CATCH_BLOCK_ERROR:
@@ -570,34 +555,29 @@ loop:
 
 		case compile.RECOVER:
 			// The recover value is already on the stack (from evaluating the expression).
-			// Clear pendingError and jump to the done block.
+			// Clear pendingErrorValue and jump to the done block.
 			// The value stays on the stack as the result of the catch expression.
-			thread.pendingError = nil
+			thread.pendingErrorValue = nil
 			pc = arg
-			// Note: We don't pop or modify the stack - the value stays
-			// as the result of the catch expression.
 
 		case compile.RETURN:
 			result = stack[sp-1]
 
 			// If this is an error-returning function (marked with !)
-			// and the result is an Error value, set pendingError.
+			// and the result is an Error value, set pendingErrorValue.
 			if f.CanReturnError {
 				switch v := result.(type) {
 				case *ErrorTag:
-					wrapped := NewError(v, nil, nil, nil)
-					thread.pendingError = fmt.Errorf("%s", v.name)
-					thread.pendingErrorValue = wrapped
+					thread.pendingErrorValue = NewError(v, nil, nil, nil)
 					result = None
 				case *Error:
-					thread.pendingError = fmt.Errorf("%s", v.tag.name)
 					thread.pendingErrorValue = v
 					result = None
 				}
 			}
 
 			// Execute error deferred calls first, but only if there's an error.
-			if thread.pendingError != nil {
+			if thread.pendingErrorValue != nil {
 				for i := len(errDeferstack) - 1; i >= 0; i-- {
 					deferred := errDeferstack[i]
 					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)

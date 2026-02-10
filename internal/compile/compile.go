@@ -112,8 +112,8 @@ const (
 	INPLACE_ADD  //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
 	INPLACE_PIPE //            x y INPLACE_PIPE z      where z is x|y
 	MAKEDICT     //              - MAKEDICT     dict
-	TRY                //              - TRY                   -           [check pendingError, propagate if set]
-	LOAD_ERROR         //              - LOAD_ERROR            error_msg   [materialize pendingError as string, clear it]
+	TRY                //              - TRY                   -           [check pendingErrorValue, propagate if set]
+	LOAD_ERROR         //              - LOAD_ERROR            error       [materialize pendingErrorValue on stack, clear it]
 	CATCH_BLOCK_ERROR  //              - CATCH_BLOCK_ERROR     -           [runtime error: catch block must end with recover or return]
 
 	// --- opcodes with an argument must go below this line ---
@@ -150,8 +150,8 @@ const (
 	CALL_VAR_KW // fn positional named *args **kwargs CALL_VAR_KW<n> result
 	DEFER       // fn positional named                DEFER<n>       -           [deferred call]
 	ERRDEFER    // fn positional named                ERRDEFER<n>    -           [deferred call on error only]
-	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingError, jump to handler]
-	RECOVER     //             value RECOVER<addr>     -          [clear pendingError, set result, jump to done]
+	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingErrorValue, jump to handler]
+	RECOVER     //             value RECOVER<addr>     -          [clear pendingErrorValue, set result, jump to done]
 
 	OpcodeArgMin = JMP
 	OpcodeMax    = RECOVER
@@ -1263,7 +1263,7 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		// Evaluate the result expression
 		fcomp.expr(stmt.Result)
 		// Emit RECOVER opcode which will:
-		// 1. Clear pendingError
+		// 1. Clear pendingErrorValue
 		// 2. Leave the value on the stack as the catch result
 		// 3. Jump to the done block (via cjmp mechanism)
 		ctx := fcomp.catchBlocks[len(fcomp.catchBlocks)-1]
@@ -1488,14 +1488,14 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 		fcomp.block = handler
 		fcomp.emit(POP) // discard the result from the failed expression
 		if e.FallbackExpr != nil {
-			// Value form: clear pendingError and compile the fallback expression
-			fcomp.emit(LOAD_ERROR) // materialize and clear pendingError
+			// Value form: clear pendingErrorValue and compile the fallback expression
+			fcomp.emit(LOAD_ERROR) // materialize and clear pendingErrorValue
 			fcomp.emit(POP)         // discard the error message (we don't need it)
 			fcomp.expr(e.FallbackExpr)
 		} else {
 			// Block form: load error, bind to variable, compile statements
 			fcomp.setPos(e.Catch)
-			fcomp.emit(LOAD_ERROR) // pushes error message on stack
+			fcomp.emit(LOAD_ERROR) // pushes error value on stack
 
 			// Bind error message to the error variable
 			bind := e.ErrorVar.Binding.(*resolve.Binding)
