@@ -1199,12 +1199,9 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 						}
 					}
 					if isErrorFunc {
-						// This is a call to a ! function
-						canPropagate := currentFunc != nil && currentFunc.CanReturnError
-
-						if !inTryContext && !canPropagate {
+						if !inTryContext {
 							pos, _ := e.Fn.Span()
-							r.errorf(pos, "call to error-returning function %q must be handled with try or catch, or be in an error-returning function", ident.Name)
+							r.errorf(pos, "call to error-returning function %q must be handled with try or catch", ident.Name)
 						}
 					}
 				}

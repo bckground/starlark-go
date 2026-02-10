@@ -460,13 +460,13 @@ def caller()!:
   x = try may_fail() # ok
 
 ---
-# calling ! function without try/catch in ! function is allowed (propagates)
+# calling ! function without try/catch in ! function is an error
 
 def may_fail()!:
   pass
 
 def caller()!:
-  may_fail() # ok - error propagates
+  may_fail() ### "call to error-returning function .* must be handled with try or catch"
 
 ---
 # calling ! function without try/catch at module level is an error
