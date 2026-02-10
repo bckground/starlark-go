@@ -522,6 +522,23 @@ def caller()!:
   x = try may_fail() # ok
 
 ---
+# try in non-! function is an error
+
+def may_fail()!:
+  pass
+
+def caller():
+  x = try may_fail() ### "try requires enclosing error-returning function"
+
+---
+# try at module level on ! function is allowed
+
+def may_fail()!:
+  pass
+
+x = try may_fail() # ok - compiles as catch + fail(e)
+
+---
 # catch on ! function is allowed
 
 def may_fail()!:

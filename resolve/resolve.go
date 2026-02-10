@@ -1156,6 +1156,11 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 				pos, _ := e.X.Span()
 				r.errorf(pos, "try requires call to error-returning function")
 			}
+			// try is only allowed in ! functions or at module level
+			if currentFunc != nil && !currentFunc.CanReturnError {
+				pos, _ := e.Span()
+				r.errorf(pos, "try requires enclosing error-returning function")
+			}
 			// Inside try, error calls are allowed
 			validateExpr(e.X, currentFunc, true)
 

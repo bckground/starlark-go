@@ -7,7 +7,11 @@ def test_try_unpack_success():
     def returns_tuple()!:
         return (1, 2, 3)
 
-    a, b, c = try returns_tuple()
+    def caller()!:
+        a, b, c = try returns_tuple()
+        return (a, b, c)
+
+    a, b, c = caller() catch (0, 0, 0)
     assert.eq(a, 1)
     assert.eq(b, 2)
     assert.eq(c, 3)
