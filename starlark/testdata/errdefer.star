@@ -165,3 +165,28 @@ def test_errdefer_nested_functions():
     assert.eq(log, ["outer_body", "inner_body", "inner_errdefer", "inner_caught", "outer_errdefer"])
 
 test_errdefer_nested_functions()
+
+# Test errdefer runs when error propagates via try.
+def test_errdefer_with_try_propagation():
+    log = []
+
+    def append(x):
+        log.append(x)
+
+    def inner()!:
+        errdefer append("inner_errdefer")
+        log.append("inner_body")
+        return errors.Err
+
+    def outer()!:
+        errdefer append("outer_errdefer")
+        result = try inner()  # error propagates via try
+        return result
+
+    log = []
+    result = outer() catch "caught"
+    assert.eq(result, "caught")
+    # Both inner and outer errdefers must run.
+    assert.eq(log, ["inner_body", "inner_errdefer", "outer_errdefer"])
+
+test_errdefer_with_try_propagation()

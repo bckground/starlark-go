@@ -105,7 +105,8 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	defer func() {
 		// Execute error deferred calls first, but only if there's an error.
 		// These are errdefer statements that only run on error paths.
-		if err != nil {
+		// Check both err (Go error) and pendingErrorValue (Starlark error propagation).
+		if err != nil || thread.pendingErrorValue != nil {
 			for i := len(errDeferstack) - 1; i >= 0; i-- {
 				deferred := errDeferstack[i]
 				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
@@ -527,6 +528,16 @@ loop:
 			// If so, propagate it by returning from the current function.
 			// Leave pendingErrorValue set so the caller can handle it.
 			if thread.pendingErrorValue != nil {
+				// Execute errdefers before propagating.
+				for i := len(errDeferstack) - 1; i >= 0; i-- {
+					deferred := errDeferstack[i]
+					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+					if deferErr != nil && err == nil {
+						err = deferErr
+					}
+				}
+				errDeferstack = nil
+
 				result = None
 				break loop
 			}
