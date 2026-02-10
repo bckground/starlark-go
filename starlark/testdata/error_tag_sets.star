@@ -1,13 +1,13 @@
 load("assert.star", "assert")
 
-# Test error_tags() builtin creates error set with attributes.
-def test_error_set_creation():
+# Test error_tags() builtin creates error tag set with attributes.
+def test_error_tag_set_creation():
     errs = error_tags("ErrA", "ErrB", "ErrC")
     assert.eq(str(errs.ErrA), "ErrA")
     assert.eq(str(errs.ErrB), "ErrB")
     assert.eq(str(errs.ErrC), "ErrC")
 
-test_error_set_creation()
+test_error_tag_set_creation()
 
 # Test error values are equal to themselves.
 def test_error_equality():
@@ -33,12 +33,12 @@ def test_error_inequality_different_sets():
 
 test_error_inequality_different_sets()
 
-# Test error set has correct type.
-def test_error_set_type():
+# Test error tag set has correct type.
+def test_error_tag_set_type():
     errs = error_tags("Err")
-    assert.eq(type(errs), "error_set")
+    assert.eq(type(errs), "error_tag_set")
 
-test_error_set_type()
+test_error_tag_set_type()
 
 # Test error value has correct type.
 def test_error_value_type():
@@ -50,7 +50,7 @@ test_error_value_type()
 # Test error_tags() with no arguments.
 def test_error_empty():
     errs = error_tags()
-    assert.eq(type(errs), "error_set")
+    assert.eq(type(errs), "error_tag_set")
 
 test_error_empty()
 
@@ -69,29 +69,29 @@ def test_error_nonexistent_attribute():
 
 test_error_nonexistent_attribute()
 
-# Test merging error sets with | and +.
-def test_error_set_merge():
+# Test merging error tag sets with | and +.
+def test_error_tag_set_merge():
     errs1 = error_tags("ErrA", "ErrB")
     errs2 = error_tags("ErrC", "ErrD")
     # Test | operator
     merged_pipe = errs1 | errs2
-    assert.eq(type(merged_pipe), "error_set")
+    assert.eq(type(merged_pipe), "error_tag_set")
     assert.eq(str(merged_pipe.ErrA), "ErrA")
     assert.eq(str(merged_pipe.ErrB), "ErrB")
     assert.eq(str(merged_pipe.ErrC), "ErrC")
     assert.eq(str(merged_pipe.ErrD), "ErrD")
     # Test + operator
     merged_plus = errs1 + errs2
-    assert.eq(type(merged_plus), "error_set")
+    assert.eq(type(merged_plus), "error_tag_set")
     assert.eq(str(merged_plus.ErrA), "ErrA")
     assert.eq(str(merged_plus.ErrB), "ErrB")
     assert.eq(str(merged_plus.ErrC), "ErrC")
     assert.eq(str(merged_plus.ErrD), "ErrD")
 
-test_error_set_merge()
+test_error_tag_set_merge()
 
-# Test merging error sets preserves identity from left operand.
-def test_error_set_merge_preserves_left():
+# Test merging error tag sets preserves identity from left operand.
+def test_error_tag_set_merge_preserves_left():
     errs1 = error_tags("Err")
     errs2 = error_tags("Err")  # Same name, different set
     # Test | operator
@@ -103,10 +103,10 @@ def test_error_set_merge_preserves_left():
     assert.eq(merged_plus.Err, errs1.Err)
     assert.ne(merged_plus.Err, errs2.Err)
 
-test_error_set_merge_preserves_left()
+test_error_tag_set_merge_preserves_left()
 
-# Test merging with empty error set.
-def test_error_set_merge_empty():
+# Test merging with empty error tag set.
+def test_error_tag_set_merge_empty():
     errs = error_tags("Err")
     empty = error_tags()
     # Test | operator
@@ -116,10 +116,10 @@ def test_error_set_merge_empty():
     assert.eq(str((errs + empty).Err), "Err")
     assert.eq(str((empty + errs).Err), "Err")
 
-test_error_set_merge_empty()
+test_error_tag_set_merge_empty()
 
 # Test chained merging.
-def test_error_set_merge_chain():
+def test_error_tag_set_merge_chain():
     errs1 = error_tags("A")
     errs2 = error_tags("B")
     errs3 = error_tags("C")
@@ -134,4 +134,4 @@ def test_error_set_merge_chain():
     assert.eq(str(merged_plus.B), "B")
     assert.eq(str(merged_plus.C), "C")
 
-test_error_set_merge_chain()
+test_error_tag_set_merge_chain()

@@ -2,7 +2,7 @@ load("assert.star", "assert")
 
 # Integration tests for complex error handling scenarios.
 
-error_set = error_tags("ErrA", "ErrB")
+error_tag_set = error_tags("ErrA", "ErrB")
 network_errors = error_tags("Timeout", "Disconnected")
 
 # Test complex example from the original plan.
@@ -11,7 +11,7 @@ def test_complex_scenario():
 
     def some_func(should_fail)!:
         if should_fail:
-            return error_set.ErrA
+            return error_tag_set.ErrA
         return "success"
 
     def acquire_lock(name)!:
@@ -43,7 +43,7 @@ def test_complex_scenario():
         d = some_func(fail_at == 4) catch e:
             if e.tag == network_errors.Timeout:
                 recover "timeout_handled"
-            return error_set.ErrB
+            return error_tag_set.ErrB
 
         return "completed: " + a + " " + str(b) + " " + str(c) + " " + str(d)
 
@@ -93,7 +93,7 @@ def test_resource_management():
 
     def open_file(name, fail)!:
         if fail:
-            return error_set.ErrA
+            return error_tag_set.ErrA
         log.append("opened: " + name)
         return {"name": name, "close": lambda: log.append("closed: " + name)}
 
@@ -118,7 +118,7 @@ test_resource_management()
 def test_nested_levels():
     def level3(fail)!:
         if fail == 3:
-            return error_set.ErrA
+            return error_tag_set.ErrA
         return "level3"
 
     def level2(fail)!:
@@ -127,7 +127,7 @@ def test_nested_levels():
                 recover "level3_recovered"
             return e
         if fail == 2:
-            return error_set.ErrB
+            return error_tag_set.ErrB
         return result + "_level2"
 
     def level1(fail)!:
@@ -161,7 +161,7 @@ def test_defer_errdefer_recovery():
         defer append("defer2")
 
         if should_fail:
-            return error_set.ErrA
+            return error_tag_set.ErrA
 
         errdefer append("errdefer2")
         defer append("defer3")
@@ -188,7 +188,7 @@ def test_error_in_loop():
 
     def process_item(item)!:
         if item == "fail":
-            return error_set.ErrA
+            return error_tag_set.ErrA
         return "ok_" + item
 
     def process_all(items)!:

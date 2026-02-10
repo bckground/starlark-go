@@ -366,8 +366,8 @@ func enumerate(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, e
 	return NewList(pairs), nil
 }
 
-// errorTags creates an error set with the specified error tag names.
-// error_tags("ErrA", "ErrB") creates an error_set with ErrorTag attributes ErrA and ErrB.
+// errorTags creates an error tag set with the specified error tag names.
+// error_tags("ErrA", "ErrB") creates an error_tag_set with ErrorTag attributes ErrA and ErrB.
 func errorTags(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, error) {
 	if len(kwargs) > 0 {
 		return nil, fmt.Errorf("error_tags() takes no keyword arguments")
@@ -382,7 +382,7 @@ func errorTags(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, e
 		names[i] = s
 	}
 
-	es := NewErrorSet(names, make(StringDict, len(names)))
+	es := NewErrorTagSet(names, make(StringDict, len(names)))
 	for _, name := range names {
 		id := errorIDCounter.Add(1)
 		es.attrs[name] = NewErrorTag(id, name)
