@@ -398,9 +398,13 @@ func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error)
 	}
 	buf := new(strings.Builder)
 	buf.WriteString("fail: ")
+	var starlarkErr *Error
 	for i, v := range args {
 		if i > 0 {
 			buf.WriteString(sep)
+		}
+		if e, ok := v.(*Error); ok {
+			starlarkErr = e
 		}
 		if s, ok := AsString(v); ok {
 			buf.WriteString(s)
@@ -409,6 +413,9 @@ func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error)
 		}
 	}
 
+	if starlarkErr != nil {
+		return nil, &FailError{Msg: buf.String(), Value: starlarkErr}
+	}
 	return nil, errors.New(buf.String())
 }
 

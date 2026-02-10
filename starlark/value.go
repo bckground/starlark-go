@@ -1848,6 +1848,15 @@ func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, err
 	return x.tag.CompareSameType(op, y.tag, depth)
 }
 
+// FailError is the error returned by the fail() builtin when called with
+// a Starlark Error value. Go callers can use errors.As to extract it.
+type FailError struct {
+	Msg   string
+	Value *Error
+}
+
+func (e *FailError) Error() string { return e.Msg }
+
 // ErrorSet represents a namespace of error values.
 type ErrorSet struct {
 	names []string
