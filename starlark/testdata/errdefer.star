@@ -1,9 +1,9 @@
 load("assert.star", "assert")
 
-errors = error("Err")
+errors = error_tags("Err")
 
 # Test errdefer runs only on error.
-def test_errdefer_runs_on_error():
+def test_errdefer_runs_on_error_tags():
     log = []
 
     def cleanup():
@@ -22,7 +22,7 @@ def test_errdefer_runs_on_error():
     assert.eq(result, "caught")
     assert.eq(log, ["body", "cleanup"])
 
-test_errdefer_runs_on_error()
+test_errdefer_runs_on_error_tags()
 
 # Test errdefer doesn't run on success.
 def test_errdefer_not_on_success():
@@ -72,7 +72,7 @@ def test_errdefer_and_defer():
     def append(x):
         log.append(x)
 
-    def test_error()!:
+    def test_error_tags()!:
         defer append("defer1")
         errdefer append("errdefer1")
         defer append("defer2")
@@ -82,7 +82,7 @@ def test_errdefer_and_defer():
 
     # On error: errdefers run, then defers.
     log = []
-    result = test_error() catch "caught"
+    result = test_error_tags() catch "caught"
     # Errdefers run first (LIFO), then regular defers (LIFO).
     assert.eq(log, ["body", "errdefer2", "errdefer1", "defer2", "defer1"])
 

@@ -1,6 +1,6 @@
 load("assert.star", "assert")
 
-errors = error("Err", "ErrTimeout")
+errors = error_tags("Err", "ErrTimeout")
 
 # Test unpacking successful result with try.
 def test_try_unpack_success():
@@ -16,10 +16,10 @@ test_try_unpack_success()
 
 # Test unpacking with catch fallback (tuple).
 def test_catch_unpack_tuple_fallback():
-    def returns_error()!:
+    def returns_error_tags()!:
         return errors.Err
 
-    x, y = returns_error() catch (10, 20)
+    x, y = returns_error_tags() catch (10, 20)
     assert.eq(x, 10)
     assert.eq(y, 20)
 
@@ -27,10 +27,10 @@ test_catch_unpack_tuple_fallback()
 
 # Test unpacking with catch block form.
 def test_catch_unpack_block():
-    def returns_error()!:
+    def returns_error_tags()!:
         return errors.Err
 
-    a, b, c = returns_error() catch e:
+    a, b, c = returns_error_tags() catch e:
         recover (100, 200, 300)
 
     assert.eq(a, 100)
@@ -45,7 +45,7 @@ def test_catch_unpack_conditional():
         return errors.ErrTimeout
 
     x, y = fail_timeout() catch e:
-        if e == errors.ErrTimeout:
+        if e.tag == errors.ErrTimeout:
             recover ("timeout", 99)
         else:
             recover ("other", 0)
@@ -57,12 +57,12 @@ test_catch_unpack_conditional()
 
 # Test that unpacking non-iterable fallback fails.
 def test_catch_unpack_invalid_fallback():
-    def returns_error()!:
+    def returns_error_tags()!:
         return errors.Err
 
     # This should fail: can't unpack string into 2 variables
     assert.fails(
-        lambda: [returns_error() catch "default"][0],  # Force evaluation
+        lambda: [returns_error_tags() catch "default"][0],  # Force evaluation
         "got string in sequence assignment"
     )
 
@@ -71,10 +71,10 @@ def test_catch_unpack_invalid_fallback():
 
 # Test unpacking with list fallback.
 def test_catch_unpack_list():
-    def returns_error()!:
+    def returns_error_tags()!:
         return errors.Err
 
-    a, b, c = returns_error() catch [4, 5, 6]
+    a, b, c = returns_error_tags() catch [4, 5, 6]
     assert.eq(a, 4)
     assert.eq(b, 5)
     assert.eq(c, 6)
@@ -120,7 +120,7 @@ assert.eq(m1, "module")
 assert.eq(m2, "level")
 
 # Test error propagation with unpacking.
-def test_try_unpack_propagates_error():
+def test_try_unpack_propagates_error_tags():
     def fails()!:
         return errors.Err
 
@@ -131,4 +131,4 @@ def test_try_unpack_propagates_error():
     result = outer() catch "caught"
     assert.eq(result, "caught")
 
-test_try_unpack_propagates_error()
+test_try_unpack_propagates_error_tags()

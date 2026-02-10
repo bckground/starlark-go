@@ -2,8 +2,8 @@ load("assert.star", "assert")
 
 # Integration tests for complex error handling scenarios.
 
-error_set = error("ErrA", "ErrB")
-network_errors = error("Timeout", "Disconnected")
+error_set = error_tags("ErrA", "ErrB")
+network_errors = error_tags("Timeout", "Disconnected")
 
 # Test complex example from the original plan.
 def test_complex_scenario():
@@ -18,7 +18,7 @@ def test_complex_scenario():
         log.append("acquired: " + name)
         return {"id": name, "release": lambda: log.append("released: " + name)}
 
-    def on_error(lock_id):
+    def on_error_tags(lock_id):
         log.append("error_cleanup: " + lock_id)
 
     def example(fail_at)!:
@@ -34,14 +34,14 @@ def test_complex_scenario():
         defer lock["release"]()
 
         # Errdefer.
-        errdefer on_error(lock["id"])
+        errdefer on_error_tags(lock["id"])
 
         # Catch with value.
         c = some_func(fail_at == 3) catch 42
 
         # Catch with block and conditional recover.
         d = some_func(fail_at == 4) catch e:
-            if e == network_errors.Timeout:
+            if e.tag == network_errors.Timeout:
                 recover "timeout_handled"
             return error_set.ErrB
 

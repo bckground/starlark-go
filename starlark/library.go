@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -37,40 +36,40 @@ var Universe StringDict
 func init() {
 	// https://github.com/google/starlark-go/blob/master/doc/spec.md#built-in-constants-and-functions
 	Universe = StringDict{
-		"None":      None,
-		"True":      True,
-		"False":     False,
-		"abs":       NewBuiltin("abs", abs),
-		"any":       NewBuiltin("any", any_),
-		"all":       NewBuiltin("all", all),
-		"bool":      NewBuiltin("bool", bool_),
-		"bytes":     NewBuiltin("bytes", bytes_),
-		"chr":       NewBuiltin("chr", chr),
-		"dict":      NewBuiltin("dict", dict),
-		"dir":       NewBuiltin("dir", dir),
-		"enumerate": NewBuiltin("enumerate", enumerate),
-		"error":     NewBuiltin("error", error_),
-		"fail":      NewBuiltin("fail", fail),
-		"float":     NewBuiltin("float", float),
-		"getattr":   NewBuiltin("getattr", getattr),
-		"hasattr":   NewBuiltin("hasattr", hasattr),
-		"hash":      NewBuiltin("hash", hash),
-		"int":       NewBuiltin("int", int_),
-		"len":       NewBuiltin("len", len_),
-		"list":      NewBuiltin("list", list),
-		"max":       NewBuiltin("max", minmax),
-		"min":       NewBuiltin("min", minmax),
-		"ord":       NewBuiltin("ord", ord),
-		"print":     NewBuiltin("print", print),
-		"range":     NewBuiltin("range", range_),
-		"repr":      NewBuiltin("repr", repr),
-		"reversed":  NewBuiltin("reversed", reversed),
-		"set":       NewBuiltin("set", set),
-		"sorted":    NewBuiltin("sorted", sorted),
-		"str":       NewBuiltin("str", str),
-		"tuple":     NewBuiltin("tuple", tuple),
-		"type":      NewBuiltin("type", type_),
-		"zip":       NewBuiltin("zip", zip),
+		"None":       None,
+		"True":       True,
+		"False":      False,
+		"abs":        NewBuiltin("abs", abs),
+		"any":        NewBuiltin("any", any_),
+		"all":        NewBuiltin("all", all),
+		"bool":       NewBuiltin("bool", bool_),
+		"bytes":      NewBuiltin("bytes", bytes_),
+		"chr":        NewBuiltin("chr", chr),
+		"dict":       NewBuiltin("dict", dict),
+		"dir":        NewBuiltin("dir", dir),
+		"enumerate":  NewBuiltin("enumerate", enumerate),
+		"error_tags": NewBuiltin("error_tags", errorTags),
+		"fail":       NewBuiltin("fail", fail),
+		"float":      NewBuiltin("float", float),
+		"getattr":    NewBuiltin("getattr", getattr),
+		"hasattr":    NewBuiltin("hasattr", hasattr),
+		"hash":       NewBuiltin("hash", hash),
+		"int":        NewBuiltin("int", int_),
+		"len":        NewBuiltin("len", len_),
+		"list":       NewBuiltin("list", list),
+		"max":        NewBuiltin("max", minmax),
+		"min":        NewBuiltin("min", minmax),
+		"ord":        NewBuiltin("ord", ord),
+		"print":      NewBuiltin("print", print),
+		"range":      NewBuiltin("range", range_),
+		"repr":       NewBuiltin("repr", repr),
+		"reversed":   NewBuiltin("reversed", reversed),
+		"set":        NewBuiltin("set", set),
+		"sorted":     NewBuiltin("sorted", sorted),
+		"str":        NewBuiltin("str", str),
+		"tuple":      NewBuiltin("tuple", tuple),
+		"type":       NewBuiltin("type", type_),
+		"zip":        NewBuiltin("zip", zip),
 	}
 }
 
@@ -367,26 +366,26 @@ func enumerate(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, e
 	return NewList(pairs), nil
 }
 
-// error creates an error set with the specified error names.
-// error("ErrA", "ErrB") creates an error_set with attributes ErrA and ErrB.
-func error_(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, error) {
+// errorTags creates an error set with the specified error tag names.
+// error_tags("ErrA", "ErrB") creates an error_set with ErrorTag attributes ErrA and ErrB.
+func errorTags(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, error) {
 	if len(kwargs) > 0 {
-		return nil, fmt.Errorf("error() takes no keyword arguments")
+		return nil, fmt.Errorf("error_tags() takes no keyword arguments")
 	}
 
 	names := make([]string, len(args))
 	for i, arg := range args {
 		s, ok := AsString(arg)
 		if !ok {
-			return nil, fmt.Errorf("error() argument %d must be string, not %s", i+1, arg.Type())
+			return nil, fmt.Errorf("error_tags() argument %d must be string, not %s", i+1, arg.Type())
 		}
 		names[i] = s
 	}
 
-	es := &ErrorSet{names: names, attrs: make(StringDict)}
+	es := NewErrorSet(names, make(StringDict, len(names)))
 	for _, name := range names {
-		id := atomic.AddUint64(&errorIDCounter, 1)
-		es.attrs[name] = &Error{name: name, id: id}
+		id := errorIDCounter.Add(1)
+		es.attrs[name] = NewErrorTag(id, name)
 	}
 	return es, nil
 }

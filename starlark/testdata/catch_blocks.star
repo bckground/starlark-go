@@ -1,7 +1,7 @@
 load("assert.star", "assert")
 
-errors = error("ErrA", "ErrB", "ErrTimeout")
-network_errors = error("Timeout", "Disconnected")
+errors = error_tags("ErrA", "ErrB", "ErrTimeout")
+network_errors = error_tags("Timeout", "Disconnected")
 
 # Test catch block with error binding.
 def test_catch_block_binding():
@@ -16,19 +16,19 @@ def test_catch_block_binding():
 test_catch_block_binding()
 
 # Test catch block can inspect error.
-def test_catch_block_inspect_error():
+def test_catch_block_inspect_error_tags():
     def may_fail()!:
         return network_errors.Timeout
 
     result = may_fail() catch e:
-        if e == network_errors.Timeout:
+        if e.tag == network_errors.Timeout:
             recover "timeout_handled"
         else:
             recover "other_error"
 
     assert.eq(result, "timeout_handled")
 
-test_catch_block_inspect_error()
+test_catch_block_inspect_error_tags()
 
 # Test catch block with multiple statements.
 def test_catch_block_multiple_statements():
@@ -71,13 +71,13 @@ def test_catch_block_conditional():
             return errors.ErrB
 
     result1 = may_fail(1) catch e:
-        if e == errors.ErrA:
+        if e.tag == errors.ErrA:
             recover "handled_A"
         else:
             recover "handled_other"
 
     result2 = may_fail(2) catch e:
-        if e == errors.ErrA:
+        if e.tag == errors.ErrA:
             recover "handled_A"
         else:
             recover "handled_B"
@@ -120,7 +120,7 @@ test_catch_block_outer_scope()
 
 ---
 # Test: catch block without recover or return is a runtime error.
-errors = error("Err")
+errors = error_tags("Err")
 
 def may_fail()!:
     return errors.Err

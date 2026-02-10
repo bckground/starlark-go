@@ -1,6 +1,6 @@
 load("assert.star", "assert")
 
-errors = error("Err")
+errors = error_tags("Err")
 
 # Test error variable doesn't leak from catch block.
 def test_error_variable_no_leak():

@@ -1,6 +1,6 @@
 load("assert.star", "assert")
 
-errors = error("ErrFail", "ErrTimeout")
+errors = error_tags("ErrFail", "ErrTimeout")
 
 # Test function that can return an error.
 def may_fail(should_fail)!:
@@ -9,11 +9,11 @@ def may_fail(should_fail)!:
     return "success"
 
 # Test catch with value form - error case.
-def test_catch_value_error():
+def test_catch_value_error_tags():
     result = may_fail(True) catch "default"
     assert.eq(result, "default")
 
-test_catch_value_error()
+test_catch_value_error_tags()
 
 # Test catch with value form - success case.
 def test_catch_value_success():
@@ -108,7 +108,7 @@ def test_multiple_try():
 test_multiple_try()
 
 # Test try stops on first error.
-def test_try_stops_on_error():
+def test_try_stops_on_error_tags():
     call_log = []
 
     def call1()!:
@@ -129,4 +129,4 @@ def test_try_stops_on_error():
     # Only call1 should have been called.
     assert.eq(call_log, ["call1"])
 
-test_try_stops_on_error()
+test_try_stops_on_error_tags()

@@ -1,6 +1,6 @@
 load("assert.star", "assert")
 
-errors = error("ErrInner", "ErrOuter")
+errors = error_tags("ErrInner", "ErrOuter")
 
 # Test try propagates through multiple levels.
 def test_deep_propagation():

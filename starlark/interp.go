@@ -583,10 +583,16 @@ loop:
 			// If this is an error-returning function (marked with !)
 			// and the result is an Error value, set pendingError.
 			if f.CanReturnError {
-				if errVal, ok := result.(*Error); ok {
-					thread.pendingError = fmt.Errorf("%s", errVal.name)
-					thread.pendingErrorValue = errVal  // Store the original Error value
-					result = None // ! functions that return errors don't return a value
+				switch v := result.(type) {
+				case *ErrorTag:
+					wrapped := NewError(v, nil, nil, nil)
+					thread.pendingError = fmt.Errorf("%s", v.name)
+					thread.pendingErrorValue = wrapped
+					result = None
+				case *Error:
+					thread.pendingError = fmt.Errorf("%s", v.tag.name)
+					thread.pendingErrorValue = v
+					result = None
 				}
 			}
 

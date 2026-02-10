@@ -3,7 +3,7 @@ load("assert.star", "assert")
 # Test compile-time validation of error handling.
 # Most tests here should fail at compile/resolve time, documented with comments.
 
-errors = error("Err")
+errors = error_tags("Err")
 
 # Valid: Calling ! function with try.
 def test_valid_try():
@@ -140,14 +140,14 @@ test_error_handling_required()
 # Test that ! is required for functions that return errors.
 def test_bang_required_for_error_return():
     # This should work: ! function can return errors.
-    def can_return_error()!:
+    def can_return_error_tags()!:
         return errors.Err
 
-    result = can_return_error() catch "caught"
+    result = can_return_error_tags() catch "caught"
     assert.eq(result, "caught")
 
     # INVALID: Non-! function returning error.
-    # def cannot_return_error():
+    # def cannot_return_error_tags():
     #     return errors.Err  # ERROR: non-! function cannot return errors.
 
 test_bang_required_for_error_return()

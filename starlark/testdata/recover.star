@@ -1,6 +1,6 @@
 load("assert.star", "assert")
 
-errors = error("Err", "ErrTimeout")
+errors = error_tags("Err", "ErrTimeout")
 
 # Test recover assigns value and resumes normal execution.
 def test_basic_recover():
@@ -74,13 +74,13 @@ def test_conditional_recover():
             return errors.ErrTimeout
 
     result1 = may_fail(1) catch e:
-        if e == errors.Err:
+        if e.tag == errors.Err:
             recover "recovered_Err"
         else:
             recover "recovered_other"
 
     result2 = may_fail(2) catch e:
-        if e == errors.Err:
+        if e.tag == errors.Err:
             recover "recovered_Err"
         else:
             recover "recovered_Timeout"

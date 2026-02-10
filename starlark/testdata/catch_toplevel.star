@@ -1,6 +1,6 @@
 load("assert.star", "assert")
 
-errors = error("ErrA", "ErrB", "ErrTimeout")
+errors = error_tags("ErrA", "ErrB", "ErrTimeout")
 
 # Test module-level catch with value form.
 def fail_a()!:
@@ -52,7 +52,7 @@ def conditional_fail()!:
     return errors.ErrA
 
 result_conditional = conditional_fail() catch e:
-    if e == errors.ErrA:
+    if e.tag == errors.ErrA:
         recover "matched_ErrA"
     else:
         recover "matched_other"

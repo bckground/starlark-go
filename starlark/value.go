@@ -77,6 +77,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"go.starlark.net/internal/compile"
@@ -1720,22 +1721,60 @@ func (b Bytes) Has(y Value) (bool, error) {
 	}
 }
 
-// Error represents a Starlark error value from an error set.
-type Error struct {
-	name string
+// ErrorTag represents a Starlark error value.
+type ErrorTag struct {
 	id   uint64 // unique identifier for this error instance
+	name string
 }
 
-var errorIDCounter uint64
+var errorIDCounter atomic.Uint64
 
-func (e *Error) String() string        { return e.name }
-func (e *Error) Type() string          { return "error" }
-func (e *Error) Freeze()               {} // errors are immutable
-func (e *Error) Truth() Bool           { return False }
-func (e *Error) Hash() (uint32, error) { return uint32(e.id), nil }
+func NewErrorTag(id uint64, name string) *ErrorTag {
+	return &ErrorTag{id: id, name: name}
+}
 
-func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
-	y := y_.(*Error)
+func (e *ErrorTag) String() string        { return e.name }
+func (e *ErrorTag) Type() string          { return "error_tag" }
+func (e *ErrorTag) Freeze()               {} // error tags are immutable
+func (e *ErrorTag) Truth() Bool           { return False }
+func (e *ErrorTag) Hash() (uint32, error) { return uint32(e.id) ^ hashString(e.name), nil }
+func (e *ErrorTag) Name() string          { return e.name }
+
+func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Value, error) {
+	if len(args) > 0 {
+		return nil, fmt.Errorf("%s: unexpected positional arguments", e.name)
+	}
+
+	var message Value
+	var cause Value
+	var details *List
+	if err := UnpackArgs(e.name, args, kwargs, "message?", &message, "cause?", &cause, "details?", &details); err != nil {
+		return nil, err
+	}
+
+	var msgPtr *string
+	if message != nil {
+		s, ok := AsString(message)
+		if !ok {
+			return nil, fmt.Errorf("%s: for parameter message: got %s, want string", e.name, message.Type())
+		}
+		msgPtr = &s
+	}
+
+	var causeErr *Error
+	if cause != nil && cause != None {
+		var ok bool
+		causeErr, ok = cause.(*Error)
+		if !ok {
+			return nil, fmt.Errorf("%s: for parameter cause: got %s, want error", e.name, cause.Type())
+		}
+	}
+
+	return NewError(e, msgPtr, causeErr, details), nil
+}
+
+func (x *ErrorTag) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
+	y := y_.(*ErrorTag)
 	switch op {
 	case syntax.EQL:
 		return x.id == y.id, nil
@@ -1746,10 +1785,77 @@ func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, err
 	}
 }
 
+// Error represents a Starlark error value.
+type Error struct {
+	tag *ErrorTag
+
+	message *string
+	cause   *Error
+	details *List
+}
+
+func NewError(tag *ErrorTag, message *string, cause *Error, details *List) *Error {
+	if tag == nil {
+		panic("tag can't be nil")
+	}
+	if details == nil {
+		details = NewList(nil)
+	}
+
+	return &Error{tag: tag, message: message, cause: cause, details: details}
+}
+
+func (e *Error) String() string { return e.tag.name }
+func (e *Error) Type() string   { return "error" }
+func (e *Error) Freeze() {
+	if e.details != nil {
+		e.details.Freeze()
+	}
+	if e.cause != nil {
+		e.cause.Freeze()
+	}
+}
+func (e *Error) Truth() Bool           { return False }
+func (e *Error) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: %s", e.Type()) }
+
+func (e *Error) Attr(name string) (Value, error) {
+	switch name {
+	case "tag":
+		return e.tag, nil
+	case "message":
+		if e.message != nil {
+			return String(*e.message), nil
+		}
+		return String(e.tag.name), nil
+	case "cause":
+		if e.cause != nil {
+			return e.cause, nil
+		}
+		return None, nil
+	case "details":
+		return e.details, nil
+	default:
+		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", e.Type(), name))
+	}
+}
+
+func (e *Error) AttrNames() []string {
+	return []string{"cause", "details", "message", "tag"}
+}
+
+func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
+	y := y_.(*Error)
+	return x.tag.CompareSameType(op, y.tag, depth)
+}
+
 // ErrorSet represents a namespace of error values.
 type ErrorSet struct {
 	names []string
 	attrs StringDict
+}
+
+func NewErrorSet(names []string, attrs StringDict) *ErrorSet {
+	return &ErrorSet{names: names, attrs: attrs}
 }
 
 func (es *ErrorSet) String() string {
@@ -1762,12 +1868,12 @@ func (es *ErrorSet) String() string {
 func (es *ErrorSet) Type() string          { return "error_set" }
 func (es *ErrorSet) Freeze()               {} // error sets are immutable
 func (es *ErrorSet) Truth() Bool           { return True }
-func (es *ErrorSet) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: error_set") }
+func (es *ErrorSet) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: %s", es.Type()) }
 
 func (es *ErrorSet) Attr(name string) (Value, error) {
 	v, ok := es.attrs[name]
 	if !ok {
-		return nil, NoSuchAttrError(fmt.Sprintf("error_set has no attribute %q", name))
+		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", es.Type(), name))
 	}
 	return v, nil
 }
