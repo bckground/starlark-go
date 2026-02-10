@@ -33,14 +33,13 @@ def test_valid_catch():
 
 test_valid_catch()
 
-# Valid: ! function calling another ! function without handling (propagates).
+# Valid: ! function calling another ! function with try (propagates).
 def test_valid_propagation():
     def inner()!:
         return errors.Err
 
     def outer()!:
-        # No try/catch needed because outer is also !.
-        x = inner()
+        x = try inner()
         return x
 
     result = outer() catch "caught"
@@ -74,17 +73,8 @@ test_valid_normal_function()
 #         x = may_fail()  # ERROR: Unhandled error-returning function call.
 #         return x
 
-# INVALID: Using try in non-! function.
-# This might be allowed if try itself handles the error, but ideally
-# the calling function should be ! or use catch.
-#
-# def test_invalid_try_in_normal():
-#     def may_fail()!:
-#         return errors.Err
-#
-#     def caller():  # Non-! function.
-#         x = try may_fail()  # ERROR: try without enclosing ! function.
-#         return x
+# NOTE: Using try in non-! function is now a compile-time error.
+# This is tested in resolve/testdata/resolve.star.
 
 # INVALID: Using errdefer in non-! function.
 # def test_invalid_errdefer_in_normal():
@@ -128,9 +118,9 @@ def test_error_handling_required():
     result = may_fail() catch "handled"
     assert.eq(result, "handled")
 
-    # This should work: calling from ! function allows propagation.
+    # This should work: calling from ! function with try propagates.
     def propagate()!:
-        return may_fail()
+        return try may_fail()
 
     result2 = propagate() catch "caught"
     assert.eq(result2, "caught")

@@ -532,22 +532,23 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 		constants: make(map[interface{}]uint32),
 		functions: make(map[*Funcode]uint32),
 	}
-	pcomp.prog.Toplevel = pcomp.function(name, pos, stmts, locals, nil)
+	pcomp.prog.Toplevel = pcomp.function(name, pos, stmts, locals, nil, false)
 
 	return pcomp.prog
 }
 
-func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding) *Funcode {
+func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding, canReturnError bool) *Funcode {
 	fcomp := &fcomp{
 		pcomp: pcomp,
 		pos:   pos,
 		fn: &Funcode{
-			Prog:     pcomp.prog,
-			Pos:      pos,
-			Name:     name,
-			Doc:      docStringFromBody(stmts),
-			Locals:   bindings(locals),
-			FreeVars: bindings(freevars),
+			Prog:           pcomp.prog,
+			Pos:            pos,
+			Name:           name,
+			Doc:            docStringFromBody(stmts),
+			Locals:         bindings(locals),
+			FreeVars:       bindings(freevars),
+			CanReturnError: canReturnError,
 		},
 	}
 
@@ -1459,7 +1460,29 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 	case *syntax.TryExpr:
 		fcomp.expr(e.X)
 		fcomp.setPos(e.Try)
-		fcomp.emit(TRY)
+		if fcomp.fn.CanReturnError {
+			// In ! function: propagate error to caller
+			fcomp.emit(TRY)
+		} else {
+			// Not a ! function (module level in practice, since the
+			// resolver rejects try in non-! functions): convert to
+			// catch + fail(e)
+			handler := fcomp.newBlock()
+			done := fcomp.newBlock()
+			fcomp.emit1(CATCH_CHECK, 0)
+			fcomp.block.cjmp = handler
+			fcomp.jump(done)
+
+			fcomp.block = handler
+			fcomp.emit(POP)                                         // discard failed result
+			fcomp.emit1(UNIVERSAL, fcomp.pcomp.nameIndex("fail"))   // push fail function
+			fcomp.emit(LOAD_ERROR)                                   // push error value
+			fcomp.emit1(CALL, uint32(1<<8|0))                       // call fail(e)
+			// fail() always errors, but for stack balance with done block:
+			fcomp.jump(done)
+
+			fcomp.block = done
+		}
 
 	case *syntax.CatchExpr:
 		// For value form: expr catch fallback
@@ -1984,7 +2007,7 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 
 	fcomp.emit1(MAKETUPLE, uint32(ndefaults+len(f.FreeVars)))
 
-	funcode := fcomp.pcomp.function(f.Name, f.Pos, f.Body, f.Locals, f.FreeVars)
+	funcode := fcomp.pcomp.function(f.Name, f.Pos, f.Body, f.Locals, f.FreeVars, f.CanReturnError)
 
 	if debug {
 		// TODO(adonovan): do compilations sequentially not as a tree,
@@ -2003,7 +2026,6 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 	funcode.NumKwonlyParams = f.NumKwonlyParams
 	funcode.HasVarargs = f.HasVarargs
 	funcode.HasKwargs = f.HasKwargs
-	funcode.CanReturnError = f.CanReturnError
 	fcomp.emit1(MAKEFUNC, fcomp.pcomp.functionIndex(funcode))
 }
 
