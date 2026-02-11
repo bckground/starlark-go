@@ -393,3 +393,221 @@ load("module", "x") # ok
 ---
 _ = x # forward ref to file-local
 load("module", "x") # ok
+
+---
+# defer statement must be within a function
+
+def noop(): pass
+
+defer noop() ### "defer statement not within a function"
+
+---
+# errdefer statement must be within a function
+
+def noop(): pass
+
+errdefer noop() ### "errdefer statement not within a function"
+
+---
+# errdefer statement only allowed in error-returning functions
+
+def noop(): pass
+
+def f():
+  errdefer noop() ### "errdefer statement only allowed in error-returning functions"
+
+---
+# defer is allowed in non-error-returning functions
+
+def noop(): pass
+
+def f():
+  defer noop() # ok
+
+---
+# errdefer is allowed in error-returning functions
+
+def noop(): pass
+
+def f()!:
+  errdefer noop() # ok
+
+---
+# calling ! function without try/catch in non-! function is an error
+
+def may_fail()!:
+  pass
+
+def caller():
+  may_fail() ### "call to error-returning function .* must be handled with try or catch"
+
+---
+# calling ! function with catch is allowed in non-! function
+
+def may_fail()!:
+  pass
+
+def caller():
+  x = may_fail() catch "default" # ok
+
+---
+# calling ! function with try is allowed in ! function
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  x = try may_fail() # ok
+
+---
+# calling ! function without try/catch in ! function is an error
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  may_fail() ### "call to error-returning function .* must be handled with try or catch"
+
+---
+# calling ! function without try/catch at module level is an error
+
+def may_fail()!:
+  pass
+
+may_fail() ### "call to error-returning function .* must be handled with try or catch"
+
+---
+# calling ! function with catch at module level is allowed
+
+def may_fail()!:
+  pass
+
+x = may_fail() catch "default" # ok
+
+---
+# using try on non-! function is an error
+
+def normal():
+  pass
+
+def caller()!:
+  x = try normal() ### "try requires call to error-returning function"
+
+---
+# using catch on non-! function is an error
+
+def normal():
+  pass
+
+def caller():
+  x = normal() catch "default" ### "catch requires call to error-returning function"
+
+---
+# using catch block on non-! function is an error
+
+def normal():
+  pass
+
+def caller():
+  x = normal() catch e: ### "catch requires call to error-returning function"
+    recover "default"
+
+---
+# try on ! function is allowed
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  x = try may_fail() # ok
+
+---
+# try in non-! function is an error
+
+def may_fail()!:
+  pass
+
+def caller():
+  x = try may_fail() ### "try requires enclosing error-returning function"
+
+---
+# try at module level on ! function is allowed
+
+def may_fail()!:
+  pass
+
+x = try may_fail() # ok - compiles as catch + fail(e)
+
+---
+# catch on ! function is allowed
+
+def may_fail()!:
+  pass
+
+def caller():
+  x = may_fail() catch "default" # ok
+
+---
+# using try on non-! function at module level is an error
+
+def normal():
+  pass
+
+x = try normal() ### "try requires call to error-returning function"
+
+---
+# using catch on non-! function at module level is an error
+
+def normal():
+  pass
+
+x = normal() catch "default" ### "catch requires call to error-returning function"
+
+---
+# using catch block on non-! function at module level is an error
+
+def normal():
+  pass
+
+x = normal() catch e: ### "catch requires call to error-returning function"
+  recover "default"
+
+---
+# try on ! function from a nested functions is allowed
+
+def outer()!:
+  def may_fail()!:
+    pass
+  def caller()!:
+    x = try may_fail()
+  return try caller()
+
+---
+# catch on ! function from a nested functions is allowed
+
+def outer():
+  def may_fail()!:
+    pass
+  def caller():
+    x = may_fail() catch "default"
+  caller()
+
+---
+# try on non-! function from a nested functions is an error
+
+def outer()!:
+  def normal():
+    pass
+  def caller()!:
+    x = try normal() ### "try requires call to error-returning function"
+  return try caller()
+
+---
+# catch on non-! function from a nested function is an error
+
+def outer():
+  def normal():
+    pass
+  def caller():
+    x = normal() catch "default" ### "catch requires call to error-returning function"
+  caller()

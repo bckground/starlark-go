@@ -78,6 +78,11 @@ type Thread struct {
 	// The precise meaning of "step" is not specified and may change.
 	Steps, maxSteps uint64
 
+	// pendingErrorValue holds the Starlark Error value from a ! function call
+	// that has not been caught by a catch expression. It is checked by TRY and
+	// CATCH_CHECK opcodes, and materialized onto the stack by LOAD_ERROR.
+	pendingErrorValue Value
+
 	// cancelReason records the reason from the first call to Cancel.
 	cancelReason atomic.Pointer[error]
 
@@ -1400,7 +1405,6 @@ func asIndex(v Value, len int, result *int) error {
 // setArgs sets the values of the formal parameters of function fn in
 // based on the actual parameter values in args and kwargs.
 func setArgs(locals []Value, fn *Function, args Tuple, kwargs []Tuple) error {
-
 	// This is the general schema of a function:
 	//
 	//   def f(p1, p2=dp2, p3=dp3, *args, k1, k2=dk2, k3, **kwargs)

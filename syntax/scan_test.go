@@ -70,7 +70,8 @@ func TestScanner(t *testing.T) {
 		{`/ // /= //= ///=`, "/ // /= //= // /= EOF"},
 		{`# hello
 print(x)`, "print ( x ) EOF"},
-		{`# hello
+		{
+			`# hello
 print(1)
 cc_binary(name="foo")
 def f(x):
@@ -82,25 +83,36 @@ print(1)
 				`def f ( x ) : newline ` +
 				`indent return x + 1 newline ` +
 				`outdent print ( 1 ) newline ` +
-				`EOF`},
+				`EOF`,
+		},
 		// EOF should act line an implicit newline.
-		{`def f(): pass`,
-			"def f ( ) : pass EOF"},
-		{`def f():
+		{
+			`def f(): pass`,
+			"def f ( ) : pass EOF",
+		},
+		{
+			`def f():
 	pass`,
-			"def f ( ) : newline indent pass newline outdent EOF"},
-		{`def f():
+			"def f ( ) : newline indent pass newline outdent EOF",
+		},
+		{
+			`def f():
 	pass
 # oops`,
-			"def f ( ) : newline indent pass newline outdent EOF"},
-		{`def f():
+			"def f ( ) : newline indent pass newline outdent EOF",
+		},
+		{
+			`def f():
 	pass \
 `,
-			"def f ( ) : newline indent pass newline outdent EOF"},
-		{`def f():
+			"def f ( ) : newline indent pass newline outdent EOF",
+		},
+		{
+			`def f():
 	pass
 `,
-			"def f ( ) : newline indent pass newline outdent EOF"},
+			"def f ( ) : newline indent pass newline outdent EOF",
+		},
 		{`pass
 
 
@@ -257,7 +269,8 @@ pass`, "pass newline pass EOF"}, // consecutive newlines are consolidated
 		{"0123.", `1.230000e+02 EOF`},
 		{"0123.1", `1.231000e+02 EOF`},
 		// github.com/google/skylark/issues/16
-		{"x ! 0", "foo.star:1:3: unexpected input character '!'"},
+		// Note: '!' is now a valid token (EXCLAIM) for error-returning function signatures
+		{"x ! 0", "x ! 0 EOF"},
 		// github.com/google/starlark-go/issues/80
 		{"([{<>}])", "( [ { < > } ] ) EOF"},
 		{"f();", "f ( ) ; EOF"},

@@ -89,16 +89,18 @@ type Stmt interface {
 	stmt()
 }
 
-func (*AssignStmt) stmt() {}
-func (*BranchStmt) stmt() {}
-func (*DefStmt) stmt()    {}
-func (*DeferStmt) stmt()  {}
-func (*ExprStmt) stmt()   {}
-func (*ForStmt) stmt()    {}
-func (*WhileStmt) stmt()  {}
-func (*IfStmt) stmt()     {}
-func (*LoadStmt) stmt()   {}
-func (*ReturnStmt) stmt() {}
+func (*AssignStmt) stmt()   {}
+func (*BranchStmt) stmt()   {}
+func (*DefStmt) stmt()      {}
+func (*DeferStmt) stmt()    {}
+func (*ErrDeferStmt) stmt() {}
+func (*ExprStmt) stmt()     {}
+func (*ForStmt) stmt()      {}
+func (*WhileStmt) stmt()    {}
+func (*IfStmt) stmt()       {}
+func (*LoadStmt) stmt()     {}
+func (*RecoverStmt) stmt()  {}
+func (*ReturnStmt) stmt()   {}
 
 // An AssignStmt represents an assignment:
 //
@@ -122,12 +124,13 @@ func (x *AssignStmt) Span() (start, end Position) {
 // A DefStmt represents a function definition.
 type DefStmt struct {
 	commentsRef
-	Def    Position
-	Name   *Ident
-	Lparen Position
-	Params []Expr // param = ident | ident=expr | * | *ident | **ident
-	Rparen Position
-	Body   []Stmt
+	Def     Position
+	Name    *Ident
+	Lparen  Position
+	Params  []Expr // param = ident | ident=expr | * | *ident | **ident
+	Rparen  Position
+	Exclaim Position // position of '!' if function can return errors (invalid if not error-returning)
+	Body    []Stmt
 
 	Function interface{} // a *resolve.Function, set by resolver
 }
@@ -147,6 +150,19 @@ type DeferStmt struct {
 func (x *DeferStmt) Span() (start, end Position) {
 	_, end = x.Call.Span()
 	return x.Defer, end
+}
+
+// An ErrDeferStmt is a deferred call that only executes if the function returns an error.
+// It is only valid in error-returning functions (functions marked with !).
+type ErrDeferStmt struct {
+	commentsRef
+	Errdefer Position
+	Call     Expr // must be a CallExpr
+}
+
+func (x *ErrDeferStmt) Span() (start, end Position) {
+	_, end = x.Call.Span()
+	return x.Errdefer, end
 }
 
 // An ExprStmt is an expression evaluated for side effects.
@@ -229,6 +245,19 @@ func (x *ReturnStmt) Span() (start, end Position) {
 	return x.Return, end
 }
 
+// A RecoverStmt recovers from an error in a catch block,
+// providing the result value for the catch expression.
+type RecoverStmt struct {
+	commentsRef
+	Recover Position
+	Result  Expr // the value to use as the catch expression's result
+}
+
+func (x *RecoverStmt) Span() (start, end Position) {
+	_, end = x.Result.Span()
+	return x.Recover, end
+}
+
 // An Expr is a Starlark expression.
 type Expr interface {
 	Node
@@ -237,6 +266,7 @@ type Expr interface {
 
 func (*BinaryExpr) expr()    {}
 func (*CallExpr) expr()      {}
+func (*CatchExpr) expr()     {}
 func (*Comprehension) expr() {}
 func (*CondExpr) expr()      {}
 func (*DictEntry) expr()     {}
@@ -249,6 +279,7 @@ func (*ListExpr) expr()      {}
 func (*Literal) expr()       {}
 func (*ParenExpr) expr()     {}
 func (*SliceExpr) expr()     {}
+func (*TryExpr) expr()       {}
 func (*TupleExpr) expr()     {}
 func (*UnaryExpr) expr()     {}
 
@@ -491,6 +522,40 @@ func (x *UnaryExpr) Span() (start, end Position) {
 		end = x.OpPos.add("*")
 	}
 	return x.OpPos, end
+}
+
+// A TryExpr represents try <expr> which propagates errors up.
+type TryExpr struct {
+	commentsRef
+	Try Position
+	X   Expr
+}
+
+func (x *TryExpr) Span() (start, end Position) {
+	_, end = x.X.Span()
+	return x.Try, end
+}
+
+// A CatchExpr represents: expr catch value OR expr catch e: statements
+// This is the first expression type that can contain statements (in block form).
+type CatchExpr struct {
+	commentsRef
+	X             Expr     // expression that may fail
+	Catch         Position // position of 'catch'
+	ErrorVar      *Ident   // error binding (nil for value form)
+	Colon         Position // position of ':' (invalid if value form)
+	FallbackExpr  Expr     // fallback value (nil if block form)
+	FallbackBlock []Stmt   // fallback statements (nil if value form)
+}
+
+func (x *CatchExpr) Span() (start, end Position) {
+	start, _ = x.X.Span()
+	if x.FallbackExpr != nil {
+		_, end = x.FallbackExpr.Span()
+	} else {
+		_, end = x.FallbackBlock[len(x.FallbackBlock)-1].Span()
+	}
+	return start, end
 }
 
 // A BinaryExpr represents a binary expression: X Op Y.

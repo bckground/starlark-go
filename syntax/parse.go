@@ -162,6 +162,10 @@ func (p *parser) parseFile() *File {
 			p.nextToken()
 			continue
 		}
+		if p.tok == OUTDENT {
+			p.nextToken()
+			continue
+		}
 		stmts = p.parseStmt(stmts)
 	}
 	return &File{Options: p.options, Stmts: stmts}
@@ -186,15 +190,26 @@ func (p *parser) parseDefStmt() Stmt {
 	lparen := p.consume(LPAREN)
 	params := p.parseParams()
 	rparen := p.consume(RPAREN)
+
+	// Check for optional '!' to mark error-returning function
+	var exclaim Position
+	if p.tok == EXCLAIM {
+		exclaim = p.nextToken()
+	}
+
 	p.consume(COLON)
 	body := p.parseSuite()
+	if p.tok == OUTDENT {
+		p.nextToken() // consume OUTDENT from suite
+	}
 	return &DefStmt{
-		Def:    defpos,
-		Name:   id,
-		Lparen: lparen,
-		Params: params,
-		Rparen: rparen,
-		Body:   body,
+		Def:     defpos,
+		Name:    id,
+		Lparen:  lparen,
+		Params:  params,
+		Rparen:  rparen,
+		Exclaim: exclaim,
+		Body:    body,
 	}
 }
 
@@ -203,6 +218,9 @@ func (p *parser) parseIfStmt() Stmt {
 	cond := p.parseTest()
 	p.consume(COLON)
 	body := p.parseSuite()
+	if p.tok == OUTDENT {
+		p.nextToken() // consume OUTDENT from suite
+	}
 	ifStmt := &IfStmt{
 		If:   ifpos,
 		Cond: cond,
@@ -214,6 +232,9 @@ func (p *parser) parseIfStmt() Stmt {
 		cond := p.parseTest()
 		p.consume(COLON)
 		body := p.parseSuite()
+		if p.tok == OUTDENT {
+			p.nextToken() // consume OUTDENT from suite
+		}
 		elif := &IfStmt{
 			If:   elifpos,
 			Cond: cond,
@@ -227,6 +248,9 @@ func (p *parser) parseIfStmt() Stmt {
 		tail.ElsePos = p.nextToken() // consume ELSE
 		p.consume(COLON)
 		tail.False = p.parseSuite()
+		if p.tok == OUTDENT {
+			p.nextToken() // consume OUTDENT from suite
+		}
 	}
 	return ifStmt
 }
@@ -238,6 +262,9 @@ func (p *parser) parseForStmt() Stmt {
 	x := p.parseExpr(false)
 	p.consume(COLON)
 	body := p.parseSuite()
+	if p.tok == OUTDENT {
+		p.nextToken() // consume OUTDENT from suite
+	}
 	return &ForStmt{
 		For:  forpos,
 		Vars: vars,
@@ -251,6 +278,9 @@ func (p *parser) parseWhileStmt() Stmt {
 	cond := p.parseTest()
 	p.consume(COLON)
 	body := p.parseSuite()
+	if p.tok == OUTDENT {
+		p.nextToken() // consume OUTDENT from suite
+	}
 	return &WhileStmt{
 		While: whilepos,
 		Cond:  cond,
@@ -294,8 +324,15 @@ func (p *parser) parseSimpleStmt(stmts []Stmt, consumeNL bool) []Stmt {
 		}
 	}
 	// EOF without NEWLINE occurs in `if x: pass`, for example.
-	if p.tok != EOF && consumeNL {
+	// OUTDENT without NEWLINE occurs when an expression contains a suite
+	// (e.g., catch blocks: `x = f() catch e: recover 42`)
+	// In the OUTDENT case, we need to consume it to continue parsing the outer suite.
+	if p.tok == NEWLINE && consumeNL {
 		p.consume(NEWLINE)
+	} else if p.tok == OUTDENT && consumeNL {
+		p.consume(OUTDENT) // consume OUTDENT from expression suite
+	} else if p.tok != EOF && consumeNL {
+		p.consume(NEWLINE) // will fail with error
 	}
 
 	return stmts
@@ -318,6 +355,11 @@ func (p *parser) parseSmallStmt() Stmt {
 		}
 		return &ReturnStmt{Return: pos, Result: result}
 
+	case RECOVER:
+		pos := p.nextToken() // consume RECOVER
+		result := p.parseExpr(false)
+		return &RecoverStmt{Recover: pos, Result: result}
+
 	case DEFER:
 		pos := p.nextToken() // consume DEFER
 		call := p.parseExpr(false)
@@ -326,6 +368,15 @@ func (p *parser) parseSmallStmt() Stmt {
 			p.in.errorf(pos, "defer statement requires a function call")
 		}
 		return &DeferStmt{Defer: pos, Call: call}
+
+	case ERRDEFER:
+		pos := p.nextToken() // consume ERRDEFER
+		call := p.parseExpr(false)
+		// Validate that the expression is a call.
+		if _, ok := call.(*CallExpr); !ok {
+			p.in.errorf(pos, "errdefer statement requires a function call")
+		}
+		return &ErrDeferStmt{Errdefer: pos, Call: call}
 
 	case BREAK, CONTINUE, PASS:
 		tok := p.tok
@@ -415,6 +466,7 @@ func (p *parser) parseLoadStmt() *LoadStmt {
 
 // suite is typically what follows a COLON (e.g. after DEF or FOR).
 // suite = simple_stmt | NEWLINE INDENT stmt+ OUTDENT
+// Note: This function does NOT consume the OUTDENT token - callers must handle it
 func (p *parser) parseSuite() []Stmt {
 	if p.tok == NEWLINE {
 		p.nextToken() // consume NEWLINE
@@ -423,7 +475,7 @@ func (p *parser) parseSuite() []Stmt {
 		for p.tok != OUTDENT && p.tok != EOF {
 			stmts = p.parseStmt(stmts)
 		}
-		p.consume(OUTDENT)
+		// Do NOT consume OUTDENT - leave it for the caller
 		return stmts
 	}
 
@@ -548,11 +600,24 @@ func (p *parser) parseExprs(exprs []Expr, allowTrailingComma bool) []Expr {
 
 // parseTest parses a 'test', a single-component expression.
 func (p *parser) parseTest() Expr {
+	// try <expr>
+	if p.tok == TRY {
+		trypos := p.nextToken()
+		x := p.parseTest()
+		return &TryExpr{Try: trypos, X: x}
+	}
+
 	if p.tok == LAMBDA {
 		return p.parseLambda(true)
 	}
 
 	x := p.parseTestPrec(0)
+
+	// catch expression (expr CATCH value/block)
+	// Parse catch before IF to give it higher precedence
+	if p.tok == CATCH {
+		x = p.parseCatchSuffix(x)
+	}
 
 	// conditional expression (t IF cond ELSE f)
 	if p.tok == IF {
@@ -576,6 +641,52 @@ func (p *parser) parseTestNoCond() Expr {
 		return p.parseLambda(false)
 	}
 	return p.parseTestPrec(0)
+}
+
+// parseCatchSuffix parses the catch suffix of an expression.
+// Supports two forms:
+//   - Value form: expr catch fallback_value
+//   - Block form: expr catch error_var: statements
+func (p *parser) parseCatchSuffix(x Expr) Expr {
+	catchpos := p.nextToken() // consume CATCH
+
+	// Check if this is block form (catch e: ...) or value form (catch expr)
+	// Block form has an identifier followed by a colon
+	if p.tok == IDENT {
+		// Peek ahead to see if there's a colon
+		checkpoint := p.in
+		errorVar := p.parseIdent()
+
+		if p.tok == COLON {
+			// Block form: catch e: statements
+			colonPos := p.nextToken() // consume COLON
+			body := p.parseSuite()
+			// Note: Do NOT consume OUTDENT here.
+			// parseSuite() leaves OUTDENT unconsumed, and the containing
+			// statement (via parseSimpleStmt) will handle it appropriately.
+			// See parseSimpleStmt lines 326-331.
+			return &CatchExpr{
+				X:             x,
+				Catch:         catchpos,
+				ErrorVar:      errorVar,
+				Colon:         colonPos,
+				FallbackBlock: body,
+			}
+		}
+
+		// Not block form - restore position and parse as value form
+		// The identifier we just parsed is actually the start of the fallback expression
+		p.in = checkpoint
+		p.nextToken() // re-read the token
+	}
+
+	// Value form: catch <expr>
+	fallback := p.parseTestNoCond()
+	return &CatchExpr{
+		X:            x,
+		Catch:        catchpos,
+		FallbackExpr: fallback,
+	}
 }
 
 // parseLambda parses a lambda expression.

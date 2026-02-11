@@ -36,39 +36,40 @@ var Universe StringDict
 func init() {
 	// https://github.com/google/starlark-go/blob/master/doc/spec.md#built-in-constants-and-functions
 	Universe = StringDict{
-		"None":      None,
-		"True":      True,
-		"False":     False,
-		"abs":       NewBuiltin("abs", abs),
-		"any":       NewBuiltin("any", any_),
-		"all":       NewBuiltin("all", all),
-		"bool":      NewBuiltin("bool", bool_),
-		"bytes":     NewBuiltin("bytes", bytes_),
-		"chr":       NewBuiltin("chr", chr),
-		"dict":      NewBuiltin("dict", dict),
-		"dir":       NewBuiltin("dir", dir),
-		"enumerate": NewBuiltin("enumerate", enumerate),
-		"fail":      NewBuiltin("fail", fail),
-		"float":     NewBuiltin("float", float),
-		"getattr":   NewBuiltin("getattr", getattr),
-		"hasattr":   NewBuiltin("hasattr", hasattr),
-		"hash":      NewBuiltin("hash", hash),
-		"int":       NewBuiltin("int", int_),
-		"len":       NewBuiltin("len", len_),
-		"list":      NewBuiltin("list", list),
-		"max":       NewBuiltin("max", minmax),
-		"min":       NewBuiltin("min", minmax),
-		"ord":       NewBuiltin("ord", ord),
-		"print":     NewBuiltin("print", print),
-		"range":     NewBuiltin("range", range_),
-		"repr":      NewBuiltin("repr", repr),
-		"reversed":  NewBuiltin("reversed", reversed),
-		"set":       NewBuiltin("set", set),
-		"sorted":    NewBuiltin("sorted", sorted),
-		"str":       NewBuiltin("str", str),
-		"tuple":     NewBuiltin("tuple", tuple),
-		"type":      NewBuiltin("type", type_),
-		"zip":       NewBuiltin("zip", zip),
+		"None":       None,
+		"True":       True,
+		"False":      False,
+		"abs":        NewBuiltin("abs", abs),
+		"any":        NewBuiltin("any", any_),
+		"all":        NewBuiltin("all", all),
+		"bool":       NewBuiltin("bool", bool_),
+		"bytes":      NewBuiltin("bytes", bytes_),
+		"chr":        NewBuiltin("chr", chr),
+		"dict":       NewBuiltin("dict", dict),
+		"dir":        NewBuiltin("dir", dir),
+		"enumerate":  NewBuiltin("enumerate", enumerate),
+		"error_tags": NewBuiltin("error_tags", errorTags),
+		"fail":       NewBuiltin("fail", fail),
+		"float":      NewBuiltin("float", float),
+		"getattr":    NewBuiltin("getattr", getattr),
+		"hasattr":    NewBuiltin("hasattr", hasattr),
+		"hash":       NewBuiltin("hash", hash),
+		"int":        NewBuiltin("int", int_),
+		"len":        NewBuiltin("len", len_),
+		"list":       NewBuiltin("list", list),
+		"max":        NewBuiltin("max", minmax),
+		"min":        NewBuiltin("min", minmax),
+		"ord":        NewBuiltin("ord", ord),
+		"print":      NewBuiltin("print", print),
+		"range":      NewBuiltin("range", range_),
+		"repr":       NewBuiltin("repr", repr),
+		"reversed":   NewBuiltin("reversed", reversed),
+		"set":        NewBuiltin("set", set),
+		"sorted":     NewBuiltin("sorted", sorted),
+		"str":        NewBuiltin("str", str),
+		"tuple":      NewBuiltin("tuple", tuple),
+		"type":       NewBuiltin("type", type_),
+		"zip":        NewBuiltin("zip", zip),
 	}
 }
 
@@ -365,6 +366,30 @@ func enumerate(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, e
 	return NewList(pairs), nil
 }
 
+// errorTags creates an error tag set with the specified error tag names.
+// error_tags("ErrA", "ErrB") creates an error_tags value with ErrorTag attributes ErrA and ErrB.
+func errorTags(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, error) {
+	if len(kwargs) > 0 {
+		return nil, fmt.Errorf("error_tags() takes no keyword arguments")
+	}
+
+	names := make([]string, len(args))
+	for i, arg := range args {
+		s, ok := AsString(arg)
+		if !ok {
+			return nil, fmt.Errorf("error_tags() argument %d must be string, not %s", i+1, arg.Type())
+		}
+		names[i] = s
+	}
+
+	es := NewErrorTags(names, make(StringDict, len(names)))
+	for _, name := range names {
+		id := errorIDCounter.Add(1)
+		es.attrs[name] = NewErrorTag(id, name)
+	}
+	return es, nil
+}
+
 // https://github.com/google/starlark-go/blob/master/doc/spec.md#fail
 func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error) {
 	sep := " "
@@ -373,9 +398,13 @@ func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error)
 	}
 	buf := new(strings.Builder)
 	buf.WriteString("fail: ")
+	var starlarkErr *Error
 	for i, v := range args {
 		if i > 0 {
 			buf.WriteString(sep)
+		}
+		if e, ok := v.(*Error); ok {
+			starlarkErr = e
 		}
 		if s, ok := AsString(v); ok {
 			buf.WriteString(s)
@@ -384,6 +413,9 @@ func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error)
 		}
 	}
 
+	if starlarkErr != nil {
+		return nil, &FailError{Msg: buf.String(), Value: starlarkErr}
+	}
 	return nil, errors.New(buf.String())
 }
 
@@ -1081,6 +1113,7 @@ func (s *sortSlice) Less(i, j int) bool {
 	}
 	return ok
 }
+
 func (s *sortSlice) Swap(i, j int) {
 	if s.keys != nil {
 		s.keys[i], s.keys[j] = s.keys[j], s.keys[i]
@@ -2080,7 +2113,6 @@ func string_split(_ *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, err
 		} else { // rsplit
 			res = rsplitspace(recv, maxsplit)
 		}
-
 	} else if sep, ok := AsString(sep_); ok {
 		if sep == "" {
 			return nil, fmt.Errorf("split: empty separator")
@@ -2430,7 +2462,6 @@ func updateDict(dict *Dict, updates Tuple, kwargs []Tuple) error {
 				iter2 := Iterate(pair)
 				if iter2 == nil {
 					return fmt.Errorf("dictionary update sequence element #%d is not iterable (%s)", i, pair.Type())
-
 				}
 				defer iter2.Done()
 				len := Len(pair)

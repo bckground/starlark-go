@@ -66,10 +66,14 @@ func TestEvalExpr(t *testing.T) {
 		{`[1, 2]`, `[1, 2]`},
 		{`[2 * x for x in [1, 2, 3]]`, `[2, 4, 6]`},
 		{`[2 * x for x in [1, 2, 3] if x > 1]`, `[4, 6]`},
-		{`[(x, y) for x in [1, 2] for y in [3, 4]]`,
-			`[(1, 3), (1, 4), (2, 3), (2, 4)]`},
-		{`[(x, y) for x in [1, 2] if x == 2 for y in [3, 4]]`,
-			`[(2, 3), (2, 4)]`},
+		{
+			`[(x, y) for x in [1, 2] for y in [3, 4]]`,
+			`[(1, 3), (1, 4), (2, 3), (2, 4)]`,
+		},
+		{
+			`[(x, y) for x in [1, 2] if x == 2 for y in [3, 4]]`,
+			`[(2, 3), (2, 4)]`,
+		},
 		// tuples
 		{`()`, `()`},
 		{`(1)`, `1`},
@@ -139,9 +143,16 @@ func TestExecFile(t *testing.T) {
 		"testdata/bool.star",
 		"testdata/builtins.star",
 		"testdata/bytes.star",
+		"testdata/catch_blocks.star",
+		"testdata/catch_scope.star",
+		"testdata/catch_toplevel.star",
+		"testdata/catch_unpack.star",
 		"testdata/control.star",
 		"testdata/defer.star",
 		"testdata/dict.star",
+		"testdata/errdefer.star",
+		"testdata/error_details.star",
+		"testdata/error_tags.star",
 		"testdata/float.star",
 		"testdata/function.star",
 		"testdata/int.star",
@@ -150,12 +161,15 @@ func TestExecFile(t *testing.T) {
 		"testdata/math.star",
 		"testdata/misc.star",
 		"testdata/proto.star",
+		"testdata/recover.star",
+		"testdata/recursion.star",
+		"testdata/module.star",
 		"testdata/set.star",
 		"testdata/string.star",
 		"testdata/time.star",
+		"testdata/try_catch_basic.star",
+		"testdata/try_propagate.star",
 		"testdata/tuple.star",
-		"testdata/recursion.star",
-		"testdata/module.star",
 		"testdata/while.star",
 	} {
 		filename := filepath.Join(testdata, file)
@@ -640,7 +654,6 @@ Error: floored division by zero`
 	if got := backtrace(t, unwrappedErr); got != wantUnwrapped {
 		t.Errorf("error was %s, want %s", got, wantUnwrapped)
 	}
-
 }
 
 // TestRepeatedExec parses and resolves a file syntax tree once then
@@ -753,7 +766,7 @@ func TestUnpackNoneCoalescing(t *testing.T) {
 
 	// Success
 	args := starlark.Tuple{starlark.None}
-	kwargs := []starlark.Tuple{starlark.Tuple{starlark.String("b"), starlark.None}}
+	kwargs := []starlark.Tuple{{starlark.String("b"), starlark.None}}
 	if err := starlark.UnpackArgs("unpack", args, kwargs, "a??", &a, "b??", &a); err != nil {
 		t.Errorf("UnpackArgs failed: %v", err)
 	}
@@ -771,8 +784,8 @@ func TestUnpackNoneCoalescing(t *testing.T) {
 	}
 
 	err = starlark.UnpackArgs("unpack", nil, []starlark.Tuple{
-		starlark.Tuple{starlark.String("a"), starlark.None},
-		starlark.Tuple{starlark.String("a"), starlark.None},
+		{starlark.String("a"), starlark.None},
+		{starlark.String("a"), starlark.None},
 	}, "a??", &a)
 	if want := "unpack: got multiple values for keyword argument \"a\""; fmt.Sprint(err) != want {
 		t.Errorf("unpack args error = %q, want %q", err, want)
@@ -926,7 +939,7 @@ g(7)
 		t.Errorf("ExecFile failed: %v", err)
 	}
 
-	var want = `
+	want := `
 builtin(...)
 f(x=7, y=49)
 g(z=7)

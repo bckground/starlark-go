@@ -3,10 +3,10 @@ package starlark
 // This file defines the bytecode interpreter.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
-	"errors"
 	"go.starlark.net/internal/compile"
 	"go.starlark.net/internal/spell"
 	"go.starlark.net/syntax"
@@ -96,13 +96,27 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	// - there is exactly one return statement
 	// - there is no redefinition of 'err'.
 
-	var iterstack []Iterator      // stack of active iterators
-	var deferstack []deferredCall // stack of deferred calls
+	var iterstack []Iterator         // stack of active iterators
+	var deferstack []deferredCall    // stack of deferred calls
+	var errDeferstack []deferredCall // stack of error-only deferred calls
 
 	// Use defer so that application panics can pass through
 	// interpreter without leaving thread in a bad state.
 	defer func() {
-		// Execute deferred calls in LIFO order (for panics/errors).
+		// Execute error deferred calls first, but only if there's an error.
+		// These are errdefer statements that only run on error paths.
+		// Check both err (Go error) and pendingErrorValue (Starlark error propagation).
+		if err != nil || thread.pendingErrorValue != nil {
+			for i := len(errDeferstack) - 1; i >= 0; i-- {
+				deferred := errDeferstack[i]
+				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+				if deferErr != nil && err == nil {
+					err = deferErr
+				}
+			}
+		}
+
+		// Execute regular deferred calls in LIFO order (for panics/errors).
 		// Normal returns execute defers in the RETURN case.
 		for i := len(deferstack) - 1; i >= 0; i-- {
 			deferred := deferstack[i]
@@ -471,17 +485,127 @@ loop:
 				kwargs: kwargs,
 			})
 
+		case compile.ERRDEFER:
+			// Pop the arguments from the stack and save for later (error-only)
+			// The stack has: fn, positional args, named args (key-value pairs)
+			// arg encoding: npos = arg >> 8, nnamed = arg & 0xff.
+			npos := int(arg >> 8)
+			nnamed := int(arg & 0xff)
+
+			// Extract kwargs (named arguments).
+			var kwargs []Tuple
+			for i := 0; i < nnamed; i++ {
+				v := stack[sp-1]
+				k := stack[sp-2]
+				sp -= 2
+				kwargs = append(kwargs, Tuple{k, v})
+			}
+			// Reverse kwargs to preserve order.
+			for i, j := 0, len(kwargs)-1; i < j; i, j = i+1, j-1 {
+				kwargs[i], kwargs[j] = kwargs[j], kwargs[i]
+			}
+
+			// Extract positional args.
+			args := make(Tuple, npos)
+			for i := npos - 1; i >= 0; i-- {
+				sp--
+				args[i] = stack[sp]
+			}
+
+			// Extract function.
+			sp--
+			fn := stack[sp]
+
+			// Push onto the error defer stack (only executed on error).
+			errDeferstack = append(errDeferstack, deferredCall{
+				fn:     fn,
+				args:   args,
+				kwargs: kwargs,
+			})
+
+		case compile.TRY:
+			// Check if there's a pending error from a ! function call.
+			// If so, propagate it by returning from the current function.
+			// Leave pendingErrorValue set so the caller can handle it.
+			if thread.pendingErrorValue != nil {
+				// Execute errdefers before propagating.
+				for i := len(errDeferstack) - 1; i >= 0; i-- {
+					deferred := errDeferstack[i]
+					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+					if deferErr != nil && err == nil {
+						err = deferErr
+					}
+				}
+				errDeferstack = nil
+
+				result = None
+				break loop
+			}
+
+		case compile.CATCH_CHECK:
+			// Check if there's a pending error from a ! function call.
+			// If so, jump to the catch handler.
+			// Otherwise, continue normally.
+			// Note: pendingErrorValue is NOT cleared here - LOAD_ERROR will
+			// clear it after materializing it for the catch block.
+			if thread.pendingErrorValue != nil {
+				pc = arg
+			}
+
+		case compile.LOAD_ERROR:
+			// Materialize pendingErrorValue onto the stack.
+			// This is used in catch blocks to bind the error to a variable.
+			// LOAD_ERROR should only be executed after CATCH_CHECK has
+			// confirmed there's an error.
+			stack[sp] = thread.pendingErrorValue
+			thread.pendingErrorValue = nil
+			sp++
+
+		case compile.CATCH_BLOCK_ERROR:
+			err = fmt.Errorf("catch block must end with recover or return")
+
+		case compile.RECOVER:
+			// The recover value is already on the stack (from evaluating the expression).
+			// Clear pendingErrorValue and jump to the done block.
+			// The value stays on the stack as the result of the catch expression.
+			thread.pendingErrorValue = nil
+			pc = arg
+
 		case compile.RETURN:
 			result = stack[sp-1]
 
-			// Execute the deferred calls before returning (in LIFO
-			// order).
+			// If this is an error-returning function (marked with !)
+			// and the result is an Error value, set pendingErrorValue.
+			if f.CanReturnError {
+				switch v := result.(type) {
+				case *ErrorTag:
+					thread.pendingErrorValue = NewError(v, nil, nil, nil)
+					result = None
+				case *Error:
+					thread.pendingErrorValue = v
+					result = None
+				}
+			}
+
+			// Execute error deferred calls first, but only if there's an error.
+			if thread.pendingErrorValue != nil {
+				for i := len(errDeferstack) - 1; i >= 0; i-- {
+					deferred := errDeferstack[i]
+					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+					if deferErr != nil && err == nil {
+						err = deferErr
+					}
+				}
+			}
+			errDeferstack = nil
+
+			// Execute the regular deferred calls before returning (in LIFO order).
 			for i := len(deferstack) - 1; i >= 0; i-- {
 				deferred := deferstack[i]
 				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
 				// If a deferred call fails and we don't already
-				// have an error, use it. We can instead use
-				// errors.Join once we require go >= 1.20.
+				// have an error, use it. We can instead use errors.Join once we
+				// require go >= 1.20.
 				if deferErr != nil && err == nil {
 					err = deferErr
 				}

@@ -19,6 +19,7 @@
 //	*Set            -- set
 //	*Function       -- function (implemented in Starlark)
 //	*Builtin        -- builtin_function_or_method (function or method implemented in Go)
+//	*Error          -- error
 //
 // Client applications may define new data types that satisfy at least
 // the Value interface.  Such types may provide additional operations by
@@ -73,8 +74,10 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"go.starlark.net/internal/compile"
@@ -470,7 +473,8 @@ func (f Float) format(buf *strings.Builder, conv byte) {
 
 func (f Float) Type() string { return "float" }
 func (f Float) Freeze()      {} // immutable
-func (f Float) Truth() Bool  { return f != 0.0 }
+func (f Float) Truth() Bool { return f != 0.0 }
+
 func (f Float) Hash() (uint32, error) {
 	// Equal float and int values must yield the same hash.
 	// TODO(adonovan): opt: if f is non-integral, and thus not equal
@@ -826,9 +830,10 @@ func (fn *Function) FreeVar(i int) (Binding, Value) {
 
 // A Builtin is a function implemented in Go.
 type Builtin struct {
-	name string
-	fn   func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)
-	recv Value // for bound methods (e.g. "".startswith)
+	name     string
+	fn       func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)
+	recv     Value // for bound methods (e.g. "".startswith)
+	CanError bool  // true if this builtin can return errors (marked as ! function)
 }
 
 func (b *Builtin) Name() string { return b.name }
@@ -837,6 +842,7 @@ func (b *Builtin) Freeze() {
 		b.recv.Freeze()
 	}
 }
+
 func (b *Builtin) Hash() (uint32, error) {
 	h := hashString(b.name)
 	if b.recv != nil {
@@ -1715,4 +1721,206 @@ func (b Bytes) Has(y Value) (bool, error) {
 	default:
 		return false, fmt.Errorf("'in bytes' requires bytes or int as left operand, not %s", y.Type())
 	}
+}
+
+// ErrorTag represents a Starlark error value.
+type ErrorTag struct {
+	id   uint64 // unique identifier for this error instance
+	name string
+}
+
+var errorIDCounter atomic.Uint64
+
+func NewErrorTag(id uint64, name string) *ErrorTag {
+	return &ErrorTag{id: id, name: name}
+}
+
+func (e *ErrorTag) String() string        { return e.name }
+func (e *ErrorTag) Type() string          { return "error_tag" }
+func (e *ErrorTag) Freeze()               {} // error tags are immutable
+func (e *ErrorTag) Truth() Bool           { return False }
+func (e *ErrorTag) Hash() (uint32, error) { return uint32(e.id) ^ hashString(e.name), nil }
+func (e *ErrorTag) Name() string          { return e.name }
+
+func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Value, error) {
+	if len(args) > 0 {
+		return nil, fmt.Errorf("%s: unexpected positional arguments", e.name)
+	}
+
+	var message Value
+	var cause Value
+	var details *List
+	if err := UnpackArgs(e.name, args, kwargs, "message?", &message, "cause?", &cause, "details?", &details); err != nil {
+		return nil, err
+	}
+
+	var msgPtr *string
+	if message != nil {
+		s, ok := AsString(message)
+		if !ok {
+			return nil, fmt.Errorf("%s: for parameter message: got %s, want string", e.name, message.Type())
+		}
+		msgPtr = &s
+	}
+
+	var causeErr *Error
+	if cause != nil && cause != None {
+		var ok bool
+		causeErr, ok = cause.(*Error)
+		if !ok {
+			return nil, fmt.Errorf("%s: for parameter cause: got %s, want error", e.name, cause.Type())
+		}
+	}
+
+	return NewError(e, msgPtr, causeErr, details), nil
+}
+
+func (x *ErrorTag) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
+	y := y_.(*ErrorTag)
+	switch op {
+	case syntax.EQL:
+		return x.id == y.id, nil
+	case syntax.NEQ:
+		return x.id != y.id, nil
+	default:
+		return false, fmt.Errorf("error does not support ordered comparison")
+	}
+}
+
+// Error represents a Starlark error value.
+type Error struct {
+	tag *ErrorTag
+
+	message *string
+	cause   *Error
+	details *List
+}
+
+func NewError(tag *ErrorTag, message *string, cause *Error, details *List) *Error {
+	if tag == nil {
+		panic("tag can't be nil")
+	}
+	if details == nil {
+		details = NewList(nil)
+	}
+
+	return &Error{tag: tag, message: message, cause: cause, details: details}
+}
+
+func (e *Error) String() string { return e.tag.name }
+func (e *Error) Type() string   { return "error" }
+func (e *Error) Freeze() {
+	if e.details != nil {
+		e.details.Freeze()
+	}
+	if e.cause != nil {
+		e.cause.Freeze()
+	}
+}
+func (e *Error) Truth() Bool           { return False }
+func (e *Error) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: %s", e.Type()) }
+
+func (e *Error) Attr(name string) (Value, error) {
+	switch name {
+	case "tag":
+		return e.tag, nil
+	case "message":
+		if e.message != nil {
+			return String(*e.message), nil
+		}
+		return String(e.tag.name), nil
+	case "cause":
+		if e.cause != nil {
+			return e.cause, nil
+		}
+		return None, nil
+	case "details":
+		return e.details, nil
+	default:
+		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", e.Type(), name))
+	}
+}
+
+func (e *Error) AttrNames() []string {
+	return []string{"cause", "details", "message", "tag"}
+}
+
+func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
+	y := y_.(*Error)
+	return x.tag.CompareSameType(op, y.tag, depth)
+}
+
+// FailError is the error returned by the fail() builtin when called with
+// a Starlark Error value. Go callers can use errors.As to extract it.
+type FailError struct {
+	Msg   string
+	Value *Error
+}
+
+func (e *FailError) Error() string { return e.Msg }
+
+// ErrorTags represents a namespace of error values.
+type ErrorTags struct {
+	names []string
+	attrs StringDict
+}
+
+func NewErrorTags(names []string, attrs StringDict) *ErrorTags {
+	return &ErrorTags{names: names, attrs: attrs}
+}
+
+func (et *ErrorTags) String() string {
+	if len(et.names) == 0 {
+		return "error_tags()"
+	}
+	return fmt.Sprintf("%s(%s)", et.Type(), strings.Join(et.names, ", "))
+}
+
+func (et *ErrorTags) Type() string { return "error_tags" }
+func (et *ErrorTags) Freeze()      {} // error tag sets are immutable
+func (et *ErrorTags) Truth() Bool { return True }
+
+func (et *ErrorTags) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: %s", et.Type())
+}
+
+func (et *ErrorTags) Attr(name string) (Value, error) {
+	v, ok := et.attrs[name]
+	if !ok {
+		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", et.Type(), name))
+	}
+	return v, nil
+}
+
+func (et *ErrorTags) AttrNames() []string {
+	names := make([]string, 0, len(et.attrs))
+	for name := range et.attrs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (et *ErrorTags) Binary(op syntax.Token, y Value, side Side) (Value, error) {
+	if op == syntax.PIPE || op == syntax.PLUS {
+		if other, ok := y.(*ErrorTags); ok {
+			// Merge the two error tag sets.
+			merged := &ErrorTags{
+				attrs: make(StringDict, len(et.attrs)+len(other.attrs)),
+			}
+			for _, name := range et.names {
+				merged.names = append(merged.names, name)
+				merged.attrs[name] = et.attrs[name]
+			}
+			for _, name := range other.names {
+				if _, exists := merged.attrs[name]; !exists {
+					merged.names = append(merged.names, name)
+					merged.attrs[name] = other.attrs[name]
+				}
+			}
+			return merged, nil
+		}
+	}
+
+	return nil, nil
 }

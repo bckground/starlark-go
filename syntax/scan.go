@@ -78,15 +78,18 @@ const (
 	LTLT_EQ       // <<=
 	GTGT_EQ       // >>=
 	STARSTAR      // **
+	EXCLAIM       // !
 
 	// Keywords
 	AND
 	BREAK
+	CATCH
 	CONTINUE
 	DEF
 	DEFER
 	ELIF
 	ELSE
+	ERRDEFER
 	FOR
 	IF
 	IN
@@ -96,7 +99,9 @@ const (
 	NOT_IN // synthesized by parser from NOT IN
 	OR
 	PASS
+	RECOVER
 	RETURN
+	TRY
 	WHILE
 
 	// Reserved words (following Python); unused in Starlark
@@ -115,7 +120,6 @@ const (
 	IS
 	NONLOCAL
 	RAISE
-	TRY
 	WITH
 	YIELD
 
@@ -184,13 +188,16 @@ var tokenNames = [...]string{
 	LTLT_EQ:       "<<=",
 	GTGT_EQ:       ">>=",
 	STARSTAR:      "**",
+	EXCLAIM:       "!",
 	AND:           "and",
 	BREAK:         "break",
+	CATCH:         "catch",
 	CONTINUE:      "continue",
 	DEF:           "def",
 	DEFER:         "defer",
 	ELIF:          "elif",
 	ELSE:          "else",
+	ERRDEFER:      "errdefer",
 	FOR:           "for",
 	IF:            "if",
 	IN:            "in",
@@ -200,7 +207,9 @@ var tokenNames = [...]string{
 	NOT_IN:        "not in",
 	OR:            "or",
 	PASS:          "pass",
+	RECOVER:       "recover",
 	RETURN:        "return",
+	TRY:           "try",
 	WHILE:         "while",
 
 	// Reserved words (following Python); unused in Starlark
@@ -219,7 +228,6 @@ var tokenNames = [...]string{
 	IS:       "is",
 	NONLOCAL: "nonlocal",
 	RAISE:    "raise",
-	TRY:      "try",
 	WITH:     "with",
 	YIELD:    "yield",
 }
@@ -495,7 +503,6 @@ func (sc *scanner) endToken(val *tokenValue) {
 // corresponding to the token).  For string and int tokens, the string
 // and int fields additionally contain the token's interpreted value.
 func (sc *scanner) nextToken(val *tokenValue) Token {
-
 	// The following distribution of tokens guides case ordering:
 	//
 	//      COMMA          27   %
@@ -754,7 +761,6 @@ start:
 	defer sc.endToken(val)
 	switch c {
 	case '=', '<', '>', '!', '+', '-', '%', '/', '&', '|', '^': // possibly followed by '='
-		start := sc.pos
 		sc.readRune()
 		if sc.peekRune() == '=' {
 			sc.readRune()
@@ -809,7 +815,7 @@ start:
 			}
 			return GT
 		case '!':
-			sc.error(start, "unexpected input character '!'")
+			return EXCLAIM
 		case '+':
 			return PLUS
 		case '-':
@@ -1130,11 +1136,13 @@ func isbdigit(c rune) bool { return '0' == c || c == '1' }
 var keywordToken = map[string]Token{
 	"and":      AND,
 	"break":    BREAK,
+	"catch":    CATCH,
 	"continue": CONTINUE,
 	"def":      DEF,
 	"defer":    DEFER,
 	"elif":     ELIF,
 	"else":     ELSE,
+	"errdefer": ERRDEFER,
 	"for":      FOR,
 	"if":       IF,
 	"in":       IN,
@@ -1143,7 +1151,9 @@ var keywordToken = map[string]Token{
 	"not":      NOT,
 	"or":       OR,
 	"pass":     PASS,
+	"recover":  RECOVER,
 	"return":   RETURN,
+	"try":      TRY,
 	"while":    WHILE,
 
 	// reserved words:
@@ -1161,7 +1171,6 @@ var keywordToken = map[string]Token{
 	"is":       IS,
 	"nonlocal": NONLOCAL,
 	"raise":    RAISE,
-	"try":      TRY,
 	"with":     WITH,
 	"yield":    YIELD,
 }

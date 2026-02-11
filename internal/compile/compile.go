@@ -99,19 +99,22 @@ const (
 	FALSE     // - FALSE False
 	MANDATORY // - MANDATORY Mandatory	     [sentinel value for required kwonly args]
 
-	ITERPUSH     //       iterable ITERPUSH     -  [pushes the iterator stack]
-	ITERPOP      //              - ITERPOP      -    [pops the iterator stack]
-	NOT          //          value NOT          bool
-	RETURN       //          value RETURN       -
-	SETINDEX     //        a i new SETINDEX     -
-	INDEX        //            a i INDEX        elem
-	SETDICT      // dict key value SETDICT      -
-	SETDICTUNIQ  // dict key value SETDICTUNIQ  -
-	APPEND       //      list elem APPEND       -
-	SLICE        //   x lo hi step SLICE        slice
-	INPLACE_ADD  //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
-	INPLACE_PIPE //            x y INPLACE_PIPE z      where z is x|y
-	MAKEDICT     //              - MAKEDICT     dict
+	ITERPUSH          //       iterable ITERPUSH     -  [pushes the iterator stack]
+	ITERPOP           //              - ITERPOP      -    [pops the iterator stack]
+	NOT               //          value NOT          bool
+	RETURN            //          value RETURN       -
+	SETINDEX          //        a i new SETINDEX     -
+	INDEX             //            a i INDEX        elem
+	SETDICT           // dict key value SETDICT      -
+	SETDICTUNIQ       // dict key value SETDICTUNIQ  -
+	APPEND            //      list elem APPEND       -
+	SLICE             //   x lo hi step SLICE        slice
+	INPLACE_ADD       //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
+	INPLACE_PIPE      //            x y INPLACE_PIPE z      where z is x|y
+	MAKEDICT          //              - MAKEDICT     dict
+	TRY               //              - TRY                   -           [check pendingErrorValue, propagate if set]
+	LOAD_ERROR        //              - LOAD_ERROR            error       [materialize pendingErrorValue on stack, clear it]
+	CATCH_BLOCK_ERROR //              - CATCH_BLOCK_ERROR     -           [runtime error: catch block must end with recover or return]
 
 	// --- opcodes with an argument must go below this line ---
 
@@ -146,9 +149,12 @@ const (
 	CALL_KW     // fn positional named       **kwargs CALL_KW<n>     result
 	CALL_VAR_KW // fn positional named *args **kwargs CALL_VAR_KW<n> result
 	DEFER       // fn positional named                DEFER<n>       -           [deferred call]
+	ERRDEFER    // fn positional named                ERRDEFER<n>    -           [deferred call on error only]
+	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingErrorValue, jump to handler]
+	RECOVER     //             value RECOVER<addr>     -          [clear pendingErrorValue, set result, jump to done]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = DEFER
+	OpcodeMax    = RECOVER
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -165,6 +171,7 @@ var opcodeNames = [...]string{
 	CJMP:         "cjmp",
 	CONSTANT:     "constant",
 	DEFER:        "defer",
+	ERRDEFER:     "errdefer",
 	DUP2:         "dup2",
 	DUP:          "dup",
 	EQL:          "eql",
@@ -219,6 +226,10 @@ var opcodeNames = [...]string{
 	STAR:         "star",
 	TILDE:        "tilde",
 	TRUE:         "true",
+	TRY:          "try",
+	CATCH_CHECK:  "catch_check",
+	LOAD_ERROR:   "load_error",
+	RECOVER:      "recover",
 	UMINUS:       "uminus",
 	UNIVERSAL:    "universal",
 	UNPACK:       "unpack",
@@ -230,73 +241,79 @@ const variableStackEffect = 0x7f
 // stackEffect records the effect on the size of the operand stack of
 // each kind of instruction. For some instructions this requires computation.
 var stackEffect = [...]int8{
-	AMP:          -1,
-	APPEND:       -2,
-	ATTR:         0,
-	CALL:         variableStackEffect,
-	CALL_KW:      variableStackEffect,
-	CALL_VAR:     variableStackEffect,
-	CALL_VAR_KW:  variableStackEffect,
-	CIRCUMFLEX:   -1,
-	CJMP:         -1,
-	CONSTANT:     +1,
-	DEFER:        variableStackEffect,
-	DUP2:         +2,
-	DUP:          +1,
-	EQL:          -1,
-	FALSE:        +1,
-	FREE:         +1,
-	FREECELL:     +1,
-	GE:           -1,
-	GLOBAL:       +1,
-	GT:           -1,
-	GTGT:         -1,
-	IN:           -1,
-	INDEX:        -1,
-	INPLACE_ADD:  -1,
-	INPLACE_PIPE: -1,
-	ITERJMP:      variableStackEffect,
-	ITERPOP:      0,
-	ITERPUSH:     -1,
-	JMP:          0,
-	LE:           -1,
-	LOAD:         -1,
-	LOCAL:        +1,
-	LOCALCELL:    +1,
-	LT:           -1,
-	LTLT:         -1,
-	MAKEDICT:     +1,
-	MAKEFUNC:     0,
-	MAKELIST:     variableStackEffect,
-	MAKETUPLE:    variableStackEffect,
-	MANDATORY:    +1,
-	MINUS:        -1,
-	NEQ:          -1,
-	NONE:         +1,
-	NOP:          0,
-	NOT:          0,
-	PERCENT:      -1,
-	PIPE:         -1,
-	PLUS:         -1,
-	POP:          -1,
-	PREDECLARED:  +1,
-	RETURN:       -1,
-	SETLOCALCELL: -1,
-	SETDICT:      -3,
-	SETDICTUNIQ:  -3,
-	SETFIELD:     -2,
-	SETGLOBAL:    -1,
-	SETINDEX:     -3,
-	SETLOCAL:     -1,
-	SLASH:        -1,
-	SLASHSLASH:   -1,
-	SLICE:        -3,
-	STAR:         -1,
-	TRUE:         +1,
-	UMINUS:       0,
-	UNIVERSAL:    +1,
-	UNPACK:       variableStackEffect,
-	UPLUS:        0,
+	AMP:               -1,
+	APPEND:            -2,
+	ATTR:              0,
+	CALL:              variableStackEffect,
+	CALL_KW:           variableStackEffect,
+	CALL_VAR:          variableStackEffect,
+	CALL_VAR_KW:       variableStackEffect,
+	CIRCUMFLEX:        -1,
+	CJMP:              -1,
+	CONSTANT:          +1,
+	DEFER:             variableStackEffect,
+	ERRDEFER:          variableStackEffect,
+	DUP2:              +2,
+	DUP:               +1,
+	EQL:               -1,
+	FALSE:             +1,
+	FREE:              +1,
+	FREECELL:          +1,
+	GE:                -1,
+	GLOBAL:            +1,
+	GT:                -1,
+	GTGT:              -1,
+	IN:                -1,
+	INDEX:             -1,
+	INPLACE_ADD:       -1,
+	INPLACE_PIPE:      -1,
+	ITERJMP:           variableStackEffect,
+	ITERPOP:           0,
+	ITERPUSH:          -1,
+	JMP:               0,
+	LE:                -1,
+	LOAD:              -1,
+	LOCAL:             +1,
+	LOCALCELL:         +1,
+	LT:                -1,
+	LTLT:              -1,
+	MAKEDICT:          +1,
+	MAKEFUNC:          0,
+	MAKELIST:          variableStackEffect,
+	MAKETUPLE:         variableStackEffect,
+	MANDATORY:         +1,
+	MINUS:             -1,
+	NEQ:               -1,
+	NONE:              +1,
+	NOP:               0,
+	NOT:               0,
+	PERCENT:           -1,
+	PIPE:              -1,
+	PLUS:              -1,
+	POP:               -1,
+	PREDECLARED:       +1,
+	RETURN:            -1,
+	SETLOCALCELL:      -1,
+	SETDICT:           -3,
+	SETDICTUNIQ:       -3,
+	SETFIELD:          -2,
+	SETGLOBAL:         -1,
+	SETINDEX:          -3,
+	SETLOCAL:          -1,
+	SLASH:             -1,
+	SLASHSLASH:        -1,
+	SLICE:             -3,
+	STAR:              -1,
+	TRUE:              +1,
+	TRY:               0,
+	CATCH_CHECK:       0,
+	LOAD_ERROR:        +1,
+	CATCH_BLOCK_ERROR: 0,
+	RECOVER:           0,
+	UMINUS:            0,
+	UNIVERSAL:         +1,
+	UNPACK:            variableStackEffect,
+	UPLUS:             0,
 }
 
 func (op Opcode) String() string {
@@ -343,6 +360,7 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
+	CanReturnError        bool // true if function is marked with !
 
 	// -- transient state --
 
@@ -374,14 +392,20 @@ type pcomp struct {
 type fcomp struct {
 	fn *Funcode // what we're building
 
-	pcomp *pcomp
-	pos   syntax.Position // current position of generated code
-	loops []loop
-	block *block
+	pcomp       *pcomp
+	pos         syntax.Position // current position of generated code
+	loops       []loop
+	catchBlocks []catchContext
+	block       *block
 }
 
 type loop struct {
 	break_, continue_ *block
+}
+
+type catchContext struct {
+	done        *block // where recover should jump to
+	errorVarIdx uint32 // index of error variable binding
 }
 
 type block struct {
@@ -508,22 +532,23 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 		constants: make(map[interface{}]uint32),
 		functions: make(map[*Funcode]uint32),
 	}
-	pcomp.prog.Toplevel = pcomp.function(name, pos, stmts, locals, nil)
+	pcomp.prog.Toplevel = pcomp.function(name, pos, stmts, locals, nil, false)
 
 	return pcomp.prog
 }
 
-func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding) *Funcode {
+func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.Stmt, locals, freevars []*resolve.Binding, canReturnError bool) *Funcode {
 	fcomp := &fcomp{
 		pcomp: pcomp,
 		pos:   pos,
 		fn: &Funcode{
-			Prog:     pcomp.prog,
-			Pos:      pos,
-			Name:     name,
-			Doc:      docStringFromBody(stmts),
-			Locals:   bindings(locals),
-			FreeVars: bindings(freevars),
+			Prog:           pcomp.prog,
+			Pos:            pos,
+			Name:           name,
+			Doc:            docStringFromBody(stmts),
+			Locals:         bindings(locals),
+			FreeVars:       bindings(freevars),
+			CanReturnError: canReturnError,
 		},
 	}
 
@@ -589,7 +614,7 @@ func (pcomp *pcomp) function(name string, pos syntax.Position, stmts []syntax.St
 				case ITERJMP:
 					isiterjmp = 1
 					fallthrough
-				case CJMP:
+				case CJMP, CATCH_CHECK, RECOVER:
 					cjmpAddr = &b.insns[i].arg
 					pc += 4
 				default:
@@ -709,8 +734,8 @@ func (insn *insn) stackeffect() int {
 	if se == variableStackEffect {
 		arg := int(insn.arg)
 		switch insn.op {
-		case DEFER:
-			// DEFER consumes the entire call: fn + args + kwargs
+		case DEFER, ERRDEFER:
+			// DEFER/ERRDEFER consumes the entire call: fn + args + kwargs
 			se = -int(2*(insn.arg&0xff)+insn.arg>>8) - 1
 		case CALL, CALL_KW, CALL_VAR, CALL_VAR_KW:
 			se = -int(2*(insn.arg&0xff) + insn.arg>>8)
@@ -800,7 +825,7 @@ func (fcomp *fcomp) generate(blocks []*block, codelen uint32) {
 			code = append(code, byte(insn.op))
 			pc++
 			if insn.op >= OpcodeArgMin {
-				if insn.op == CJMP || insn.op == ITERJMP {
+				if insn.op == CJMP || insn.op == ITERJMP || insn.op == CATCH_CHECK || insn.op == RECOVER {
 					code = addUint32(code, insn.arg, 4) // pad arg to 4 bytes
 				} else {
 					code = addUint32(code, insn.arg, 0)
@@ -1226,6 +1251,28 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 		// DEFER opcode captures the call for later execution.
 		fcomp.emit1(DEFER, arg)
 
+	case *syntax.ErrDeferStmt:
+		// Compile the call expression to push fn, args, kwargs on the stack.
+		call := stmt.Call.(*syntax.CallExpr)
+		fcomp.expr(call.Fn)
+		_, arg := fcomp.args(call)
+		fcomp.setPos(call.Lparen)
+		// ERRDEFER opcode captures the call for later execution on error.
+		fcomp.emit1(ERRDEFER, arg)
+
+	case *syntax.RecoverStmt:
+		// Evaluate the result expression
+		fcomp.expr(stmt.Result)
+		// Emit RECOVER opcode which will:
+		// 1. Clear pendingErrorValue
+		// 2. Leave the value on the stack as the catch result
+		// 3. Jump to the done block (via cjmp mechanism)
+		ctx := fcomp.catchBlocks[len(fcomp.catchBlocks)-1]
+		fcomp.setPos(stmt.Recover)
+		fcomp.emit1(RECOVER, 0) // address filled in later via cjmp
+		fcomp.block.cjmp = ctx.done
+		fcomp.block = fcomp.newBlock() // dead code after recover
+
 	case *syntax.ReturnStmt:
 		if stmt.Result != nil {
 			fcomp.expr(stmt.Result)
@@ -1409,6 +1456,102 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 		default:
 			log.Panicf("%s: unexpected unary op: %s", e.OpPos, e.Op)
 		}
+
+	case *syntax.TryExpr:
+		fcomp.expr(e.X)
+		fcomp.setPos(e.Try)
+		if fcomp.fn.CanReturnError {
+			// In ! function: propagate error to caller
+			fcomp.emit(TRY)
+		} else {
+			// Not a ! function (module level in practice, since the
+			// resolver rejects try in non-! functions): convert to
+			// catch + fail(e)
+			handler := fcomp.newBlock()
+			done := fcomp.newBlock()
+			fcomp.emit1(CATCH_CHECK, 0)
+			fcomp.block.cjmp = handler
+			fcomp.jump(done)
+
+			fcomp.block = handler
+			fcomp.emit(POP)                                       // discard failed result
+			fcomp.emit1(UNIVERSAL, fcomp.pcomp.nameIndex("fail")) // push fail function
+			fcomp.emit(LOAD_ERROR)                                // push error value
+			fcomp.emit1(CALL, uint32(1<<8|0))                     // call fail(e)
+			// fail() always errors, but for stack balance with done block:
+			fcomp.jump(done)
+
+			fcomp.block = done
+		}
+
+	case *syntax.CatchExpr:
+		// For value form: expr catch fallback
+		// Compile as:
+		//   compile X
+		//   CATCH_CHECK <handler>
+		//   JMP <done>
+		// handler:
+		//   POP (discard failed result)
+		//   compile fallback
+		// done:
+		//   result on stack
+		handler := fcomp.newBlock()
+		done := fcomp.newBlock()
+
+		// Compile the main expression
+		fcomp.expr(e.X)
+
+		// Check for pending error and jump to handler if set
+		fcomp.setPos(e.Catch)
+		fcomp.emit1(CATCH_CHECK, 0) // address filled in later
+		fcomp.block.cjmp = handler
+		fcomp.jump(done)
+
+		// Handler: pop the failed result and compile fallback expression
+		fcomp.block = handler
+		fcomp.emit(POP) // discard the result from the failed expression
+		if e.FallbackExpr != nil {
+			// Value form: clear pendingErrorValue and compile the fallback expression
+			fcomp.emit(LOAD_ERROR) // materialize and clear pendingErrorValue
+			fcomp.emit(POP)        // discard the error message (we don't need it)
+			fcomp.expr(e.FallbackExpr)
+		} else {
+			// Block form: load error, bind to variable, compile statements
+			fcomp.setPos(e.Catch)
+			fcomp.emit(LOAD_ERROR) // pushes error value on stack
+
+			// Bind error message to the error variable
+			bind := e.ErrorVar.Binding.(*resolve.Binding)
+			switch bind.Scope {
+			case resolve.Local:
+				fcomp.emit1(SETLOCAL, uint32(bind.Index))
+			case resolve.Cell:
+				fcomp.emit1(SETLOCALCELL, uint32(bind.Index))
+			case resolve.Global:
+				fcomp.emit1(SETGLOBAL, uint32(bind.Index))
+			default:
+				log.Panicf("%s: catch error var %s: not global/local/cell (%d)",
+					e.Catch, e.ErrorVar.Name, bind.Scope)
+			}
+
+			// Track catch context for recover statements
+			ctx := catchContext{
+				done:        done,
+				errorVarIdx: uint32(bind.Index),
+			}
+			fcomp.catchBlocks = append(fcomp.catchBlocks, ctx)
+			fcomp.stmts(e.FallbackBlock)
+			fcomp.catchBlocks = fcomp.catchBlocks[:len(fcomp.catchBlocks)-1]
+
+			// If no recover was executed, this is a runtime error.
+			// Catch blocks must end with either recover or return.
+			// Push a dummy value first to satisfy stack depth analysis.
+			fcomp.emit(NONE)
+			fcomp.emit(CATCH_BLOCK_ERROR)
+		}
+		fcomp.jump(done)
+
+		fcomp.block = done
 
 	case *syntax.BinaryExpr:
 		switch e.Op {
@@ -1864,7 +2007,7 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 
 	fcomp.emit1(MAKETUPLE, uint32(ndefaults+len(f.FreeVars)))
 
-	funcode := fcomp.pcomp.function(f.Name, f.Pos, f.Body, f.Locals, f.FreeVars)
+	funcode := fcomp.pcomp.function(f.Name, f.Pos, f.Body, f.Locals, f.FreeVars, f.CanReturnError)
 
 	if debug {
 		// TODO(adonovan): do compilations sequentially not as a tree,

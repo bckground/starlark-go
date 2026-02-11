@@ -91,8 +91,10 @@ import (
 	"go.starlark.net/syntax"
 )
 
-const debug = false
-const doesnt = "this Starlark dialect does not "
+const (
+	debug  = false
+	doesnt = "this Starlark dialect does not "
+)
 
 // Global options: these features are either not standard Starlark
 // (yet), or deprecated features of the BUILD language, so we put them
@@ -148,6 +150,9 @@ func REPLChunk(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name
 	// computing closures.
 	// Function bodies may contain forward references to later global declarations.
 	r.resolveNonLocalUses(r.env)
+
+	// Validate that all calls to error-returning functions are properly handled
+	r.validateErrorCalls(file.Stmts)
 
 	file.Module = &Module{
 		Locals:  r.moduleLocals,
@@ -207,6 +212,7 @@ func newResolver(options *syntax.FileOptions, isGlobal, isPredeclared, isUnivers
 		isUniversal:   isUniversal,
 		globals:       make(map[string]*Binding),
 		predeclared:   make(map[string]*Binding),
+		errorFuncs:    make(map[*Binding]bool),
 	}
 }
 
@@ -236,8 +242,12 @@ type resolver struct {
 	// isGlobal may be nil.
 	isGlobal, isPredeclared, isUniversal func(name string) bool
 
-	loops   int // number of enclosing for/while loops in current function (or file, if top-level)
-	ifstmts int // number of enclosing if statements loops
+	loops        int  // number of enclosing for/while loops in current function (or file, if top-level)
+	ifstmts      int  // number of enclosing if statements loops
+	catchBlocks  int  // number of enclosing catch blocks (for validating recover)
+	inTryContext bool // true when inside try or catch expression (for validating ! function calls)
+
+	errorFuncs map[*Binding]bool // tracks which function bindings are error-returning (have ! suffix)
 
 	errors ErrorList
 }
@@ -348,7 +358,7 @@ func (r *resolver) bind(id *syntax.Ident) bool {
 func (r *resolver) bindLocal(id *syntax.Ident) bool {
 	// Mark this name as local to current block.
 	// Assign it a new local (positive) index in the current container.
-	_, ok := r.env.bindings[id.Name]
+	bind, ok := r.env.bindings[id.Name]
 	if !ok {
 		var locals *[]*Binding
 		if fn := r.container().function; fn != nil {
@@ -356,7 +366,7 @@ func (r *resolver) bindLocal(id *syntax.Ident) bool {
 		} else {
 			locals = &r.moduleLocals
 		}
-		bind := &Binding{
+		bind = &Binding{
 			First: id,
 			Scope: Local,
 			Index: len(*locals),
@@ -364,6 +374,8 @@ func (r *resolver) bindLocal(id *syntax.Ident) bool {
 		r.env.bind(id.Name, bind)
 		*locals = append(*locals, bind)
 	}
+	// Set the binding on the identifier
+	id.Binding = bind
 
 	r.use(id)
 	return ok
@@ -513,7 +525,7 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		}
 
 	case *syntax.IfStmt:
-		if !r.options.TopLevelControl && r.container().function == nil {
+		if !r.options.TopLevelControl && r.container().function == nil && r.catchBlocks == 0 {
 			r.errorf(stmt.If, "if statement not within a function")
 		}
 		r.expr(stmt.Cond)
@@ -530,16 +542,25 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 	case *syntax.DefStmt:
 		r.bind(stmt.Name)
 		fn := &Function{
-			Name:   stmt.Name.Name,
-			Pos:    stmt.Def,
-			Params: stmt.Params,
-			Body:   stmt.Body,
+			Name:           stmt.Name.Name,
+			Pos:            stmt.Def,
+			Params:         stmt.Params,
+			Body:           stmt.Body,
+			CanReturnError: stmt.Exclaim.IsValid(),
 		}
 		stmt.Function = fn
+
+		// Track error-returning functions for call validation
+		if stmt.Exclaim.IsValid() {
+			if binding, ok := stmt.Name.Binding.(*Binding); ok {
+				r.errorFuncs[binding] = true
+			}
+		}
+
 		r.function(fn, stmt.Def)
 
 	case *syntax.ForStmt:
-		if !r.options.TopLevelControl && r.container().function == nil {
+		if !r.options.TopLevelControl && r.container().function == nil && r.catchBlocks == 0 {
 			r.errorf(stmt.For, "for loop not within a function")
 		}
 		r.expr(stmt.X)
@@ -553,7 +574,7 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		if !r.options.While {
 			r.errorf(stmt.While, doesnt+"support while loops")
 		}
-		if !r.options.TopLevelControl && r.container().function == nil {
+		if !r.options.TopLevelControl && r.container().function == nil && r.catchBlocks == 0 {
 			r.errorf(stmt.While, "while loop not within a function")
 		}
 		r.expr(stmt.Cond)
@@ -567,6 +588,15 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		}
 		r.expr(stmt.Call)
 
+	case *syntax.ErrDeferStmt:
+		fn := r.container().function
+		if fn == nil {
+			r.errorf(stmt.Errdefer, "errdefer statement not within a function")
+		} else if !fn.CanReturnError {
+			r.errorf(stmt.Errdefer, "errdefer statement only allowed in error-returning functions (functions marked with !)")
+		}
+		r.expr(stmt.Call)
+
 	case *syntax.ReturnStmt:
 		if r.container().function == nil {
 			r.errorf(stmt.Return, "return statement not within a function")
@@ -574,6 +604,12 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		if stmt.Result != nil {
 			r.expr(stmt.Result)
 		}
+
+	case *syntax.RecoverStmt:
+		if r.catchBlocks == 0 {
+			r.errorf(stmt.Recover, "recover statement not within a catch block")
+		}
+		r.expr(stmt.Result)
 
 	case *syntax.LoadStmt:
 		// A load statement may not be nested in any other statement.
@@ -730,6 +766,35 @@ func (r *resolver) expr(e syntax.Expr) {
 
 	case *syntax.UnaryExpr:
 		r.expr(e.X)
+
+	case *syntax.TryExpr:
+		// Mark that we're in a try context so ! function calls are allowed
+		saved := r.inTryContext
+		r.inTryContext = true
+		r.expr(e.X)
+		r.inTryContext = saved
+
+	case *syntax.CatchExpr:
+		// The main expression is in try context (can call ! functions)
+		saved := r.inTryContext
+		r.inTryContext = true
+		r.expr(e.X)
+		r.inTryContext = saved
+
+		if e.FallbackExpr != nil {
+			// Value form: just resolve the fallback expression
+			r.expr(e.FallbackExpr)
+		} else {
+			// Block form: create a new scope for the catch block
+			// This allows the error variable to shadow outer variables
+			// and prevents variables defined in the catch block from leaking out
+			r.push(&block{})
+			r.bind(e.ErrorVar) // bind the error variable in the new scope
+			r.catchBlocks++
+			r.stmts(e.FallbackBlock)
+			r.catchBlocks--
+			r.pop()
+		}
 
 	case *syntax.BinaryExpr:
 		r.expr(e.X)
@@ -999,4 +1064,221 @@ func (r *resolver) lookupLexical(use use, env *block) (bind *Binding) {
 		env.bind(use.id.Name, bind)
 	}
 	return bind
+}
+
+// validateErrorCalls validates that all calls to error-returning functions (marked with !)
+// are properly handled with try/catch or are in error-returning functions.
+// This validation runs after all bindings have been resolved.
+func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
+	var validateStmts func([]syntax.Stmt, *Function, bool)
+	var validateExpr func(syntax.Expr, *Function, bool)
+
+	validateStmts = func(stmts []syntax.Stmt, currentFunc *Function, inTryContext bool) {
+		for _, stmt := range stmts {
+			switch stmt := stmt.(type) {
+			case *syntax.DefStmt:
+				// Recurse into function body with new context
+				if fn, ok := stmt.Function.(*Function); ok {
+					validateStmts(stmt.Body, fn, false)
+				}
+
+			case *syntax.ExprStmt:
+				validateExpr(stmt.X, currentFunc, inTryContext)
+
+			case *syntax.AssignStmt:
+				validateExpr(stmt.RHS, currentFunc, inTryContext)
+
+			case *syntax.IfStmt:
+				validateExpr(stmt.Cond, currentFunc, inTryContext)
+				validateStmts(stmt.True, currentFunc, inTryContext)
+				validateStmts(stmt.False, currentFunc, inTryContext)
+
+			case *syntax.ForStmt:
+				validateExpr(stmt.X, currentFunc, inTryContext)
+				validateStmts(stmt.Body, currentFunc, inTryContext)
+
+			case *syntax.WhileStmt:
+				validateExpr(stmt.Cond, currentFunc, inTryContext)
+				validateStmts(stmt.Body, currentFunc, inTryContext)
+
+			case *syntax.ReturnStmt:
+				if stmt.Result != nil {
+					validateExpr(stmt.Result, currentFunc, inTryContext)
+				}
+
+			case *syntax.DeferStmt:
+				validateExpr(stmt.Call, currentFunc, inTryContext)
+
+			case *syntax.ErrDeferStmt:
+				validateExpr(stmt.Call, currentFunc, inTryContext)
+
+			case *syntax.RecoverStmt:
+				validateExpr(stmt.Result, currentFunc, inTryContext)
+			}
+		}
+	}
+
+	// isErrorReturningCall checks if an expression is a call to an error-returning function
+	isErrorReturningCall := func(expr syntax.Expr) bool {
+		call, ok := expr.(*syntax.CallExpr)
+		if !ok {
+			return false
+		}
+		ident, ok := call.Fn.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		binding, ok := ident.Binding.(*Binding)
+		if !ok {
+			return false
+		}
+		// Check if this binding is in errorFuncs directly
+		if r.errorFuncs[binding] {
+			return true
+		}
+		// For Free bindings, check the original binding via First
+		// (Free bindings preserve First from the original Local binding)
+		if binding.Scope == Free && binding.First != nil {
+			if origBinding, ok := binding.First.Binding.(*Binding); ok {
+				return r.errorFuncs[origBinding]
+			}
+		}
+		return false
+	}
+
+	validateExpr = func(expr syntax.Expr, currentFunc *Function, inTryContext bool) {
+		if expr == nil {
+			return
+		}
+
+		switch e := expr.(type) {
+		case *syntax.TryExpr:
+			// Validate that try is used on an error-returning function call
+			if !isErrorReturningCall(e.X) {
+				pos, _ := e.X.Span()
+				r.errorf(pos, "try requires call to error-returning function")
+			}
+			// try is only allowed in ! functions or at module level
+			if currentFunc != nil && !currentFunc.CanReturnError {
+				pos, _ := e.Span()
+				r.errorf(pos, "try requires enclosing error-returning function")
+			}
+			// Inside try, error calls are allowed
+			validateExpr(e.X, currentFunc, true)
+
+		case *syntax.CatchExpr:
+			// Validate that catch is used on an error-returning function call
+			if !isErrorReturningCall(e.X) {
+				pos, _ := e.X.Span()
+				r.errorf(pos, "catch requires call to error-returning function")
+			}
+			// The main expression is in try context
+			validateExpr(e.X, currentFunc, true)
+
+			// Validate the fallback (not in try context)
+			if e.FallbackExpr != nil {
+				validateExpr(e.FallbackExpr, currentFunc, false)
+			} else {
+				// Block form
+				validateStmts(e.FallbackBlock, currentFunc, false)
+			}
+
+		case *syntax.CallExpr:
+			// Validate the callee and arguments
+			validateExpr(e.Fn, currentFunc, inTryContext)
+			for _, arg := range e.Args {
+				validateExpr(arg, currentFunc, inTryContext)
+			}
+
+			// Check if this is a call to an error-returning function
+			if ident, ok := e.Fn.(*syntax.Ident); ok {
+				if binding, ok := ident.Binding.(*Binding); ok {
+					isErrorFunc := r.errorFuncs[binding]
+					// For Free bindings, check the original binding via First
+					if !isErrorFunc && binding.Scope == Free && binding.First != nil {
+						if origBinding, ok := binding.First.Binding.(*Binding); ok {
+							isErrorFunc = r.errorFuncs[origBinding]
+						}
+					}
+					if isErrorFunc {
+						if !inTryContext {
+							pos, _ := e.Fn.Span()
+							r.errorf(pos, "call to error-returning function %q must be handled with try or catch", ident.Name)
+						}
+					}
+				}
+			}
+
+		case *syntax.BinaryExpr:
+			validateExpr(e.X, currentFunc, inTryContext)
+			validateExpr(e.Y, currentFunc, inTryContext)
+
+		case *syntax.UnaryExpr:
+			validateExpr(e.X, currentFunc, inTryContext)
+
+		case *syntax.ParenExpr:
+			validateExpr(e.X, currentFunc, inTryContext)
+
+		case *syntax.ListExpr:
+			for _, elem := range e.List {
+				validateExpr(elem, currentFunc, inTryContext)
+			}
+
+		case *syntax.DictExpr:
+			for _, elem := range e.List {
+				if entry, ok := elem.(*syntax.DictEntry); ok {
+					validateExpr(entry.Key, currentFunc, inTryContext)
+					validateExpr(entry.Value, currentFunc, inTryContext)
+				}
+			}
+
+		case *syntax.TupleExpr:
+			for _, elem := range e.List {
+				validateExpr(elem, currentFunc, inTryContext)
+			}
+
+		case *syntax.IndexExpr:
+			validateExpr(e.X, currentFunc, inTryContext)
+			validateExpr(e.Y, currentFunc, inTryContext)
+
+		case *syntax.SliceExpr:
+			validateExpr(e.X, currentFunc, inTryContext)
+			if e.Lo != nil {
+				validateExpr(e.Lo, currentFunc, inTryContext)
+			}
+			if e.Hi != nil {
+				validateExpr(e.Hi, currentFunc, inTryContext)
+			}
+			if e.Step != nil {
+				validateExpr(e.Step, currentFunc, inTryContext)
+			}
+
+		case *syntax.DotExpr:
+			validateExpr(e.X, currentFunc, inTryContext)
+
+		case *syntax.Comprehension:
+			validateExpr(e.Body, currentFunc, inTryContext)
+			for _, clause := range e.Clauses {
+				switch clause := clause.(type) {
+				case *syntax.ForClause:
+					validateExpr(clause.X, currentFunc, inTryContext)
+				case *syntax.IfClause:
+					validateExpr(clause.Cond, currentFunc, inTryContext)
+				}
+			}
+
+		case *syntax.CondExpr:
+			validateExpr(e.Cond, currentFunc, inTryContext)
+			validateExpr(e.True, currentFunc, inTryContext)
+			validateExpr(e.False, currentFunc, inTryContext)
+
+		case *syntax.LambdaExpr:
+			// Lambdas can't be error-returning, so reset inTryContext
+			if fn, ok := e.Function.(*Function); ok {
+				validateStmts(fn.Body, fn, false)
+			}
+		}
+	}
+
+	validateStmts(stmts, nil, false)
 }
