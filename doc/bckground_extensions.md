@@ -198,10 +198,10 @@ error.details    supplementary data (list)
 
 An error used in a Boolean context is considered false.
 
-Errors are not created directly by the programmer.  Instead, when a `!`
-function returns an error tag, the runtime wraps it in an error value
-that carries the tag.  Errors with richer metadata can be constructed
-by calling an error tag as a function:
+An error can be created by calling an error tag as a function with
+optional keyword arguments for metadata.  When a `!` function returns
+a bare error tag, the runtime automatically wraps it in an error value
+with default (empty) metadata:
 
 ```python
 errors = error_tags("IOError")
