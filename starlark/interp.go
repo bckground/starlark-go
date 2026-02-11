@@ -3,10 +3,10 @@ package starlark
 // This file defines the bytecode interpreter.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
-	"errors"
 	"go.starlark.net/internal/compile"
 	"go.starlark.net/internal/spell"
 	"go.starlark.net/syntax"
@@ -96,8 +96,8 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	// - there is exactly one return statement
 	// - there is no redefinition of 'err'.
 
-	var iterstack []Iterator      // stack of active iterators
-	var deferstack []deferredCall // stack of deferred calls
+	var iterstack []Iterator         // stack of active iterators
+	var deferstack []deferredCall    // stack of deferred calls
 	var errDeferstack []deferredCall // stack of error-only deferred calls
 
 	// Use defer so that application panics can pass through

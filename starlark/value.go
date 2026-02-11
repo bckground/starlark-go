@@ -473,7 +473,8 @@ func (f Float) format(buf *strings.Builder, conv byte) {
 
 func (f Float) Type() string { return "float" }
 func (f Float) Freeze()      {} // immutable
-func (f Float) Truth() Bool  { return f != 0.0 }
+func (f Float) Truth() Bool { return f != 0.0 }
+
 func (f Float) Hash() (uint32, error) {
 	// Equal float and int values must yield the same hash.
 	// TODO(adonovan): opt: if f is non-integral, and thus not equal
@@ -841,6 +842,7 @@ func (b *Builtin) Freeze() {
 		b.recv.Freeze()
 	}
 }
+
 func (b *Builtin) Hash() (uint32, error) {
 	h := hashString(b.name)
 	if b.recv != nil {
@@ -1876,7 +1878,8 @@ func (et *ErrorTags) String() string {
 
 func (et *ErrorTags) Type() string { return "error_tags" }
 func (et *ErrorTags) Freeze()      {} // error tag sets are immutable
-func (et *ErrorTags) Truth() Bool  { return True }
+func (et *ErrorTags) Truth() Bool { return True }
+
 func (et *ErrorTags) Hash() (uint32, error) {
 	return 0, fmt.Errorf("unhashable type: %s", et.Type())
 }

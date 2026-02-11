@@ -42,7 +42,7 @@ func main() {
 	for _, pkg := range strings.Split(strings.TrimSpace(fmt.Sprint(cmd.Stdout)), "\n") {
 		rel := strings.TrimPrefix(pkg, "go.starlark.net/") // e.g. "cmd/starlark"
 		subdir := filepath.Join("docs", rel)
-		if err := os.MkdirAll(subdir, 0777); err != nil {
+		if err := os.MkdirAll(subdir, 0o777); err != nil {
 			log.Fatal(err)
 		}
 
@@ -50,7 +50,7 @@ func main() {
 		html := filepath.Join(subdir, "index.html")
 		if _, err := os.Stat(html); os.IsNotExist(err) {
 			data := strings.Replace(defaultHTML, "$PKG", pkg, -1)
-			if err := os.WriteFile(html, []byte(data), 0666); err != nil {
+			if err := os.WriteFile(html, []byte(data), 0o666); err != nil {
 				log.Fatal(err)
 			}
 			log.Printf("created %s", html)

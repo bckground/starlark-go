@@ -91,8 +91,10 @@ import (
 	"go.starlark.net/syntax"
 )
 
-const debug = false
-const doesnt = "this Starlark dialect does not "
+const (
+	debug  = false
+	doesnt = "this Starlark dialect does not "
+)
 
 // Global options: these features are either not standard Starlark
 // (yet), or deprecated features of the BUILD language, so we put them

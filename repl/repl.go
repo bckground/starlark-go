@@ -174,7 +174,7 @@ func MakeLoadOptions(opts *syntax.FileOptions) func(thread *starlark.Thread, mod
 		err     error
 	}
 
-	var cache = make(map[string]*entry)
+	cache := make(map[string]*entry)
 
 	return func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 		e, ok := cache[module]

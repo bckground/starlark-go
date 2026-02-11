@@ -113,7 +113,6 @@ func encode(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 
 	var emit func(x starlark.Value) error
 	emit = func(x starlark.Value) error {
-
 		// It is only necessary to push/pop the item when it might contain
 		// itself (i.e. the last three switch cases), but omitting it in the other
 		// cases did not show significant improvement on the benchmarks.

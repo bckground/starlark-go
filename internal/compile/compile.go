@@ -99,22 +99,22 @@ const (
 	FALSE     // - FALSE False
 	MANDATORY // - MANDATORY Mandatory	     [sentinel value for required kwonly args]
 
-	ITERPUSH     //       iterable ITERPUSH     -  [pushes the iterator stack]
-	ITERPOP      //              - ITERPOP      -    [pops the iterator stack]
-	NOT          //          value NOT          bool
-	RETURN       //          value RETURN       -
-	SETINDEX     //        a i new SETINDEX     -
-	INDEX        //            a i INDEX        elem
-	SETDICT      // dict key value SETDICT      -
-	SETDICTUNIQ  // dict key value SETDICTUNIQ  -
-	APPEND       //      list elem APPEND       -
-	SLICE        //   x lo hi step SLICE        slice
-	INPLACE_ADD  //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
-	INPLACE_PIPE //            x y INPLACE_PIPE z      where z is x|y
-	MAKEDICT     //              - MAKEDICT     dict
-	TRY                //              - TRY                   -           [check pendingErrorValue, propagate if set]
-	LOAD_ERROR         //              - LOAD_ERROR            error       [materialize pendingErrorValue on stack, clear it]
-	CATCH_BLOCK_ERROR  //              - CATCH_BLOCK_ERROR     -           [runtime error: catch block must end with recover or return]
+	ITERPUSH          //       iterable ITERPUSH     -  [pushes the iterator stack]
+	ITERPOP           //              - ITERPOP      -    [pops the iterator stack]
+	NOT               //          value NOT          bool
+	RETURN            //          value RETURN       -
+	SETINDEX          //        a i new SETINDEX     -
+	INDEX             //            a i INDEX        elem
+	SETDICT           // dict key value SETDICT      -
+	SETDICTUNIQ       // dict key value SETDICTUNIQ  -
+	APPEND            //      list elem APPEND       -
+	SLICE             //   x lo hi step SLICE        slice
+	INPLACE_ADD       //            x y INPLACE_ADD  z      where z is x+y or x.extend(y)
+	INPLACE_PIPE      //            x y INPLACE_PIPE z      where z is x|y
+	MAKEDICT          //              - MAKEDICT     dict
+	TRY               //              - TRY                   -           [check pendingErrorValue, propagate if set]
+	LOAD_ERROR        //              - LOAD_ERROR            error       [materialize pendingErrorValue on stack, clear it]
+	CATCH_BLOCK_ERROR //              - CATCH_BLOCK_ERROR     -           [runtime error: catch block must end with recover or return]
 
 	// --- opcodes with an argument must go below this line ---
 
@@ -241,79 +241,79 @@ const variableStackEffect = 0x7f
 // stackEffect records the effect on the size of the operand stack of
 // each kind of instruction. For some instructions this requires computation.
 var stackEffect = [...]int8{
-	AMP:          -1,
-	APPEND:       -2,
-	ATTR:         0,
-	CALL:         variableStackEffect,
-	CALL_KW:      variableStackEffect,
-	CALL_VAR:     variableStackEffect,
-	CALL_VAR_KW:  variableStackEffect,
-	CIRCUMFLEX:   -1,
-	CJMP:         -1,
-	CONSTANT:     +1,
-	DEFER:        variableStackEffect,
-	ERRDEFER:     variableStackEffect,
-	DUP2:         +2,
-	DUP:          +1,
-	EQL:          -1,
-	FALSE:        +1,
-	FREE:         +1,
-	FREECELL:     +1,
-	GE:           -1,
-	GLOBAL:       +1,
-	GT:           -1,
-	GTGT:         -1,
-	IN:           -1,
-	INDEX:        -1,
-	INPLACE_ADD:  -1,
-	INPLACE_PIPE: -1,
-	ITERJMP:      variableStackEffect,
-	ITERPOP:      0,
-	ITERPUSH:     -1,
-	JMP:          0,
-	LE:           -1,
-	LOAD:         -1,
-	LOCAL:        +1,
-	LOCALCELL:    +1,
-	LT:           -1,
-	LTLT:         -1,
-	MAKEDICT:     +1,
-	MAKEFUNC:     0,
-	MAKELIST:     variableStackEffect,
-	MAKETUPLE:    variableStackEffect,
-	MANDATORY:    +1,
-	MINUS:        -1,
-	NEQ:          -1,
-	NONE:         +1,
-	NOP:          0,
-	NOT:          0,
-	PERCENT:      -1,
-	PIPE:         -1,
-	PLUS:         -1,
-	POP:          -1,
-	PREDECLARED:  +1,
-	RETURN:       -1,
-	SETLOCALCELL: -1,
-	SETDICT:      -3,
-	SETDICTUNIQ:  -3,
-	SETFIELD:     -2,
-	SETGLOBAL:    -1,
-	SETINDEX:     -3,
-	SETLOCAL:     -1,
-	SLASH:        -1,
-	SLASHSLASH:   -1,
-	SLICE:        -3,
-	STAR:         -1,
-	TRUE:         +1,
+	AMP:               -1,
+	APPEND:            -2,
+	ATTR:              0,
+	CALL:              variableStackEffect,
+	CALL_KW:           variableStackEffect,
+	CALL_VAR:          variableStackEffect,
+	CALL_VAR_KW:       variableStackEffect,
+	CIRCUMFLEX:        -1,
+	CJMP:              -1,
+	CONSTANT:          +1,
+	DEFER:             variableStackEffect,
+	ERRDEFER:          variableStackEffect,
+	DUP2:              +2,
+	DUP:               +1,
+	EQL:               -1,
+	FALSE:             +1,
+	FREE:              +1,
+	FREECELL:          +1,
+	GE:                -1,
+	GLOBAL:            +1,
+	GT:                -1,
+	GTGT:              -1,
+	IN:                -1,
+	INDEX:             -1,
+	INPLACE_ADD:       -1,
+	INPLACE_PIPE:      -1,
+	ITERJMP:           variableStackEffect,
+	ITERPOP:           0,
+	ITERPUSH:          -1,
+	JMP:               0,
+	LE:                -1,
+	LOAD:              -1,
+	LOCAL:             +1,
+	LOCALCELL:         +1,
+	LT:                -1,
+	LTLT:              -1,
+	MAKEDICT:          +1,
+	MAKEFUNC:          0,
+	MAKELIST:          variableStackEffect,
+	MAKETUPLE:         variableStackEffect,
+	MANDATORY:         +1,
+	MINUS:             -1,
+	NEQ:               -1,
+	NONE:              +1,
+	NOP:               0,
+	NOT:               0,
+	PERCENT:           -1,
+	PIPE:              -1,
+	PLUS:              -1,
+	POP:               -1,
+	PREDECLARED:       +1,
+	RETURN:            -1,
+	SETLOCALCELL:      -1,
+	SETDICT:           -3,
+	SETDICTUNIQ:       -3,
+	SETFIELD:          -2,
+	SETGLOBAL:         -1,
+	SETINDEX:          -3,
+	SETLOCAL:          -1,
+	SLASH:             -1,
+	SLASHSLASH:        -1,
+	SLICE:             -3,
+	STAR:              -1,
+	TRUE:              +1,
 	TRY:               0,
 	CATCH_CHECK:       0,
 	LOAD_ERROR:        +1,
 	CATCH_BLOCK_ERROR: 0,
 	RECOVER:           0,
-	UMINUS:       0,
-	UNIVERSAL:    +1,
-	UNPACK:       variableStackEffect,
-	UPLUS:        0,
+	UMINUS:            0,
+	UNIVERSAL:         +1,
+	UNPACK:            variableStackEffect,
+	UPLUS:             0,
 }
 
 func (op Opcode) String() string {
@@ -404,8 +404,8 @@ type loop struct {
 }
 
 type catchContext struct {
-	done         *block   // where recover should jump to
-	errorVarIdx  uint32   // index of error variable binding
+	done        *block // where recover should jump to
+	errorVarIdx uint32 // index of error variable binding
 }
 
 type block struct {
@@ -1474,10 +1474,10 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 			fcomp.jump(done)
 
 			fcomp.block = handler
-			fcomp.emit(POP)                                         // discard failed result
-			fcomp.emit1(UNIVERSAL, fcomp.pcomp.nameIndex("fail"))   // push fail function
-			fcomp.emit(LOAD_ERROR)                                   // push error value
-			fcomp.emit1(CALL, uint32(1<<8|0))                       // call fail(e)
+			fcomp.emit(POP)                                       // discard failed result
+			fcomp.emit1(UNIVERSAL, fcomp.pcomp.nameIndex("fail")) // push fail function
+			fcomp.emit(LOAD_ERROR)                                // push error value
+			fcomp.emit1(CALL, uint32(1<<8|0))                     // call fail(e)
 			// fail() always errors, but for stack balance with done block:
 			fcomp.jump(done)
 
@@ -1513,7 +1513,7 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 		if e.FallbackExpr != nil {
 			// Value form: clear pendingErrorValue and compile the fallback expression
 			fcomp.emit(LOAD_ERROR) // materialize and clear pendingErrorValue
-			fcomp.emit(POP)         // discard the error message (we don't need it)
+			fcomp.emit(POP)        // discard the error message (we don't need it)
 			fcomp.expr(e.FallbackExpr)
 		} else {
 			// Block form: load error, bind to variable, compile statements

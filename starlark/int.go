@@ -170,6 +170,7 @@ func (i Int) Format(s fmt.State, ch rune) {
 	}
 	big.NewInt(iSmall).Format(s, ch)
 }
+
 func (i Int) String() string {
 	iSmall, iBig := i.get()
 	if iBig != nil {
@@ -179,7 +180,8 @@ func (i Int) String() string {
 }
 func (i Int) Type() string { return "int" }
 func (i Int) Freeze()      {} // immutable
-func (i Int) Truth() Bool  { return i.Sign() != 0 }
+func (i Int) Truth() Bool { return i.Sign() != 0 }
+
 func (i Int) Hash() (uint32, error) {
 	iSmall, iBig := i.get()
 	var lo big.Word
@@ -252,6 +254,7 @@ func (x Int) Add(y Int) Int {
 	}
 	return MakeInt64(xSmall + ySmall)
 }
+
 func (x Int) Sub(y Int) Int {
 	xSmall, xBig := x.get()
 	ySmall, yBig := y.get()
@@ -260,6 +263,7 @@ func (x Int) Sub(y Int) Int {
 	}
 	return MakeInt64(xSmall - ySmall)
 }
+
 func (x Int) Mul(y Int) Int {
 	xSmall, xBig := x.get()
 	ySmall, yBig := y.get()
@@ -268,6 +272,7 @@ func (x Int) Mul(y Int) Int {
 	}
 	return MakeInt64(xSmall * ySmall)
 }
+
 func (x Int) Or(y Int) Int {
 	xSmall, xBig := x.get()
 	ySmall, yBig := y.get()
@@ -276,6 +281,7 @@ func (x Int) Or(y Int) Int {
 	}
 	return makeSmallInt(xSmall | ySmall)
 }
+
 func (x Int) And(y Int) Int {
 	xSmall, xBig := x.get()
 	ySmall, yBig := y.get()
@@ -284,6 +290,7 @@ func (x Int) And(y Int) Int {
 	}
 	return makeSmallInt(xSmall & ySmall)
 }
+
 func (x Int) Xor(y Int) Int {
 	xSmall, xBig := x.get()
 	ySmall, yBig := y.get()
@@ -292,6 +299,7 @@ func (x Int) Xor(y Int) Int {
 	}
 	return makeSmallInt(xSmall ^ ySmall)
 }
+
 func (x Int) Not() Int {
 	xSmall, xBig := x.get()
 	if xBig != nil {

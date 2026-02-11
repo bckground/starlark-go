@@ -1113,6 +1113,7 @@ func (s *sortSlice) Less(i, j int) bool {
 	}
 	return ok
 }
+
 func (s *sortSlice) Swap(i, j int) {
 	if s.keys != nil {
 		s.keys[i], s.keys[j] = s.keys[j], s.keys[i]
@@ -2112,7 +2113,6 @@ func string_split(_ *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, err
 		} else { // rsplit
 			res = rsplitspace(recv, maxsplit)
 		}
-
 	} else if sep, ok := AsString(sep_); ok {
 		if sep == "" {
 			return nil, fmt.Errorf("split: empty separator")
@@ -2462,7 +2462,6 @@ func updateDict(dict *Dict, updates Tuple, kwargs []Tuple) error {
 				iter2 := Iterate(pair)
 				if iter2 == nil {
 					return fmt.Errorf("dictionary update sequence element #%d is not iterable (%s)", i, pair.Type())
-
 				}
 				defer iter2.Done()
 				len := Len(pair)

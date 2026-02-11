@@ -172,6 +172,7 @@ func (s *Struct) Hash() (uint32, error) {
 	}
 	return x, nil
 }
+
 func (s *Struct) Freeze() {
 	if !s.frozen {
 		s.frozen = true

@@ -95,12 +95,12 @@ func (*DefStmt) stmt()      {}
 func (*DeferStmt) stmt()    {}
 func (*ErrDeferStmt) stmt() {}
 func (*ExprStmt) stmt()     {}
-func (*ForStmt) stmt()     {}
-func (*WhileStmt) stmt()   {}
-func (*IfStmt) stmt()      {}
-func (*LoadStmt) stmt()    {}
-func (*RecoverStmt) stmt() {}
-func (*ReturnStmt) stmt()  {}
+func (*ForStmt) stmt()      {}
+func (*WhileStmt) stmt()    {}
+func (*IfStmt) stmt()       {}
+func (*LoadStmt) stmt()     {}
+func (*RecoverStmt) stmt()  {}
+func (*ReturnStmt) stmt()   {}
 
 // An AssignStmt represents an assignment:
 //
@@ -540,12 +540,12 @@ func (x *TryExpr) Span() (start, end Position) {
 // This is the first expression type that can contain statements (in block form).
 type CatchExpr struct {
 	commentsRef
-	X             Expr      // expression that may fail
-	Catch         Position  // position of 'catch'
-	ErrorVar      *Ident    // error binding (nil for value form)
-	Colon         Position  // position of ':' (invalid if value form)
-	FallbackExpr  Expr      // fallback value (nil if block form)
-	FallbackBlock []Stmt    // fallback statements (nil if value form)
+	X             Expr     // expression that may fail
+	Catch         Position // position of 'catch'
+	ErrorVar      *Ident   // error binding (nil for value form)
+	Colon         Position // position of ':' (invalid if value form)
+	FallbackExpr  Expr     // fallback value (nil if block form)
+	FallbackBlock []Stmt   // fallback statements (nil if value form)
 }
 
 func (x *CatchExpr) Span() (start, end Position) {
