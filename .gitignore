@@ -1,7 +1,7 @@
 .local
 .envrc
 .direnv
-.mise.local.toml
+mise.local.toml
 
 # AI tooling
 .mcp.json
