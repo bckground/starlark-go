@@ -1857,57 +1857,57 @@ type FailError struct {
 
 func (e *FailError) Error() string { return e.Msg }
 
-// ErrorTagSet represents a namespace of error values.
-type ErrorTagSet struct {
+// ErrorTags represents a namespace of error values.
+type ErrorTags struct {
 	names []string
 	attrs StringDict
 }
 
-func NewErrorTagSet(names []string, attrs StringDict) *ErrorTagSet {
-	return &ErrorTagSet{names: names, attrs: attrs}
+func NewErrorTags(names []string, attrs StringDict) *ErrorTags {
+	return &ErrorTags{names: names, attrs: attrs}
 }
 
-func (ets *ErrorTagSet) String() string {
-	if len(ets.names) == 0 {
-		return "error_tag_set()"
+func (et *ErrorTags) String() string {
+	if len(et.names) == 0 {
+		return "error_tags()"
 	}
-	return fmt.Sprintf("%s(%s)", ets.Type(), strings.Join(ets.names, ", "))
+	return fmt.Sprintf("%s(%s)", et.Type(), strings.Join(et.names, ", "))
 }
 
-func (ets *ErrorTagSet) Type() string { return "error_tag_set" }
-func (ets *ErrorTagSet) Freeze()      {} // error tag sets are immutable
-func (ets *ErrorTagSet) Truth() Bool  { return True }
-func (ets *ErrorTagSet) Hash() (uint32, error) {
-	return 0, fmt.Errorf("unhashable type: %s", ets.Type())
+func (et *ErrorTags) Type() string { return "error_tags" }
+func (et *ErrorTags) Freeze()      {} // error tag sets are immutable
+func (et *ErrorTags) Truth() Bool  { return True }
+func (et *ErrorTags) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: %s", et.Type())
 }
 
-func (ets *ErrorTagSet) Attr(name string) (Value, error) {
-	v, ok := ets.attrs[name]
+func (et *ErrorTags) Attr(name string) (Value, error) {
+	v, ok := et.attrs[name]
 	if !ok {
-		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", ets.Type(), name))
+		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", et.Type(), name))
 	}
 	return v, nil
 }
 
-func (ets *ErrorTagSet) AttrNames() []string {
-	names := make([]string, 0, len(ets.attrs))
-	for name := range ets.attrs {
+func (et *ErrorTags) AttrNames() []string {
+	names := make([]string, 0, len(et.attrs))
+	for name := range et.attrs {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
 }
 
-func (ets *ErrorTagSet) Binary(op syntax.Token, y Value, side Side) (Value, error) {
+func (et *ErrorTags) Binary(op syntax.Token, y Value, side Side) (Value, error) {
 	if op == syntax.PIPE || op == syntax.PLUS {
-		if other, ok := y.(*ErrorTagSet); ok {
+		if other, ok := y.(*ErrorTags); ok {
 			// Merge the two error tag sets.
-			merged := &ErrorTagSet{
-				attrs: make(StringDict, len(ets.attrs)+len(other.attrs)),
+			merged := &ErrorTags{
+				attrs: make(StringDict, len(et.attrs)+len(other.attrs)),
 			}
-			for _, name := range ets.names {
+			for _, name := range et.names {
 				merged.names = append(merged.names, name)
-				merged.attrs[name] = ets.attrs[name]
+				merged.attrs[name] = et.attrs[name]
 			}
 			for _, name := range other.names {
 				if _, exists := merged.attrs[name]; !exists {

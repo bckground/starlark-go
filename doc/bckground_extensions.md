@@ -214,7 +214,7 @@ e.details   # ["sda1"]
 #### Error tag sets
 
 An _error tag set_ is an immutable namespace whose attributes are error
-tags.  Its [type](#type) is `"error_tag_set"`.  Error tag sets are created by the
+tags.  Its [type](#type) is `"error_tags"`.  Error tag sets are created by the
 `error_tags` built-in function.
 
 
