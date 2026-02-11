@@ -1,0 +1,8 @@
+.local
+.envrc
+.direnv
+.mise.local.toml
+
+# AI tooling
+.mcp.json
+.claude/settings.local.json
