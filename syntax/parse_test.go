@@ -626,6 +626,49 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+func TestLoadModuleBinding(t *testing.T) {
+	opts := &syntax.FileOptions{LoadModuleBinding: true}
+
+	tests := []struct {
+		input    string
+		wantName string // expected derived binding name
+	}{
+		{`load("foo.star")`, "foo"},
+		{`load("path/to/bar.star")`, "bar"},
+		{`load("baz")`, "baz"},
+		{`load("path/to/baz")`, "baz"},
+		{`load("config.json")`, "config"},
+		{`load("utils.bzl")`, "utils"},
+		{`load("//pkg/foo.star")`, "foo"},
+		{`load("data.txt")`, "data"},
+		{`load("mylib.py")`, "mylib"},
+	}
+	for _, test := range tests {
+		f, err := opts.Parse("test", test.input, 0)
+		if err != nil {
+			t.Errorf("Parse(%s): %v", test.input, err)
+			continue
+		}
+		load := f.Stmts[0].(*syntax.LoadStmt)
+		if len(load.To) != 1 {
+			t.Errorf("Parse(%s): got %d bindings, want 1", test.input, len(load.To))
+			continue
+		}
+		if got := load.To[0].Name; got != test.wantName {
+			t.Errorf("Parse(%s): To = %q, want %q", test.input, got, test.wantName)
+		}
+		if got := load.From[0].Name; got != test.wantName {
+			t.Errorf("Parse(%s): From = %q, want %q", test.input, got, test.wantName)
+		}
+	}
+
+	// Without the option, single-arg load is still an error.
+	_, err := syntax.Parse("test", `load("foo.star")`, 0)
+	if err == nil {
+		t.Error("expected error for single-arg load without LoadModuleBinding option")
+	}
+}
+
 func TestFilePortion(t *testing.T) {
 	// Imagine that the Starlark file or expression print(x.f) is extracted
 	// from the middle of a file in some hypothetical template language;

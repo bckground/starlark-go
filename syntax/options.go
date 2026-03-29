@@ -28,6 +28,9 @@ type FileOptions struct {
 	GlobalReassign    bool // allow reassignment to top-level names
 	LoadBindsGlobally bool // load creates global not file-local bindings (deprecated)
 
+	// parser
+	LoadModuleBinding bool // allow load("foo.star") as shorthand for load("foo.star", "foo")
+
 	// compiler
 	Recursion bool // disable recursion check for functions in this file
 }
