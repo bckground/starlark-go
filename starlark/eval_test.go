@@ -40,6 +40,7 @@ func getOptions(src string) *syntax.FileOptions {
 		TopLevelControl:   option(src, "toplevelcontrol"),
 		GlobalReassign:    option(src, "globalreassign"),
 		LoadBindsGlobally: option(src, "loadbindsglobally"),
+		LoadModuleBinding: option(src, "loadmodulebinding"),
 		Recursion:         option(src, "recursion"),
 	}
 }
@@ -158,6 +159,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/int.star",
 		"testdata/json.star",
 		"testdata/list.star",
+		"testdata/load_module_binding.star",
 		"testdata/math.star",
 		"testdata/misc.star",
 		"testdata/proto.star",
@@ -241,6 +243,9 @@ func load(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 	}
 	if module == "proto.star" {
 		return starlark.StringDict{"proto": starlarkproto.Module}, nil
+	}
+	if module == "noext" {
+		return starlark.StringDict{"noext": starlark.String("loaded_without_extension")}, nil
 	}
 
 	// TODO(adonovan): test load() using this execution path.

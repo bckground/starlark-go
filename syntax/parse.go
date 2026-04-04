@@ -11,7 +11,11 @@ package syntax
 // package.  Verify that error positions are correct using the
 // chunkedfile mechanism.
 
-import "log"
+import (
+	"log"
+	"path"
+	"strings"
+)
 
 // Enable this flag to print the token stream and log.Fatal on the first error.
 const debug = false
@@ -453,7 +457,18 @@ func (p *parser) parseLoadStmt() *LoadStmt {
 	rparen := p.consume(RPAREN)
 
 	if len(to) == 0 {
-		p.in.errorf(lparen, "load statement must import at least 1 symbol")
+		if p.options != nil && p.options.LoadModuleBinding {
+			moduleName := module.Value.(string)
+			name := path.Base(strings.TrimSuffix(moduleName, path.Ext(moduleName)))
+			if name == "" || name == "." {
+				p.in.errorf(lparen, "cannot derive binding name from module path %q", moduleName)
+			}
+			id := &Ident{NamePos: module.TokenPos, Name: name}
+			to = append(to, id)
+			from = append(from, id)
+		} else {
+			p.in.errorf(lparen, "load statement must import at least 1 symbol")
+		}
 	}
 	return &LoadStmt{
 		Load:   loadPos,
