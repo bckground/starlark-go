@@ -70,7 +70,7 @@ type File struct {
 	Path  string
 	Stmts []Stmt
 
-	Module  interface{} // a *resolve.Module, set by resolver
+	Module  any // a *resolve.Module, set by resolver
 	Options *FileOptions
 }
 
@@ -132,7 +132,7 @@ type DefStmt struct {
 	Exclaim Position // position of '!' if function can return errors (invalid if not error-returning)
 	Body    []Stmt
 
-	Function interface{} // a *resolve.Function, set by resolver
+	Function any // a *resolve.Function, set by resolver
 }
 
 func (x *DefStmt) Span() (start, end Position) {
@@ -289,7 +289,7 @@ type Ident struct {
 	NamePos Position
 	Name    string
 
-	Binding interface{} // a *resolver.Binding, set by resolver
+	Binding any // a *resolver.Binding, set by resolver
 }
 
 func (x *Ident) Span() (start, end Position) {
@@ -301,8 +301,8 @@ type Literal struct {
 	commentsRef
 	Token    Token // = STRING | BYTES | INT | FLOAT
 	TokenPos Position
-	Raw      string      // uninterpreted text
-	Value    interface{} // = string | int64 | *big.Int | float64
+	Raw      string // uninterpreted text
+	Value    any    // = string | int64 | *big.Int | float64
 }
 
 func (x *Literal) Span() (start, end Position) {
@@ -452,7 +452,7 @@ type LambdaExpr struct {
 	Params []Expr // param = ident | ident=expr | * | *ident | **ident
 	Body   Expr
 
-	Function interface{} // a *resolve.Function, set by resolver
+	Function any // a *resolve.Function, set by resolver
 }
 
 func (x *LambdaExpr) Span() (start, end Position) {

@@ -74,6 +74,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -473,7 +474,7 @@ func (f Float) format(buf *strings.Builder, conv byte) {
 
 func (f Float) Type() string { return "float" }
 func (f Float) Freeze()      {} // immutable
-func (f Float) Truth() Bool { return f != 0.0 }
+func (f Float) Truth() Bool  { return f != 0.0 }
 
 func (f Float) Hash() (uint32, error) {
 	// Equal float and int values must yield the same hash.
@@ -1478,12 +1479,7 @@ func writeValue(out *strings.Builder, x Value, path []Value) {
 }
 
 func pathContains(path []Value, x Value) bool {
-	for _, y := range path {
-		if x == y {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(path, x)
 }
 
 // CompareLimit is the depth limit on recursive comparison operations such as == and <.
@@ -1878,7 +1874,7 @@ func (et *ErrorTags) String() string {
 
 func (et *ErrorTags) Type() string { return "error_tags" }
 func (et *ErrorTags) Freeze()      {} // error tag sets are immutable
-func (et *ErrorTags) Truth() Bool { return True }
+func (et *ErrorTags) Truth() Bool  { return True }
 
 func (et *ErrorTags) Hash() (uint32, error) {
 	return 0, fmt.Errorf("unhashable type: %s", et.Type())
