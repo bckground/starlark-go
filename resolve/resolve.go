@@ -135,13 +135,27 @@ var (
 // dependency upon starlark.Universe, not because users should ever need
 // to redefine it.
 func File(file *syntax.File, isPredeclared, isUniversal func(name string) bool) error {
-	return REPLChunk(file, nil, isPredeclared, isUniversal)
+	return FileWithCanError(file, isPredeclared, isUniversal, nil)
+}
+
+// FileWithCanError is like File but additionally accepts an isPredeclaredCanError
+// predicate that reports whether a predeclared or universal name refers to an
+// error-returning function (the Go equivalent of "def f()!:").
+func FileWithCanError(file *syntax.File, isPredeclared, isUniversal func(name string) bool, isPredeclaredCanError func(name string) bool) error {
+	return REPLChunkWithCanError(file, nil, isPredeclared, isUniversal, isPredeclaredCanError)
 }
 
 // REPLChunk is a generalization of the File function that supports a
 // non-empty initial global block, as occurs in a REPL.
 func REPLChunk(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name string) bool) error {
+	return REPLChunkWithCanError(file, isGlobal, isPredeclared, isUniversal, nil)
+}
+
+// REPLChunkWithCanError is like REPLChunk but additionally accepts an
+// isPredeclaredCanError predicate. See FileWithCanError for details.
+func REPLChunkWithCanError(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name string) bool, isPredeclaredCanError func(name string) bool) error {
 	r := newResolver(file.Options, isGlobal, isPredeclared, isUniversal)
+	r.isPredeclaredCanError = isPredeclaredCanError
 	r.stmts(file.Stmts)
 
 	r.env.resolveLocalUses()
@@ -241,6 +255,11 @@ type resolver struct {
 	// or already declared in the module globals (as in a REPL).
 	// isGlobal may be nil.
 	isGlobal, isPredeclared, isUniversal func(name string) bool
+
+	// isPredeclaredCanError reports whether a predeclared or universal name
+	// refers to an error-returning function (the Go equivalent of def f()!:).
+	// It may be nil.
+	isPredeclaredCanError func(name string) bool
 
 	loops        int  // number of enclosing for/while loops in current function (or file, if top-level)
 	ifstmts      int  // number of enclosing if statements loops
@@ -449,6 +468,10 @@ func (r *resolver) useToplevel(use use) (bind *Binding) {
 	} else if r.isPredeclared(id.Name) {
 		// use of pre-declared name
 		bind = &Binding{Scope: Predeclared}
+		if r.isPredeclaredCanError != nil && r.isPredeclaredCanError(id.Name) {
+			bind.CanReturnError = true
+			r.errorFuncs[bind] = true
+		}
 		r.predeclared[id.Name] = bind // save it
 	} else if r.isUniversal(id.Name) {
 		// use of universal name
@@ -456,6 +479,10 @@ func (r *resolver) useToplevel(use use) (bind *Binding) {
 			r.errorf(id.NamePos, doesnt+"support sets")
 		}
 		bind = &Binding{Scope: Universal}
+		if r.isPredeclaredCanError != nil && r.isPredeclaredCanError(id.Name) {
+			bind.CanReturnError = true
+			r.errorFuncs[bind] = true
+		}
 		r.predeclared[id.Name] = bind // save it
 	} else {
 		bind = &Binding{Scope: Undefined}

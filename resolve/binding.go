@@ -24,6 +24,11 @@ type Binding struct {
 	Index int
 
 	First *syntax.Ident // first binding use (iff Scope==Local/Free/Global)
+
+	// CanReturnError indicates that this binding refers to an error-returning
+	// function (marked with ! in Starlark, or created with NewBuiltinCanError in Go).
+	// It is set for Predeclared/Universal bindings when the caller indicates so.
+	CanReturnError bool
 }
 
 // The Scope of Binding indicates what kind of scope it has.

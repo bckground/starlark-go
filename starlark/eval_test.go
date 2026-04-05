@@ -1399,3 +1399,156 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }
+
+func TestNewBuiltinCanError(t *testing.T) {
+	errTag := starlark.NewErrorTag(1, "TestError")
+
+	// A builtin that returns an ErrorTag value.
+	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var shouldFail starlark.Bool
+		if err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &shouldFail); err != nil {
+			return nil, err
+		}
+		if shouldFail {
+			return errTag, nil
+		}
+		return starlark.String("ok"), nil
+	})
+
+	// A builtin that returns an Error value (with message).
+	failWithMsg := starlark.NewBuiltinCanError("fail_with_msg", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		msg := "something went wrong"
+		return starlark.NewError(errTag, &msg, nil, nil), nil
+	})
+
+	predeclared := starlark.StringDict{
+		"fail_builtin":  failBuiltin,
+		"fail_with_msg": failWithMsg,
+	}
+
+	tests := []struct {
+		name string
+		src  string
+		want string // expected value of 'result' global, or "" to just check no error
+	}{
+		{
+			name: "catch value form on error",
+			src:  `result = fail_builtin(True) catch "default"`,
+			want: `"default"`,
+		},
+		{
+			name: "catch value form on success",
+			src:  `result = fail_builtin(False) catch "default"`,
+			want: `"ok"`,
+		},
+		{
+			name: "catch block form on error",
+			src: `
+result = fail_builtin(True) catch e:
+    recover "caught: " + type(e)
+`,
+			want: `"caught: error"`,
+		},
+		{
+			name: "catch block form on success",
+			src: `
+result = fail_builtin(False) catch e:
+    recover "caught"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "try propagates error",
+			src: `
+def wrapper()!:
+    return try fail_builtin(True)
+
+result = wrapper() catch "propagated"
+`,
+			want: `"propagated"`,
+		},
+		{
+			name: "try with success",
+			src: `
+def wrapper()!:
+    return try fail_builtin(False)
+
+result = wrapper() catch "propagated"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "Error value with message",
+			src:  `result = fail_with_msg() catch "got_error"`,
+			want: `"got_error"`,
+		},
+		{
+			name: "catch block receives Error value",
+			src: `
+result = fail_with_msg() catch e:
+    recover e.message
+`,
+			want: `"something went wrong"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: test.name}
+			globals, err := starlark.ExecFile(thread, test.name+".star", test.src, predeclared)
+			if err != nil {
+				t.Fatalf("ExecFile failed: %v", err)
+			}
+			if test.want != "" {
+				got := globals["result"]
+				if got == nil {
+					t.Fatal("result not defined")
+				}
+				if got.String() != test.want {
+					t.Errorf("result = %s, want %s", got.String(), test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestNewBuiltinCannotUseTryCatch(t *testing.T) {
+	// A regular builtin (not marked as error-returning).
+	normalBuiltin := starlark.NewBuiltin("normal_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return starlark.String("ok"), nil
+	})
+
+	predeclared := starlark.StringDict{
+		"normal_builtin": normalBuiltin,
+	}
+
+	tests := []struct {
+		name    string
+		src     string
+		wantErr string // substring expected in error
+	}{
+		{
+			name:    "try on regular builtin",
+			src:     `def f()!: return try normal_builtin()`,
+			wantErr: "try requires call to error-returning function",
+		},
+		{
+			name:    "catch on regular builtin",
+			src:     `x = normal_builtin() catch "default"`,
+			wantErr: "catch requires call to error-returning function",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: test.name}
+			_, err := starlark.ExecFile(thread, test.name+".star", test.src, predeclared)
+			if err == nil {
+				t.Fatal("ExecFile succeeded, want error")
+			}
+			if !strings.Contains(err.Error(), test.wantErr) {
+				t.Errorf("error = %q, want substring %q", err.Error(), test.wantErr)
+			}
+		})
+	}
+}
