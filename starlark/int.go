@@ -180,7 +180,7 @@ func (i Int) String() string {
 }
 func (i Int) Type() string { return "int" }
 func (i Int) Freeze()      {} // immutable
-func (i Int) Truth() Bool { return i.Sign() != 0 }
+func (i Int) Truth() Bool  { return i.Sign() != 0 }
 
 func (i Int) Hash() (uint32, error) {
 	iSmall, iBig := i.get()
