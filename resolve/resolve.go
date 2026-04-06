@@ -135,13 +135,27 @@ var (
 // dependency upon starlark.Universe, not because users should ever need
 // to redefine it.
 func File(file *syntax.File, isPredeclared, isUniversal func(name string) bool) error {
-	return REPLChunk(file, nil, isPredeclared, isUniversal)
+	return FileWithCanError(file, isPredeclared, isUniversal, nil)
+}
+
+// FileWithCanError is like File but additionally accepts an isPredeclaredCanError
+// predicate that reports whether a predeclared or universal name refers to an
+// error-returning function (the Go equivalent of "def f()!:").
+func FileWithCanError(file *syntax.File, isPredeclared, isUniversal func(name string) bool, isPredeclaredCanError func(name string) bool) error {
+	return REPLChunkWithCanError(file, nil, isPredeclared, isUniversal, isPredeclaredCanError)
 }
 
 // REPLChunk is a generalization of the File function that supports a
 // non-empty initial global block, as occurs in a REPL.
 func REPLChunk(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name string) bool) error {
+	return REPLChunkWithCanError(file, isGlobal, isPredeclared, isUniversal, nil)
+}
+
+// REPLChunkWithCanError is like REPLChunk but additionally accepts an
+// isPredeclaredCanError predicate. See FileWithCanError for details.
+func REPLChunkWithCanError(file *syntax.File, isGlobal, isPredeclared, isUniversal func(name string) bool, isPredeclaredCanError func(name string) bool) error {
 	r := newResolver(file.Options, isGlobal, isPredeclared, isUniversal)
+	r.isPredeclaredCanError = isPredeclaredCanError
 	r.stmts(file.Stmts)
 
 	r.env.resolveLocalUses()
@@ -204,15 +218,16 @@ func (e Error) Error() string { return e.Pos.String() + ": " + e.Msg }
 func newResolver(options *syntax.FileOptions, isGlobal, isPredeclared, isUniversal func(name string) bool) *resolver {
 	file := new(block)
 	return &resolver{
-		options:       options,
-		file:          file,
-		env:           file,
-		isGlobal:      isGlobal,
-		isPredeclared: isPredeclared,
-		isUniversal:   isUniversal,
-		globals:       make(map[string]*Binding),
-		predeclared:   make(map[string]*Binding),
-		errorFuncs:    make(map[*Binding]bool),
+		options:          options,
+		file:             file,
+		env:              file,
+		isGlobal:         isGlobal,
+		isPredeclared:    isPredeclared,
+		isUniversal:      isUniversal,
+		globals:          make(map[string]*Binding),
+		predeclared:      make(map[string]*Binding),
+		errorFuncs:       make(map[*Binding]bool),
+		nonErrorDefFuncs: make(map[*Binding]bool),
 	}
 }
 
@@ -242,12 +257,18 @@ type resolver struct {
 	// isGlobal may be nil.
 	isGlobal, isPredeclared, isUniversal func(name string) bool
 
+	// isPredeclaredCanError reports whether a predeclared or universal name
+	// refers to an error-returning function (the Go equivalent of def f()!:).
+	// It may be nil.
+	isPredeclaredCanError func(name string) bool
+
 	loops        int  // number of enclosing for/while loops in current function (or file, if top-level)
 	ifstmts      int  // number of enclosing if statements loops
 	catchBlocks  int  // number of enclosing catch blocks (for validating recover)
 	inTryContext bool // true when inside try or catch expression (for validating ! function calls)
 
-	errorFuncs map[*Binding]bool // tracks which function bindings are error-returning (have ! suffix)
+	errorFuncs       map[*Binding]bool // tracks which function bindings are error-returning (have ! suffix)
+	nonErrorDefFuncs map[*Binding]bool // tracks which function bindings are statically known non-error (def without !)
 
 	errors ErrorList
 }
@@ -449,6 +470,10 @@ func (r *resolver) useToplevel(use use) (bind *Binding) {
 	} else if r.isPredeclared(id.Name) {
 		// use of pre-declared name
 		bind = &Binding{Scope: Predeclared}
+		if r.isPredeclaredCanError != nil && r.isPredeclaredCanError(id.Name) {
+			bind.CanReturnError = true
+			r.errorFuncs[bind] = true
+		}
 		r.predeclared[id.Name] = bind // save it
 	} else if r.isUniversal(id.Name) {
 		// use of universal name
@@ -456,6 +481,10 @@ func (r *resolver) useToplevel(use use) (bind *Binding) {
 			r.errorf(id.NamePos, doesnt+"support sets")
 		}
 		bind = &Binding{Scope: Universal}
+		if r.isPredeclaredCanError != nil && r.isPredeclaredCanError(id.Name) {
+			bind.CanReturnError = true
+			r.errorFuncs[bind] = true
+		}
 		r.predeclared[id.Name] = bind // save it
 	} else {
 		bind = &Binding{Scope: Undefined}
@@ -550,10 +579,12 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 		}
 		stmt.Function = fn
 
-		// Track error-returning functions for call validation
-		if stmt.Exclaim.IsValid() {
-			if binding, ok := stmt.Name.Binding.(*Binding); ok {
+		// Track error-returning and non-error functions for call validation
+		if binding, ok := stmt.Name.Binding.(*Binding); ok {
+			if stmt.Exclaim.IsValid() {
 				r.errorFuncs[binding] = true
+			} else {
+				r.nonErrorDefFuncs[binding] = true
 			}
 		}
 
@@ -1118,32 +1149,58 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 		}
 	}
 
-	// isErrorReturningCall checks if an expression is a call to an error-returning function
-	isErrorReturningCall := func(expr syntax.Expr) bool {
+	// Tri-state result for isErrorReturningCall.
+	const (
+		errorCallYes     = iota // known error-returning (def f()!: or predeclared with canError)
+		errorCallNo             // known NOT error-returning (def f(): or predeclared without canError)
+		errorCallUnknown        // cannot determine statically (variable, load, index/dot access, etc.)
+	)
+
+	// isErrorReturningCall checks if an expression is a call to an error-returning function.
+	// Returns errorCallYes, errorCallNo, or errorCallUnknown.
+	isErrorReturningCall := func(expr syntax.Expr) int {
 		call, ok := expr.(*syntax.CallExpr)
 		if !ok {
-			return false
+			return errorCallNo // try/catch on non-call is always wrong
 		}
 		ident, ok := call.Fn.(*syntax.Ident)
 		if !ok {
-			return false
+			return errorCallUnknown // dynamic call target (dot, index, etc.)
 		}
 		binding, ok := ident.Binding.(*Binding)
 		if !ok {
-			return false
+			return errorCallUnknown
 		}
-		// Check if this binding is in errorFuncs directly
+
+		// Check errorFuncs directly.
 		if r.errorFuncs[binding] {
-			return true
+			return errorCallYes
 		}
-		// For Free bindings, check the original binding via First
-		// (Free bindings preserve First from the original Local binding)
+		// For Free bindings, check the original binding via First.
 		if binding.Scope == Free && binding.First != nil {
 			if origBinding, ok := binding.First.Binding.(*Binding); ok {
-				return r.errorFuncs[origBinding]
+				if r.errorFuncs[origBinding] {
+					return errorCallYes
+				}
+				if r.nonErrorDefFuncs[origBinding] {
+					return errorCallNo
+				}
 			}
 		}
-		return false
+
+		// Predeclared/Universal names are fully known at resolve time.
+		// Error-returning predeclared/universal functions were already
+		// caught by the errorFuncs check above, so any remaining ones
+		// are known to be non-error-returning.
+		if binding.Scope == Predeclared || binding.Scope == Universal {
+			return errorCallNo
+		}
+		// Statically-defined non-! function.
+		if r.nonErrorDefFuncs[binding] {
+			return errorCallNo
+		}
+
+		return errorCallUnknown // variable from assignment, load, parameter, etc.
 	}
 
 	validateExpr = func(expr syntax.Expr, currentFunc *Function, inTryContext bool) {
@@ -1153,8 +1210,9 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 
 		switch e := expr.(type) {
 		case *syntax.TryExpr:
-			// Validate that try is used on an error-returning function call
-			if !isErrorReturningCall(e.X) {
+			// Validate that try is used on an error-returning function call.
+			// Allow unknown (dynamic) calls through — they'll be checked at runtime.
+			if isErrorReturningCall(e.X) == errorCallNo {
 				pos, _ := e.X.Span()
 				r.errorf(pos, "try requires call to error-returning function")
 			}
@@ -1167,8 +1225,9 @@ func (r *resolver) validateErrorCalls(stmts []syntax.Stmt) {
 			validateExpr(e.X, currentFunc, true)
 
 		case *syntax.CatchExpr:
-			// Validate that catch is used on an error-returning function call
-			if !isErrorReturningCall(e.X) {
+			// Validate that catch is used on an error-returning function call.
+			// Allow unknown (dynamic) calls through — they'll be checked at runtime.
+			if isErrorReturningCall(e.X) == errorCallNo {
 				pos, _ := e.X.Span()
 				r.errorf(pos, "catch requires call to error-returning function")
 			}

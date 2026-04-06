@@ -386,7 +386,8 @@ func ExecFile(thread *Thread, filename string, src any, predeclared StringDict) 
 // containing a backtrace.
 func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, src any, predeclared StringDict) (StringDict, error) {
 	// Parse, resolve, and compile a Starlark source file.
-	_, mod, err := SourceProgramOptions(opts, filename, src, predeclared.Has)
+	canError := stringDictCanError(predeclared)
+	_, mod, err := sourceProgramOptions(opts, filename, src, predeclared.Has, canError)
 	if err != nil {
 		return nil, err
 	}
@@ -394,6 +395,17 @@ func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, 
 	g, err := mod.Init(thread, predeclared)
 	g.Freeze()
 	return g, err
+}
+
+// stringDictCanError returns a predicate that reports whether a name in the
+// given StringDict refers to a Builtin created with NewBuiltinCanError.
+func stringDictCanError(d StringDict) func(string) bool {
+	return func(name string) bool {
+		if b, ok := d[name].(*Builtin); ok {
+			return b.canReturnError
+		}
+		return false
+	}
 }
 
 // SourceProgram calls [SourceProgramOptions] using [syntax.LegacyFileOptions].
@@ -414,11 +426,15 @@ func SourceProgram(filename string, src any, isPredeclared func(string) bool) (*
 // Its typical value is predeclared.Has,
 // where predeclared is a StringDict of pre-declared values.
 func SourceProgramOptions(opts *syntax.FileOptions, filename string, src any, isPredeclared func(string) bool) (*syntax.File, *Program, error) {
+	return sourceProgramOptions(opts, filename, src, isPredeclared, nil)
+}
+
+func sourceProgramOptions(opts *syntax.FileOptions, filename string, src any, isPredeclared func(string) bool, isPredeclaredCanError func(string) bool) (*syntax.File, *Program, error) {
 	f, err := opts.Parse(filename, src, 0)
 	if err != nil {
 		return nil, nil, err
 	}
-	prog, err := FileProgram(f, isPredeclared)
+	prog, err := fileProgramWithCanError(f, isPredeclared, isPredeclaredCanError)
 	return f, prog, err
 }
 
@@ -434,7 +450,11 @@ func SourceProgramOptions(opts *syntax.FileOptions, filename string, src any, is
 // Its typical value is predeclared.Has,
 // where predeclared is a StringDict of pre-declared values.
 func FileProgram(f *syntax.File, isPredeclared func(string) bool) (*Program, error) {
-	if err := resolve.File(f, isPredeclared, Universe.Has); err != nil {
+	return fileProgramWithCanError(f, isPredeclared, nil)
+}
+
+func fileProgramWithCanError(f *syntax.File, isPredeclared func(string) bool, isPredeclaredCanError func(string) bool) (*Program, error) {
+	if err := resolve.FileWithCanError(f, isPredeclared, Universe.Has, isPredeclaredCanError); err != nil {
 		return nil, err
 	}
 
@@ -1275,6 +1295,21 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	// Sanity check: nil is not a valid Starlark value.
 	if result == nil && err == nil {
 		err = fmt.Errorf("internal error: nil (not None) returned from %s", fn)
+	}
+
+	// If this is an error-returning builtin (marked with !)
+	// and the result is an Error value, set pendingErrorValue.
+	if err == nil {
+		if b, ok := c.(*Builtin); ok && b.canReturnError {
+			switch v := result.(type) {
+			case *ErrorTag:
+				thread.pendingErrorValue = NewError(v, nil, nil, nil)
+				result = None
+			case *Error:
+				thread.pendingErrorValue = v
+				result = None
+			}
+		}
 	}
 
 	// Always return an EvalError with an accurate frame.

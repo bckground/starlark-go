@@ -831,10 +831,10 @@ func (fn *Function) FreeVar(i int) (Binding, Value) {
 
 // A Builtin is a function implemented in Go.
 type Builtin struct {
-	name     string
-	fn       func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)
-	recv     Value // for bound methods (e.g. "".startswith)
-	CanError bool  // true if this builtin can return errors (marked as ! function)
+	name           string
+	fn             func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)
+	recv           Value // for bound methods (e.g. "".startswith)
+	canReturnError bool  // true if this builtin can return errors (marked as ! function)
 }
 
 func (b *Builtin) Name() string { return b.name }
@@ -863,6 +863,15 @@ func (b *Builtin) Truth() Bool { return true }
 // and implementation.  It compares unequal with all other values.
 func NewBuiltin(name string, fn func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)) *Builtin {
 	return &Builtin{name: name, fn: fn}
+}
+
+// NewBuiltinCanError returns a new 'builtin_function_or_method' value with the specified name
+// and implementation, marked as an error-returning function (the equivalent of "def f()!:" in
+// Starlark). If the implementation returns an *ErrorTag or *Error value, it will be treated as
+// a Starlark error and propagated through the try/catch mechanism. It compares unequal with all
+// other values.
+func NewBuiltinCanError(name string, fn func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)) *Builtin {
+	return &Builtin{name: name, canReturnError: true, fn: fn}
 }
 
 // BindReceiver returns a new Builtin value representing a method

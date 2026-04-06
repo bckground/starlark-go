@@ -1399,3 +1399,362 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }
+
+func TestNewBuiltinCanError(t *testing.T) {
+	errTag := starlark.NewErrorTag(1, "TestError")
+
+	// A builtin that returns an ErrorTag value.
+	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var shouldFail starlark.Bool
+		if err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &shouldFail); err != nil {
+			return nil, err
+		}
+		if shouldFail {
+			return errTag, nil
+		}
+		return starlark.String("ok"), nil
+	})
+
+	// A builtin that returns an Error value (with message).
+	failWithMsg := starlark.NewBuiltinCanError("fail_with_msg", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		msg := "something went wrong"
+		return starlark.NewError(errTag, &msg, nil, nil), nil
+	})
+
+	predeclared := starlark.StringDict{
+		"fail_builtin":  failBuiltin,
+		"fail_with_msg": failWithMsg,
+	}
+
+	tests := []struct {
+		name string
+		src  string
+		want string // expected value of 'result' global, or "" to just check no error
+	}{
+		{
+			name: "catch value form on error",
+			src:  `result = fail_builtin(True) catch "default"`,
+			want: `"default"`,
+		},
+		{
+			name: "catch value form on success",
+			src:  `result = fail_builtin(False) catch "default"`,
+			want: `"ok"`,
+		},
+		{
+			name: "catch block form on error",
+			src: `
+result = fail_builtin(True) catch e:
+    recover "caught: " + type(e)
+`,
+			want: `"caught: error"`,
+		},
+		{
+			name: "catch block form on success",
+			src: `
+result = fail_builtin(False) catch e:
+    recover "caught"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "try propagates error",
+			src: `
+def wrapper()!:
+    return try fail_builtin(True)
+
+result = wrapper() catch "propagated"
+`,
+			want: `"propagated"`,
+		},
+		{
+			name: "try with success",
+			src: `
+def wrapper()!:
+    return try fail_builtin(False)
+
+result = wrapper() catch "propagated"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "Error value with message",
+			src:  `result = fail_with_msg() catch "got_error"`,
+			want: `"got_error"`,
+		},
+		{
+			name: "catch block receives Error value",
+			src: `
+result = fail_with_msg() catch e:
+    recover e.message
+`,
+			want: `"something went wrong"`,
+		},
+		// Dynamic call patterns: builtin stored in variable
+		{
+			name: "catch on builtin via variable",
+			src: `
+fn = fail_builtin
+result = fn(True) catch "caught_via_var"
+`,
+			want: `"caught_via_var"`,
+		},
+		{
+			name: "catch on builtin via variable success",
+			src: `
+fn = fail_builtin
+result = fn(False) catch "caught_via_var"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "try on builtin via variable",
+			src: `
+fn = fail_builtin
+def wrapper()!:
+    return try fn(True)
+result = wrapper() catch "propagated_via_var"
+`,
+			want: `"propagated_via_var"`,
+		},
+		// Dynamic call patterns: builtin in list
+		{
+			name: "catch on builtin via index",
+			src: `
+fns = [fail_builtin]
+result = fns[0](True) catch "caught_via_index"
+`,
+			want: `"caught_via_index"`,
+		},
+		// Dynamic call patterns: builtin in dict
+		{
+			name: "catch on builtin via dict",
+			src: `
+d = {"fail": fail_builtin}
+result = d["fail"](True) catch "caught_via_dict"
+`,
+			want: `"caught_via_dict"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: test.name}
+			globals, err := starlark.ExecFile(thread, test.name+".star", test.src, predeclared)
+			if err != nil {
+				t.Fatalf("ExecFile failed: %v", err)
+			}
+			if test.want != "" {
+				got := globals["result"]
+				if got == nil {
+					t.Fatal("result not defined")
+				}
+				if got.String() != test.want {
+					t.Errorf("result = %s, want %s", got.String(), test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestNewBuiltinCannotUseTryCatch(t *testing.T) {
+	// A regular builtin (not marked as error-returning).
+	normalBuiltin := starlark.NewBuiltin("normal_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return starlark.String("ok"), nil
+	})
+
+	predeclared := starlark.StringDict{
+		"normal_builtin": normalBuiltin,
+	}
+
+	tests := []struct {
+		name    string
+		src     string
+		wantErr string // substring expected in error
+	}{
+		{
+			name:    "try on regular builtin",
+			src:     `def f()!: return try normal_builtin()`,
+			wantErr: "try requires call to error-returning function",
+		},
+		{
+			name:    "catch on regular builtin",
+			src:     `x = normal_builtin() catch "default"`,
+			wantErr: "catch requires call to error-returning function",
+		},
+		{
+			name:    "try on non-error starlark def",
+			src:     "def foo(): pass\ndef bar()!: return try foo()",
+			wantErr: "try requires call to error-returning function",
+		},
+		{
+			name:    "catch on non-error starlark def",
+			src:     `def foo(): pass` + "\n" + `x = foo() catch "default"`,
+			wantErr: "catch requires call to error-returning function",
+		},
+		{
+			name:    "try on universal function",
+			src:     `def f()!: return try len([1, 2])`,
+			wantErr: "try requires call to error-returning function",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: test.name}
+			_, err := starlark.ExecFile(thread, test.name+".star", test.src, predeclared)
+			if err == nil {
+				t.Fatal("ExecFile succeeded, want error")
+			}
+			if !strings.Contains(err.Error(), test.wantErr) {
+				t.Errorf("error = %q, want substring %q", err.Error(), test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDynamicErrorReturningCalls(t *testing.T) {
+	errTag := starlark.NewErrorTag(1, "TestError")
+
+	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return errTag, nil
+	})
+
+	predeclared := starlark.StringDict{
+		"fail_builtin": failBuiltin,
+	}
+
+	tests := []struct {
+		name    string
+		src     string
+		want    string
+		useLoad bool // if true, set up Thread.Load returning fail_builtin as "fail_loaded"
+	}{
+		{
+			name: "starlark ! function via variable with catch",
+			src: `
+errors = error_tags("E")
+def may_fail()!:
+    return errors.E
+fn = may_fail
+result = fn() catch "caught"
+`,
+			want: `"caught"`,
+		},
+		{
+			name: "starlark ! function via variable with try",
+			src: `
+errors = error_tags("E")
+def may_fail()!:
+    return errors.E
+fn = may_fail
+def wrapper()!:
+    return try fn()
+result = wrapper() catch "propagated"
+`,
+			want: `"propagated"`,
+		},
+		{
+			name: "starlark ! function in list",
+			src: `
+errors = error_tags("E")
+def may_fail()!:
+    return errors.E
+fns = [may_fail]
+result = fns[0]() catch "caught_from_list"
+`,
+			want: `"caught_from_list"`,
+		},
+		{
+			name: "starlark ! function in dict",
+			src: `
+errors = error_tags("E")
+def may_fail()!:
+    return errors.E
+d = {"f": may_fail}
+result = d["f"]() catch "caught_from_dict"
+`,
+			want: `"caught_from_dict"`,
+		},
+		{
+			name: "dynamic call success is no-op",
+			src: `
+def normal():
+    return "ok"
+fn = normal
+result = fn() catch "caught"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "try on dynamic non-error call is no-op",
+			src: `
+def normal():
+    return "ok"
+fn = normal
+def wrapper()!:
+    return try fn()
+result = wrapper() catch "propagated"
+`,
+			want: `"ok"`,
+		},
+		{
+			name: "builtin via variable passed to function",
+			src: `
+def call_it(fn)!:
+    return try fn()
+result = call_it(fail_builtin) catch "caught_param"
+`,
+			want: `"caught_param"`,
+		},
+		{
+			name: "loaded builtin with catch",
+			src: `
+load("errors.star", "fail_loaded")
+result = fail_loaded() catch "caught_loaded"
+`,
+			want:    `"caught_loaded"`,
+			useLoad: true,
+		},
+		{
+			name: "loaded builtin with try",
+			src: `
+load("errors.star", "fail_loaded")
+def wrapper()!:
+    return try fail_loaded()
+result = wrapper() catch "propagated_loaded"
+`,
+			want:    `"propagated_loaded"`,
+			useLoad: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: test.name}
+			if test.useLoad {
+				thread.Load = func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
+					if module == "errors.star" {
+						return starlark.StringDict{
+							"fail_loaded": starlark.NewBuiltinCanError("fail_loaded", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+								return errTag, nil
+							}),
+						}, nil
+					}
+					return nil, fmt.Errorf("unknown module: %s", module)
+				}
+			}
+			globals, err := starlark.ExecFile(thread, test.name+".star", test.src, predeclared)
+			if err != nil {
+				t.Fatalf("ExecFile failed: %v", err)
+			}
+			got := globals["result"]
+			if got == nil {
+				t.Fatal("result not defined")
+			}
+			if got.String() != test.want {
+				t.Errorf("result = %s, want %s", got.String(), test.want)
+			}
+		})
+	}
+}

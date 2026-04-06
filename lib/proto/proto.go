@@ -1257,10 +1257,10 @@ type FileDescriptor struct {
 
 var _ starlark.HasAttrs = FileDescriptor{}
 
-func (f FileDescriptor) String() string       { return string(f.Desc.Path()) }
-func (f FileDescriptor) Type() string         { return "proto.FileDescriptor" }
-func (f FileDescriptor) Truth() starlark.Bool { return true }
-func (f FileDescriptor) Freeze()              {} // immutable
+func (f FileDescriptor) String() string              { return string(f.Desc.Path()) }
+func (f FileDescriptor) Type() string                { return "proto.FileDescriptor" }
+func (f FileDescriptor) Truth() starlark.Bool        { return true }
+func (f FileDescriptor) Freeze()                     {} // immutable
 func (f FileDescriptor) Hash() (h uint32, err error) { return starlark.String(f.Desc.Path()).Hash() }
 
 func (f FileDescriptor) Attr(name string) (starlark.Value, error) {
@@ -1506,9 +1506,9 @@ func (e EnumValueDescriptor) String() string {
 	enum := e.Desc.Parent()
 	return string(enum.Name() + "." + e.Desc.Name()) // "Enum.EnumValue"
 }
-func (e EnumValueDescriptor) Type() string         { return "proto.EnumValueDescriptor" }
-func (e EnumValueDescriptor) Truth() starlark.Bool { return true }
-func (e EnumValueDescriptor) Freeze()              {} // immutable
+func (e EnumValueDescriptor) Type() string                { return "proto.EnumValueDescriptor" }
+func (e EnumValueDescriptor) Truth() starlark.Bool        { return true }
+func (e EnumValueDescriptor) Freeze()                     {} // immutable
 func (e EnumValueDescriptor) Hash() (h uint32, err error) { return uint32(e.Desc.Number()), nil }
 
 func (e EnumValueDescriptor) AttrNames() []string {
