@@ -1,0 +1,12 @@
+# This is used by the action https://github.com/dorny/paths-filter
+
+application:
+  - "**/*"
+  - "!.github/**"
+  - "!.claude/**"
+
+prettier:
+  - "!.github/**" # autofix.ci refuses to touch the `.github` directory.
+  - "added|modified: '**/*.{md,markdown}'"
+  - "added|modified: '**/*.{yml,yaml}'"
+  - "added|modified: '**/*.{json,jsonc}'"

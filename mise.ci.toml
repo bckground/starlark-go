@@ -1,0 +1,5 @@
+[tools]
+"go:gotest.tools/gotestsum" = { version = "1.13.0" }
+
+node = "22.20.0"
+"npm:prettier" = "3.6.2"
