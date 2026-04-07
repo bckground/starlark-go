@@ -51,7 +51,6 @@ jobs:
       - uses: "bckground/actions/setup-mise@main"
         with:
           mise_envs: "ci"
-          cache_name: "starlark-go"
           s3_credentials: ${{ env.S3_CREDENTIALS }}
 
       - id: "go-restore-caches"
