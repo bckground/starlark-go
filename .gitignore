@@ -1,8 +1,21 @@
-.local
-.envrc
-.direnv
-mise.local.toml
+.DS_Store
+.idea
+*.log
+tmp/
+.local/
 
-# AI tooling
+# gotestsum
+junitreport.xml
+
+# direnv
+.direnv/
+local.env
+
+# AI coding agents
+AGENTS.local.md
 .mcp.json
+## Claude Code
 .claude/settings.local.json
+
+# mise
+mise.local.toml

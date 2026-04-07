@@ -16,4 +16,8 @@ diff -w go.sum.orig go.sum || { echo "go.sum is not tidy"; exit 1; }
 rm go.mod.orig go.sum.orig
 
 # Run tests
-go test ./...
+if [ -z "${CI}" ]; then
+    go test ./...
+else
+    gotestsum --junitfile=junitreport.xml -- -count=1 -race -timeout=10m ./...
+fi

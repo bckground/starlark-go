@@ -1,0 +1,82 @@
+---
+name: "test"
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  push:
+    branches:
+      - "master"
+
+env:
+  S3_CREDENTIALS: >-
+    ${{ format('{{"endpoint": "{0}", "access_key": "{1}", "secret_key": "{2}", "bucket_name": "{3}"}}',
+        secrets.OVH_GHA_CACHE_ENDPOINT, vars.OVH_GHA_CACHE_USER_SECRET_ID, secrets.OVH_GHA_CACHE_USER_SECRET, secrets.OVH_GHA_CACHE_BUCKET_NAME) }}
+
+jobs:
+  files-changed:
+    name: "detect what files changed"
+    runs-on: "ubuntu-latest"
+    timeout-minutes: 3
+    permissions:
+      contents: "read"
+      pull-requests: "read"
+    outputs:
+      application: ${{ steps.changes.outputs.application }}
+    steps:
+      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" # v6.0.2
+
+      - uses: "dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d" # v4.0.1
+        id: "changes"
+        with:
+          filters: ".github/file-filters.yml"
+
+  all:
+    name: "all@ubuntu-latest"
+    needs: "files-changed"
+    if: ${{ needs.files-changed.outputs.application == 'true' }}
+    runs-on: "ubuntu-latest"
+    timeout-minutes: 10
+    permissions:
+      checks: "write"
+      contents: "read"
+      packages: "read"
+      attestations: "read"
+    steps:
+      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" # v6.0.2
+
+      - uses: "HatsuneMiku3939/direnv-action@2d6af7906a4ef34393c2f51ab41df1681b5f6e5e" # v1.1.2
+
+      - uses: "bckground/actions/setup-mise@main"
+        with:
+          mise_envs: "ci"
+          cache_name: "starlark-go"
+          s3_credentials: ${{ env.S3_CREDENTIALS }}
+
+      - id: "go-restore-caches"
+        uses: "bckground/actions/cache-go/restore@main"
+        with:
+          name: "starlark-go_test"
+          s3_credentials: ${{ env.S3_CREDENTIALS }}
+
+      - name: "Download all go dependencies"
+        run: |
+          go mod download
+
+      - name: "Run all tests"
+        shell: bash
+        run: "internal/test.sh"
+
+      - name: "Publish test report"
+        uses: "mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386" # v6.4.0
+        if: ${{ success() || failure() }}
+        with:
+          check_name: "test report / all"
+          report_paths: "junitreport.xml"
+
+      - if: ${{ (github.ref_name == github.event.repository.default_branch || steps.go-restore-caches.outputs.cache_hit == 'false') && (success() || failure()) }}
+        uses: "bckground/actions/cache-go/save@main"
+        with:
+          name: "starlark-go_test"
+          s3_credentials: ${{ env.S3_CREDENTIALS }}

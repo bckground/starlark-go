@@ -1,0 +1,18 @@
+---
+name: "git town"
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  add_pr_stack_to_pr_description:
+    name: "add PR stack to the description"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: "read"
+      pull-requests: "write"
+    steps:
+      - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" # v6.0.2
+      - uses: "git-town/action@670e1f4feb81fdef4226fc09deefe09018eb20d1" # v1.3.3
