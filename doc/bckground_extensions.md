@@ -2,20 +2,19 @@
 
 This document describes the language extensions added to this Starlark
 implementation beyond the
-[standard specification](spec.md).  These extensions are specific to
+[standard specification](spec.md). These extensions are specific to
 the Go implementation at `go.starlark.net/starlark`.
 
-  * [Defer statements](#defer-statements)
-  * [Error handling](#error-handling)
-    * [Data types](#data-types)
-    * [Expressions](#expressions)
-    * [Statements](#statements)
-    * [Built-in functions](#built-in-functions)
-    * [Static validation](#static-validation)
-    * [Module-level try](#module-level-try)
-    * [Execution model](#execution-model)
-    * [Examples](#examples)
-
+- [Defer statements](#defer-statements)
+- [Error handling](#error-handling)
+  - [Data types](#data-types)
+  - [Expressions](#expressions)
+  - [Statements](#statements)
+  - [Built-in functions](#built-in-functions)
+  - [Static validation](#static-validation)
+  - [Module-level try](#module-level-try)
+  - [Execution model](#execution-model)
+  - [Examples](#examples)
 
 ## Defer statements
 
@@ -26,7 +25,7 @@ enclosing function returns.
 DeferStmt = 'defer' CallExpr .
 ```
 
-The operand of `defer` must be a function call expression.  The
+The operand of `defer` must be a function call expression. The
 function and all its arguments are evaluated immediately when the
 `defer` statement is executed, but the call itself is not performed
 until the enclosing function returns.
@@ -38,12 +37,12 @@ def process():
     return parse(f)    # close(f) runs after parse completes
 ```
 
-A `defer` statement may appear only inside a function body.  It is a
+A `defer` statement may appear only inside a function body. It is a
 static error to use `defer` at module level.
 
 ### Multiple defers
 
-A function may contain multiple `defer` statements.  Deferred calls
+A function may contain multiple `defer` statements. Deferred calls
 execute in LIFO (last-in, first-out) order, like a stack: the most
 recently deferred call runs first.
 
@@ -62,7 +61,7 @@ f()     # ["body", "third", "second", "first"]
 ### Argument evaluation
 
 Arguments to a deferred call are evaluated at the point of the `defer`
-statement, not at the point where the deferred call executes.  This is
+statement, not at the point where the deferred call executes. This is
 important when variables are reassigned between the `defer` and the
 function's return.
 
@@ -84,7 +83,7 @@ f()     # [2, 1, 0]
 
 Deferred calls execute on all exit paths of the enclosing function:
 normal return, early return, and error propagation (see
-[Error handling](#error-handling) below).  This makes `defer` suitable
+[Error handling](#error-handling) below). This makes `defer` suitable
 for cleanup operations that must always run.
 
 ```python
@@ -100,7 +99,7 @@ def process(flag):
 
 ### Nested functions
 
-Each function has its own independent defer stack.  Deferred calls in
+Each function has its own independent defer stack. Deferred calls in
 an inner function do not affect the outer function's defer stack, and
 vice versa.
 
@@ -132,11 +131,10 @@ def f():
 
 ---
 
-
 ## Error handling
 
 This section describes the error handling extension, inspired by Zig's
-error return traces.  It extends the language with explicit error
+error return traces. It extends the language with explicit error
 values, error propagation, and structured error handling, giving
 programs a way to represent, propagate, and recover from expected
 failure conditions without resorting to sentinel values or the `fail`
@@ -160,16 +158,15 @@ The central design principle is that error flow is always visible in
 the source code: a call to an error-returning function must be wrapped
 in `try` or `catch`, and error propagation never happens silently.
 
-
 ### Data types
 
 #### Error tags
 
 An _error tag_ is an immutable, hashable value that identifies a class
-of error.  Its [type](#type) is `"error_tag"`.
+of error. Its [type](#type) is `"error_tag"`.
 
 Error tags are created by the built-in function `error_tags`
-(see [Built-in functions](#error_tags)).  They are compared by
+(see [Built-in functions](#error_tags)). They are compared by
 identity: two tags are equal only if they are the same object.
 
 An error tag used in a Boolean context is considered false.
@@ -185,7 +182,7 @@ errors.NotFound == errors.Timeout   # False
 #### Errors
 
 An _error_ is an immutable value that pairs an error tag with optional
-metadata.  Its [type](#type) is `"error"`.
+metadata. Its [type](#type) is `"error"`.
 
 An error has the following attributes:
 
@@ -199,7 +196,7 @@ error.details    supplementary data (list)
 An error used in a Boolean context is considered false.
 
 An error can be created by calling an error tag as a function with
-optional keyword arguments for metadata.  When a `!` function returns
+optional keyword arguments for metadata. When a `!` function returns
 a bare error tag, the runtime automatically wraps it in an error value
 with default (empty) metadata:
 
@@ -214,9 +211,8 @@ e.details   # ["sda1"]
 #### Error tag sets
 
 An _error tag set_ is an immutable namespace whose attributes are error
-tags.  Its [type](#type) is `"error_tags"`.  Error tag sets are created by the
+tags. Its [type](#type) is `"error_tags"`. Error tag sets are created by the
 `error_tags` built-in function.
-
 
 ### Expressions
 
@@ -230,8 +226,8 @@ TryExpr = 'try' CallExpr .
 ```
 
 The operand of `try` must be a call to an error-returning function
-(one defined with `!`).  If the call succeeds, `try` yields the
-result.  If the call returns an error, `try` causes the enclosing
+(one defined with `!`). If the call succeeds, `try` yields the
+result. If the call returns an error, `try` causes the enclosing
 function to return immediately, propagating the error to its caller.
 
 ```python
@@ -262,7 +258,7 @@ def g()!:
 #### Catch expressions
 
 A `catch` expression intercepts an error from a call to an
-error-returning function.  It has two forms: _value form_ and
+error-returning function. It has two forms: _value form_ and
 _block form_.
 
 ```grammar {.good}
@@ -284,7 +280,7 @@ port = read_port() catch 8080
 If the call succeeds, the catch expression yields the call's result
 and the block is not executed.
 If the call returns an error, the error is bound to the named variable
-and the block is executed.  The block must end with either a `return`
+and the block is executed. The block must end with either a `return`
 statement or a `recover` statement; failing to do so is a dynamic error.
 
 ```python
@@ -294,7 +290,7 @@ config = read_config() catch e:
 ```
 
 A catch expression may appear in any function (not only `!` functions)
-and at module level.  It is the primary way for non-`!` code to call
+and at module level. It is the primary way for non-`!` code to call
 `!` functions.
 
 It is a static error to use `catch` on a call to a function that is
@@ -302,9 +298,8 @@ not marked with `!`.
 
 **Scoping.**
 Catch blocks do not create a new lexical scope; they behave like `if`
-statement bodies.  Variables assigned in a catch block, including the
+statement bodies. Variables assigned in a catch block, including the
 error variable, are visible in the enclosing scope.
-
 
 ### Statements
 
@@ -321,7 +316,7 @@ An error-returning function is like an ordinary function, except:
 
 1. When it returns an error tag or error value, the runtime converts the
    return into an error signal that is visible to `try` and `catch` in
-   the caller.  The function appears to return `None` to the caller;
+   the caller. The function appears to return `None` to the caller;
    the error is carried out of band.
 
 2. It may contain `try` expressions and `errdefer` statements.
@@ -349,11 +344,11 @@ ErrDeferStmt = 'errdefer' CallExpr .
 ```
 
 An `errdefer` statement may appear only inside an error-returning
-function.  It is a static error to use `errdefer` in a non-`!`
+function. It is a static error to use `errdefer` in a non-`!`
 function.
 
 Like `defer`, arguments to the deferred call are evaluated
-immediately, but the call itself is deferred.  Multiple `errdefer`
+immediately, but the call itself is deferred. Multiple `errdefer`
 statements execute in LIFO (last-in, first-out) order, and they
 execute before any regular `defer` statements.
 
@@ -376,7 +371,7 @@ def process_file(path)!:
 #### Recover statements
 
 A `recover` statement may appear only inside the block form of a
-`catch` expression.  It ends execution of the catch block and provides
+`catch` expression. It ends execution of the catch block and provides
 the value that the catch expression yields.
 
 ```grammar {.good}
@@ -396,13 +391,12 @@ It is a static error to use `recover` outside of a catch block.
 A catch block that does not end with `recover` or `return` causes a
 dynamic error at runtime.
 
-
 ### Built-in functions
 
 #### error_tags
 
 `error_tags(*names)` creates an error tag set containing one error tag for
-each of the given string arguments.  The tags are accessible as
+each of the given string arguments. The tags are accessible as
 attributes of the returned error tag set.
 
 Each error tag is a callable: calling it with optional keyword
@@ -420,7 +414,6 @@ e = errors.NotFound(message="user 42 not found")
 e.tag                       # NotFound
 e.message                   # "user 42 not found"
 ```
-
 
 ### Static validation
 
@@ -454,11 +447,10 @@ The following rules are enforced at compile time (during name resolution):
    A `recover` statement may appear only inside the block form of a `catch`
    expression.
 
-
 ### Module-level try
 
 At module level, `try` does not propagate errors (there is no caller
-to propagate to).  Instead, it is compiled as a `catch` that calls the
+to propagate to). Instead, it is compiled as a `catch` that calls the
 `fail` built-in with the error value, terminating module execution.
 
 ```python
@@ -479,7 +471,6 @@ if errors.As(err, &failErr) {
     fmt.Println(failErr.Value.Tag)  // the error tag
 }
 ```
-
 
 ### Execution model
 
@@ -516,7 +507,6 @@ When a function exits successfully:
 
 1. Errdeferred calls are discarded
 2. Regular deferred calls (LIFO order)
-
 
 ### Examples
 

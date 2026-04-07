@@ -1,4 +1,3 @@
-
 <!-- This file is the project homepage for go.starlark.net -->
 
 # Starlark in Go
@@ -33,18 +32,17 @@ language](https://docs.bazel.build/versions/master/skylark/language.html),
 through which Bazel is extended with custom logic to support new
 languages and compilers.
 
-
 ## Documentation
 
-* Language definition: [doc/spec.md](doc/spec.md)
+- Language definition: [doc/spec.md](doc/spec.md)
 
-* About the Go implementation: [doc/impl.md](doc/impl.md)
+- About the Go implementation: [doc/impl.md](doc/impl.md)
 
-* API documentation: [pkg.go.dev/go.starlark.net/starlark](https://pkg.go.dev/go.starlark.net/starlark)
+- API documentation: [pkg.go.dev/go.starlark.net/starlark](https://pkg.go.dev/go.starlark.net/starlark)
 
-* Mailing list: [starlark-go](https://groups.google.com/forum/#!forum/starlark-go)
+- Mailing list: [starlark-go](https://groups.google.com/forum/#!forum/starlark-go)
 
-* Issue tracker: [https://github.com/google/starlark-go/issues](https://github.com/google/starlark-go/issues)
+- Issue tracker: [https://github.com/google/starlark-go/issues](https://github.com/google/starlark-go/issues)
 
 ### Getting started
 
@@ -128,8 +126,7 @@ Despite some differences, the Go implementation of Starlark strives to
 match the behavior of [the Java implementation](https://github.com/bazelbuild/bazel)
 used by Bazel and maintained by the Bazel team.
 For that reason, proposals to change the language itself should
-generally be directed to [the Starlark site](
-https://github.com/bazelbuild/starlark/), not to the maintainers of this
+generally be directed to [the Starlark site](https://github.com/bazelbuild/starlark/), not to the maintainers of this
 project.
 Only once there is consensus that a language change is desirable may
 its Go implementation proceed.
@@ -137,7 +134,7 @@ its Go implementation proceed.
 We use GitHub pull requests for contributions.
 
 Please complete Google's contributor license agreement (CLA) before
-sending your first change to the project.  If you are the copyright
+sending your first change to the project. If you are the copyright
 holder, you will need to agree to the
 [individual contributor license agreement](https://cla.developers.google.com/about/google-individual),
 which can be completed online.

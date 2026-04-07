@@ -1,17 +1,15 @@
-
 # Starlark in Go: Implementation
 
 This document (a work in progress) describes some of the design
 choices of the Go implementation of Starlark.
 
-  * [Scanner](#scanner)
-  * [Parser](#parser)
-  * [Resolver](#resolver)
-  * [Evaluator](#evaluator)
-    * [Data types](#data-types)
-    * [Freezing](#freezing)
-  * [Testing](#testing)
-
+- [Scanner](#scanner)
+- [Parser](#parser)
+- [Resolver](#resolver)
+- [Evaluator](#evaluator)
+  - [Data types](#data-types)
+  - [Freezing](#freezing)
+- [Testing](#testing)
 
 ## Scanner
 
@@ -56,9 +54,8 @@ environment.
 Not all features of the Go implementation are "standard" (that is,
 supported by Bazel's Java implementation), at least for now, so
 non-standard features such as `set`
-are flag-controlled.  The resolver reports
+are flag-controlled. The resolver reports
 any uses of dialect features that have not been enabled.
-
 
 ## Evaluator
 
@@ -119,7 +116,6 @@ Starlark has no `class` mechanism, nor equivalent of Python's
 some way to define a record data type of several fields, with a
 representation more efficient than a hash table.
 
-
 ### Freezing
 
 All mutable values created during module initialization are _frozen_
@@ -151,7 +147,6 @@ The Go implementation would also permit the freeze operation to be
 exposed to the program, for example as a built-in function.
 This has proven valuable in writing tests of the freeze mechanism
 itself, but is otherwise mostly a curiosity.
-
 
 ### Fail-fast iterators
 
@@ -233,9 +228,7 @@ starlarkstruct
 integration with Go testing.T
 ```
 
-
 ## TODO
-
 
 ```
 Discuss practical separation of code and data.

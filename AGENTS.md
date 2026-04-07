@@ -53,22 +53,26 @@ Source → Scanning → Parsing → Resolving → Compiling → Executing
 ### Package Responsibilities
 
 **syntax/** - Lexical scanner and recursive-descent parser
+
 - `scan.go` - Tokenization with Python-style indentation handling
 - `parse.go` - LL(1) parser producing AST (Stmt and Expr nodes)
 - `syntax.go` - AST node definitions
 
 **resolve/** - Static name resolution and scope analysis
+
 - Classifies identifiers: Universal, Predeclared, Global, Local, Free
 - Assigns indices to variables for O(1) array-based lookup
 - Validates control flow (break/continue in loops)
 - Computes closures for nested functions
 
 **internal/compile/** - Bytecode code generation
+
 - Converts resolved AST to ~50 opcodes (LOAD, CALL, JMP, etc.)
 - Produces `Program` with bytecode, constants, line number table
 - Stack-based VM instructions with varint operand encoding
 
 **starlark/** - Core interpreter and runtime (11k+ lines)
+
 - `value.go` - `Value` interface and built-in types (Int, String, List, Dict, etc.)
 - `eval.go` - API entry points: `ExecFile()`, `Call()`, `Eval()`
 - `interp.go` - Bytecode VM execution with operand stack, locals, iterators
@@ -87,6 +91,7 @@ Source → Scanning → Parsing → Resolving → Compiling → Executing
 ### Key Design Patterns
 
 **Value Interface:** All Starlark values implement:
+
 ```go
 type Value interface {
     String() string          // String representation
@@ -102,11 +107,13 @@ Optional interfaces add capabilities: `Callable`, `Iterable`, `Indexable`, `Mapp
 **Thread Model:** Each `Thread` has independent execution state. Threads can share frozen (immutable) values. The `Thread.Load` callback enables custom module loading with caching.
 
 **Error Handling:**
+
 - Parse errors → `SyntaxError` from syntax package
 - Resolution errors → returned from `resolve.File()`
 - Runtime errors → `EvalError` with full backtrace
 
 **Two-Phase Name Resolution:** Forward references are allowed within a scope. The resolver makes two passes:
+
 1. Collect all bindings and uses
 2. Match uses to bindings, compute closures
 
@@ -117,18 +124,21 @@ This implementation includes a Zig-inspired error handling system that extends s
 ### Language Features
 
 **Error-Returning Functions** - Mark functions that can return errors with `!`:
+
 ```python
 def may_fail()!:
     return errors.DatabaseError
 ```
 
 **Error Tag Sets** - Create namespaces containing error values:
+
 ```python
 errors = error_tags("DatabaseError", "NetworkError", "TimeoutError")
 # Use as: errors.DatabaseError, errors.NetworkError, etc.
 ```
 
 **Try Keyword** - Explicitly propagate errors up the call stack:
+
 ```python
 def caller()!:
     result = try may_fail()  # Propagates error if may_fail fails
@@ -136,11 +146,13 @@ def caller()!:
 ```
 
 **Catch Value Form** - Provide fallback values on error:
+
 ```python
 result = may_fail() catch "default_value"
 ```
 
 **Catch Block Form** - Execute statements on error with bound error variable:
+
 ```python
 result = may_fail() catch e:
     print("Error:", e)
@@ -148,6 +160,7 @@ result = may_fail() catch e:
 ```
 
 **Errdefer** - Defer execution only on error paths:
+
 ```python
 def transaction()!:
     conn = connect()
@@ -157,6 +170,7 @@ def transaction()!:
 ```
 
 **Recover** - Resume normal execution from catch block:
+
 ```python
 x = may_fail() catch e:
     log_error(e)
@@ -166,17 +180,20 @@ x = may_fail() catch e:
 ### Key Semantics
 
 **Compile-Time Validation:**
+
 - Calling `!` functions without try/catch is always a resolver error
 - `recover` outside catch blocks is a resolver error
 - `errdefer` in non-`!` functions is a resolver error
 
 **Catch Block Scoping:**
+
 - Catch blocks do NOT create new lexical scopes (like if statements)
 - Variables assigned in catch blocks are visible outside the block
 - The error variable (e.g., `e`) shadows any existing variable in the current scope
 - Catch blocks MUST end with either `return` or `recover` (runtime error otherwise)
 
 **Error Propagation Model:**
+
 - `try` checks if an error occurred and propagates it up the call stack
 - Catch blocks intercept errors before propagation
 - `recover` clears the error state and resumes normal execution
@@ -195,6 +212,7 @@ The error handling system follows the same 5-stage pipeline as `defer`:
 ### Examples
 
 **Basic Error Handling:**
+
 ```python
 errors = error_tags("NotFound")
 
@@ -213,6 +231,7 @@ user = find_user(-1) catch e:
 ```
 
 **Transaction Pattern:**
+
 ```python
 def database_transaction()!:
     conn = try connect()
@@ -242,6 +261,7 @@ result = database_transaction() catch e:
 ### Testing
 
 Test files demonstrating all features are in `starlark/testdata/`:
+
 - `error_tags.star` - Error tag set creation and usage
 - `try_propagate.star` - Error propagation chains
 - `catch_blocks.star` - Catch block error handling
@@ -311,12 +331,14 @@ func (m *MyType) Binary(op syntax.Token, y starlark.Value, side starlark.Side) (
 **Concurrency:** Starlark values are mutable by default. Call `Freeze()` to make values immutable for safe sharing across goroutines. Freezing is recursive.
 
 **Performance:**
+
 - Global/local variable access is O(1) via indexed arrays (not hash maps)
 - Dictionary iteration order is preserved (insertion order)
 - No JIT compilation - pure bytecode interpretation
 - Arbitrary precision integers use `math/big`
 
 **Test File Format:** Test files (`.star`) use the `starlarktest` module:
+
 ```python
 load("assert.star", "assert")
 
@@ -326,6 +348,7 @@ assert.error(lambda: 1/0, "division by zero")
 ```
 
 **Language Feature Flags:** The parser accepts optional features via `syntax.FileOptions`:
+
 - `Set` - enable set data type
 - `While` / `Recursion` - enable while loops and recursion
 - `GlobalReassign` - allow multiple bindings to top-level names
@@ -336,12 +359,14 @@ Tests can enable these with comments like `# option:recursion`
 ## Debugging
 
 Enable bytecode disassembly:
+
 ```go
 import "go.starlark.net/internal/compile"
 compile.Disassemble = true
 ```
 
 Inspect at runtime:
+
 ```go
 thread.CallStack()           // Get call stack
 globals.Keys()               // List module variables
