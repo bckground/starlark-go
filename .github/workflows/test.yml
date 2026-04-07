@@ -56,7 +56,6 @@ jobs:
       - id: "go-restore-caches"
         uses: "bckground/actions/cache-go/restore@main"
         with:
-          name: "starlark-go_test"
           s3_credentials: ${{ env.S3_CREDENTIALS }}
 
       - name: "Download all go dependencies"
@@ -77,5 +76,4 @@ jobs:
       - if: ${{ (github.ref_name == github.event.repository.default_branch || steps.go-restore-caches.outputs.cache_hit == 'false') && (success() || failure()) }}
         uses: "bckground/actions/cache-go/save@main"
         with:
-          name: "starlark-go_test"
           s3_credentials: ${{ env.S3_CREDENTIALS }}
