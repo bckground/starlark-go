@@ -865,12 +865,12 @@ func NewBuiltin(name string, fn func(thread *Thread, fn *Builtin, args Tuple, kw
 	return &Builtin{name: name, fn: fn}
 }
 
-// NewBuiltinCanError returns a new 'builtin_function_or_method' value with the specified name
+// NewBuiltinCanReturnError returns a new 'builtin_function_or_method' value with the specified name
 // and implementation, marked as an error-returning function (the equivalent of "def f()!:" in
 // Starlark). If the implementation returns an *ErrorTag or *Error value, it will be treated as
 // a Starlark error and propagated through the try/catch mechanism. It compares unequal with all
 // other values.
-func NewBuiltinCanError(name string, fn func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)) *Builtin {
+func NewBuiltinCanReturnError(name string, fn func(thread *Thread, fn *Builtin, args Tuple, kwargs []Tuple) (Value, error)) *Builtin {
 	return &Builtin{name: name, canReturnError: true, fn: fn}
 }
 

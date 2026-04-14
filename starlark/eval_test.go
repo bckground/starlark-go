@@ -1404,7 +1404,7 @@ func TestNewBuiltinCanError(t *testing.T) {
 	errTag := starlark.NewErrorTag(1, "TestError")
 
 	// A builtin that returns an ErrorTag value.
-	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var shouldFail starlark.Bool
 		if err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &shouldFail); err != nil {
 			return nil, err
@@ -1416,7 +1416,7 @@ func TestNewBuiltinCanError(t *testing.T) {
 	})
 
 	// A builtin that returns an Error value (with message).
-	failWithMsg := starlark.NewBuiltinCanError("fail_with_msg", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	failWithMsg := starlark.NewBuiltinCanReturnError("fail_with_msg", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		msg := "something went wrong"
 		return starlark.NewError(errTag, &msg, nil, nil), nil
 	})
@@ -1616,7 +1616,7 @@ func TestNewBuiltinCannotUseTryCatch(t *testing.T) {
 func TestDynamicErrorReturningCalls(t *testing.T) {
 	errTag := starlark.NewErrorTag(1, "TestError")
 
-	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		return errTag, nil
 	})
 
@@ -1736,7 +1736,7 @@ result = wrapper() catch "propagated_loaded"
 				thread.Load = func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
 					if module == "errors.star" {
 						return starlark.StringDict{
-							"fail_loaded": starlark.NewBuiltinCanError("fail_loaded", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+							"fail_loaded": starlark.NewBuiltinCanReturnError("fail_loaded", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 								return errTag, nil
 							}),
 						}, nil
