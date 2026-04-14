@@ -192,10 +192,20 @@ type callableWithPosition interface {
 	Position() syntax.Position
 }
 
+// An ErrorReturner is a Callable that can report whether it is declared
+// as an error-returning function (the "!" modifier in Starlark, or
+// [NewBuiltinCanReturnError] for Go builtins).
+type ErrorReturner interface {
+	Callable
+	CanReturnError() bool
+}
+
 var (
 	_ Callable             = (*Builtin)(nil)
 	_ Callable             = (*Function)(nil)
 	_ callableWithPosition = (*Function)(nil)
+	_ ErrorReturner        = (*Builtin)(nil)
+	_ ErrorReturner        = (*Function)(nil)
 )
 
 // An Iterable abstracts a sequence of values.
@@ -817,8 +827,9 @@ func (fn *Function) ParamDefault(i int) Value {
 	return dflt
 }
 
-func (fn *Function) HasVarargs() bool { return fn.funcode.HasVarargs }
-func (fn *Function) HasKwargs() bool  { return fn.funcode.HasKwargs }
+func (fn *Function) HasVarargs() bool     { return fn.funcode.HasVarargs }
+func (fn *Function) HasKwargs() bool      { return fn.funcode.HasKwargs }
+func (fn *Function) CanReturnError() bool { return fn.funcode.CanReturnError }
 
 // NumFreeVars returns the number of free variables of this function.
 func (fn *Function) NumFreeVars() int { return len(fn.funcode.FreeVars) }
@@ -837,7 +848,8 @@ type Builtin struct {
 	canReturnError bool  // true if this builtin can return errors (marked as ! function)
 }
 
-func (b *Builtin) Name() string { return b.name }
+func (b *Builtin) Name() string         { return b.name }
+func (b *Builtin) CanReturnError() bool { return b.canReturnError }
 func (b *Builtin) Freeze() {
 	if b.recv != nil {
 		b.recv.Freeze()
