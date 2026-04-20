@@ -1404,7 +1404,7 @@ func TestNewBuiltinCanError(t *testing.T) {
 	errTag := starlark.NewErrorTag(1, "TestError")
 
 	// A builtin that returns an ErrorTag value.
-	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var shouldFail starlark.Bool
 		if err := starlark.UnpackPositionalArgs(fn.Name(), args, kwargs, 1, &shouldFail); err != nil {
 			return nil, err
@@ -1416,7 +1416,7 @@ func TestNewBuiltinCanError(t *testing.T) {
 	})
 
 	// A builtin that returns an Error value (with message).
-	failWithMsg := starlark.NewBuiltinCanError("fail_with_msg", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	failWithMsg := starlark.NewBuiltinCanReturnError("fail_with_msg", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		msg := "something went wrong"
 		return starlark.NewError(errTag, &msg, nil, nil), nil
 	})
@@ -1616,7 +1616,7 @@ func TestNewBuiltinCannotUseTryCatch(t *testing.T) {
 func TestDynamicErrorReturningCalls(t *testing.T) {
 	errTag := starlark.NewErrorTag(1, "TestError")
 
-	failBuiltin := starlark.NewBuiltinCanError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		return errTag, nil
 	})
 
@@ -1736,7 +1736,7 @@ result = wrapper() catch "propagated_loaded"
 				thread.Load = func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
 					if module == "errors.star" {
 						return starlark.StringDict{
-							"fail_loaded": starlark.NewBuiltinCanError("fail_loaded", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+							"fail_loaded": starlark.NewBuiltinCanReturnError("fail_loaded", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 								return errTag, nil
 							}),
 						}, nil
@@ -1756,5 +1756,73 @@ result = wrapper() catch "propagated_loaded"
 				t.Errorf("result = %s, want %s", got.String(), test.want)
 			}
 		})
+	}
+}
+
+func TestErrorReturnerInterface(t *testing.T) {
+	src := `
+def can_error()!:
+    return 1
+
+def cannot_error():
+    return 2
+`
+	thread := &starlark.Thread{Name: "test"}
+	globals, err := starlark.ExecFileOptions(
+		&syntax.FileOptions{
+			Set:             true,
+			While:           true,
+			TopLevelControl: true,
+			GlobalReassign:  true,
+			Recursion:       true,
+		},
+		thread, "test.star", src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canErrorFn := globals["can_error"].(*starlark.Function)
+	cannotErrorFn := globals["cannot_error"].(*starlark.Function)
+
+	// Functions.
+	if !canErrorFn.CanReturnError() {
+		t.Error("can_error: CanReturnError() = false, want true")
+	}
+	if cannotErrorFn.CanReturnError() {
+		t.Error("cannot_error: CanReturnError() = true, want false")
+	}
+
+	var er starlark.ErrorReturner
+	er = canErrorFn
+	if !er.CanReturnError() {
+		t.Error("can_error via ErrorReturner: CanReturnError() = false, want true")
+	}
+	er = cannotErrorFn
+	if er.CanReturnError() {
+		t.Error("cannot_error via ErrorReturner: CanReturnError() = true, want false")
+	}
+
+	// Builtins.
+	builtinCanError := starlark.NewBuiltinCanReturnError("b_err", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return starlark.None, nil
+	})
+	builtinNoError := starlark.NewBuiltin("b_ok", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return starlark.None, nil
+	})
+
+	if !builtinCanError.CanReturnError() {
+		t.Error("NewBuiltinCanReturnError: CanReturnError() = false, want true")
+	}
+	if builtinNoError.CanReturnError() {
+		t.Error("NewBuiltin: CanReturnError() = true, want false")
+	}
+
+	er = builtinCanError
+	if !er.CanReturnError() {
+		t.Error("builtin can-error via ErrorReturner: CanReturnError() = false, want true")
+	}
+	er = builtinNoError
+	if er.CanReturnError() {
+		t.Error("builtin no-error via ErrorReturner: CanReturnError() = true, want false")
 	}
 }
