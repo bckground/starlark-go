@@ -152,7 +152,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/defer.star",
 		"testdata/dict.star",
 		"testdata/errdefer.star",
-		"testdata/error_details.star",
+		"testdata/error_extra.star",
 		"testdata/error_tags.star",
 		"testdata/float.star",
 		"testdata/function.star",

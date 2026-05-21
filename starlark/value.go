@@ -1766,8 +1766,8 @@ func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Val
 
 	var message Value
 	var cause Value
-	var details *List
-	if err := UnpackArgs(e.name, args, kwargs, "message?", &message, "cause?", &cause, "details?", &details); err != nil {
+	var extra Value
+	if err := UnpackArgs(e.name, args, kwargs, "message?", &message, "cause?", &cause, "extra?", &extra); err != nil {
 		return nil, err
 	}
 
@@ -1789,7 +1789,7 @@ func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Val
 		}
 	}
 
-	return NewError(e, msgPtr, causeErr, details), nil
+	return NewError(e, msgPtr, causeErr, extra), nil
 }
 
 func (x *ErrorTag) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
@@ -1810,25 +1810,25 @@ type Error struct {
 
 	message *string
 	cause   *Error
-	details *List
+	extra   Value
 }
 
-func NewError(tag *ErrorTag, message *string, cause *Error, details *List) *Error {
+func NewError(tag *ErrorTag, message *string, cause *Error, extra Value) *Error {
 	if tag == nil {
 		panic("tag can't be nil")
 	}
-	if details == nil {
-		details = NewList(nil)
+	if extra == nil {
+		extra = None
 	}
 
-	return &Error{tag: tag, message: message, cause: cause, details: details}
+	return &Error{tag: tag, message: message, cause: cause, extra: extra}
 }
 
 func (e *Error) String() string { return e.tag.name }
 func (e *Error) Type() string   { return "error" }
 func (e *Error) Freeze() {
-	if e.details != nil {
-		e.details.Freeze()
+	if e.extra != nil {
+		e.extra.Freeze()
 	}
 	if e.cause != nil {
 		e.cause.Freeze()
@@ -1851,15 +1851,15 @@ func (e *Error) Attr(name string) (Value, error) {
 			return e.cause, nil
 		}
 		return None, nil
-	case "details":
-		return e.details, nil
+	case "extra":
+		return e.extra, nil
 	default:
 		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", e.Type(), name))
 	}
 }
 
 func (e *Error) AttrNames() []string {
-	return []string{"cause", "details", "message", "tag"}
+	return []string{"cause", "extra", "message", "tag"}
 }
 
 func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
