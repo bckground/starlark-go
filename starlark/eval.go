@@ -1312,6 +1312,16 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		}
 	}
 
+	// If we are returning to Go code (outermost frame) and a Starlark error
+	// was propagated without being caught, surface it as *UnhandledError so
+	// callers can detect and map it rather than treating it as a crash.
+	if err == nil && thread.pendingErrorValue != nil && len(thread.stack) == 1 {
+		if pending, ok := thread.pendingErrorValue.(*Error); ok {
+			thread.pendingErrorValue = nil
+			err = thread.evalError(&UnhandledError{Value: pending})
+		}
+	}
+
 	// Always return an EvalError with an accurate frame.
 	if err != nil {
 		if _, ok := err.(*EvalError); !ok {

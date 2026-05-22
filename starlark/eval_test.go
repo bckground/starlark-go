@@ -152,7 +152,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/defer.star",
 		"testdata/dict.star",
 		"testdata/errdefer.star",
-		"testdata/error_extra.star",
+		"testdata/error_details.star",
 		"testdata/error_tags.star",
 		"testdata/float.star",
 		"testdata/function.star",
@@ -1825,4 +1825,211 @@ def cannot_error():
 	if er.CanReturnError() {
 		t.Error("builtin no-error via ErrorReturner: CanReturnError() = true, want false")
 	}
+}
+
+// TestErrorAccessors verifies the Tag() and Message() accessors on *Error.
+func TestErrorAccessors(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "MyError")
+
+	t.Run("Tag returns the error tag", func(t *testing.T) {
+		err := starlark.NewError(tag, nil, nil, nil)
+		if err.Tag() != tag {
+			t.Errorf("Tag() = %v, want %v", err.Tag(), tag)
+		}
+	})
+
+	t.Run("Message with no message falls back to tag name", func(t *testing.T) {
+		err := starlark.NewError(tag, nil, nil, nil)
+		if got := err.Message(); got != "MyError" {
+			t.Errorf("Message() = %q, want %q", got, "MyError")
+		}
+	})
+
+	t.Run("Message returns the message string", func(t *testing.T) {
+		msg := "something went wrong"
+		err := starlark.NewError(tag, &msg, nil, nil)
+		if got := err.Message(); got != msg {
+			t.Errorf("Message() = %q, want %q", got, msg)
+		}
+	})
+}
+
+// TestErrorDetails verifies the details kwarg on ErrorTag constructor and the .details attribute.
+func TestErrorDetails(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "MyError")
+	predeclared := starlark.StringDict{"my_error": tag}
+
+	tests := []struct {
+		name       string
+		src        string
+		wantTag    string
+		wantMsg    string
+		wantDetail string // expected repr of .details, "" means None
+	}{
+		{
+			name:       "no details defaults to None",
+			src:        `err = my_error(message="oops")`,
+			wantTag:    "MyError",
+			wantMsg:    "oops",
+			wantDetail: "None",
+		},
+		{
+			name:       "details list is preserved",
+			src:        `err = my_error(message="oops", details=[1, 2, 3])`,
+			wantTag:    "MyError",
+			wantMsg:    "oops",
+			wantDetail: "[1, 2, 3]",
+		},
+		{
+			name:       "details string is preserved",
+			src:        `err = my_error(message="oops", details="context")`,
+			wantTag:    "MyError",
+			wantMsg:    "oops",
+			wantDetail: `"context"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: tc.name}
+			globals, err := starlark.ExecFile(thread, tc.name+".star", tc.src, predeclared)
+			if err != nil {
+				t.Fatalf("ExecFile failed: %v", err)
+			}
+			errVal, ok := globals["err"].(*starlark.Error)
+			if !ok {
+				t.Fatalf("err is not *starlark.Error: %T", globals["err"])
+			}
+			if got := errVal.Tag().Name(); got != tc.wantTag {
+				t.Errorf("tag = %q, want %q", got, tc.wantTag)
+			}
+			if got := errVal.Message(); got != tc.wantMsg {
+				t.Errorf("message = %q, want %q", got, tc.wantMsg)
+			}
+			details, err2 := errVal.Attr("details")
+			if err2 != nil {
+				t.Fatalf("Attr(details): %v", err2)
+			}
+			if got := details.String(); got != tc.wantDetail {
+				t.Errorf("details = %s, want %s", got, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// TestUnhandledError verifies that Call surfaces an *UnhandledError when a
+// !-function propagates an error to the top level without catching it.
+func TestUnhandledError(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "NotFound")
+
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		msg := "item not found"
+		return starlark.NewError(tag, &msg, nil, nil), nil
+	})
+
+	predeclared := starlark.StringDict{"fail_builtin": failBuiltin}
+
+	t.Run("unhandled propagation returns UnhandledError", func(t *testing.T) {
+		src := `
+def main()!:
+    return try fail_builtin()
+`
+		thread := &starlark.Thread{Name: "unhandled"}
+		globals, err := starlark.ExecFile(thread, "unhandled.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn, ok := globals["main"].(*starlark.Function)
+		if !ok {
+			t.Fatal("main not found or not a Function")
+		}
+
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		if callErr == nil {
+			t.Fatal("Call returned nil error, want *UnhandledError")
+		}
+
+		var unhandled *starlark.UnhandledError
+		if !errors.As(callErr, &unhandled) {
+			t.Fatalf("errors.As(*UnhandledError) = false; got %T: %v", callErr, callErr)
+		}
+		if unhandled.Value.Tag() != tag {
+			t.Errorf("UnhandledError.Value.Tag() = %v, want %v", unhandled.Value.Tag(), tag)
+		}
+		if got := unhandled.Value.Message(); got != "item not found" {
+			t.Errorf("UnhandledError.Value.Message() = %q, want %q", got, "item not found")
+		}
+	})
+
+	t.Run("caught error does not produce UnhandledError", func(t *testing.T) {
+		src := `
+def main()!:
+    result = fail_builtin() catch "default"
+    return result
+`
+		thread := &starlark.Thread{Name: "caught"}
+		globals, err := starlark.ExecFile(thread, "caught.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		result, callErr := starlark.Call(thread, fn, nil, nil)
+		if callErr != nil {
+			t.Fatalf("Call returned error: %v", callErr)
+		}
+		if result.String() != `"default"` {
+			t.Errorf("result = %s, want %q", result.String(), "default")
+		}
+	})
+
+	t.Run("UnhandledError.Error returns tag name", func(t *testing.T) {
+		src := `
+def main()!:
+    return try fail_builtin()
+`
+		thread := &starlark.Thread{Name: "errstring"}
+		globals, err := starlark.ExecFile(thread, "errstring.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var unhandled *starlark.UnhandledError
+		if !errors.As(callErr, &unhandled) {
+			t.Fatalf("errors.As(*UnhandledError) = false")
+		}
+		if got := unhandled.Error(); got != "NotFound" {
+			t.Errorf("Error() = %q, want %q", got, "NotFound")
+		}
+	})
+
+	t.Run("nested propagation still surfaces UnhandledError", func(t *testing.T) {
+		src := `
+def inner()!:
+    return try fail_builtin()
+
+def outer()!:
+    return try inner()
+`
+		thread := &starlark.Thread{Name: "nested"}
+		globals, err := starlark.ExecFile(thread, "nested.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["outer"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var unhandled *starlark.UnhandledError
+		if !errors.As(callErr, &unhandled) {
+			t.Fatalf("errors.As(*UnhandledError) = false; got %T: %v", callErr, callErr)
+		}
+		if unhandled.Value.Tag() != tag {
+			t.Errorf("tag = %v, want %v", unhandled.Value.Tag(), tag)
+		}
+	})
 }

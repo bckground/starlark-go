@@ -7,7 +7,7 @@ def test_error_tag_callable():
     assert.eq(err.tag, tags.Err)
     assert.eq(err.message, "something went wrong")
     assert.eq(err.cause, None)
-    assert.eq(err.extra, None)
+    assert.eq(err.details, None)
 
 test_error_tag_callable()
 
@@ -18,33 +18,33 @@ def test_error_tag_no_args():
     assert.eq(err.tag, tags.Err)
     assert.eq(err.message, "Err")  # Default message is tag name
     assert.eq(err.cause, None)
-    assert.eq(err.extra, None)
+    assert.eq(err.details, None)
 
 test_error_tag_no_args()
 
-# Test error with extra (arbitrary value: list).
-def test_error_extra_list():
+# Test error with details (arbitrary value: list).
+def test_error_details_list():
     tags = error_tags("Err")
-    err = tags.Err(message="with extra", extra=[1, "two", 3])
-    assert.eq(err.extra, [1, "two", 3])
+    err = tags.Err(message="with details", details=[1, "two", 3])
+    assert.eq(err.details, [1, "two", 3])
 
-test_error_extra_list()
+test_error_details_list()
 
-# Test error with extra (arbitrary value: dict).
-def test_error_extra_dict():
+# Test error with details (arbitrary value: dict).
+def test_error_details_dict():
     tags = error_tags("Err")
-    err = tags.Err(message="with extra", extra={"id": 42, "user": "bob"})
-    assert.eq(err.extra, {"id": 42, "user": "bob"})
+    err = tags.Err(message="with details", details={"id": 42, "user": "bob"})
+    assert.eq(err.details, {"id": 42, "user": "bob"})
 
-test_error_extra_dict()
+test_error_details_dict()
 
-# Test error with extra (arbitrary value: scalar).
-def test_error_extra_scalar():
+# Test error with details (arbitrary value: scalar).
+def test_error_details_scalar():
     tags = error_tags("Err")
-    err = tags.Err(message="with extra", extra=42)
-    assert.eq(err.extra, 42)
+    err = tags.Err(message="with details", details=42)
+    assert.eq(err.details, 42)
 
-test_error_extra_scalar()
+test_error_details_scalar()
 
 # Test default message is tag name.
 def test_default_message():

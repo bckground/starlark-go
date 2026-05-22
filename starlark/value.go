@@ -1766,8 +1766,8 @@ func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Val
 
 	var message Value
 	var cause Value
-	var extra Value
-	if err := UnpackArgs(e.name, args, kwargs, "message?", &message, "cause?", &cause, "extra?", &extra); err != nil {
+	var details Value
+	if err := UnpackArgs(e.name, args, kwargs, "message?", &message, "cause?", &cause, "details?", &details); err != nil {
 		return nil, err
 	}
 
@@ -1789,7 +1789,7 @@ func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Val
 		}
 	}
 
-	return NewError(e, msgPtr, causeErr, extra), nil
+	return NewError(e, msgPtr, causeErr, details), nil
 }
 
 func (x *ErrorTag) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
@@ -1810,25 +1810,25 @@ type Error struct {
 
 	message *string
 	cause   *Error
-	extra   Value
+	details   Value
 }
 
-func NewError(tag *ErrorTag, message *string, cause *Error, extra Value) *Error {
+func NewError(tag *ErrorTag, message *string, cause *Error, details Value) *Error {
 	if tag == nil {
 		panic("tag can't be nil")
 	}
-	if extra == nil {
-		extra = None
+	if details == nil {
+		details = None
 	}
 
-	return &Error{tag: tag, message: message, cause: cause, extra: extra}
+	return &Error{tag: tag, message: message, cause: cause, details: details}
 }
 
 func (e *Error) String() string { return e.tag.name }
 func (e *Error) Type() string   { return "error" }
 func (e *Error) Freeze() {
-	if e.extra != nil {
-		e.extra.Freeze()
+	if e.details != nil {
+		e.details.Freeze()
 	}
 	if e.cause != nil {
 		e.cause.Freeze()
@@ -1851,20 +1851,31 @@ func (e *Error) Attr(name string) (Value, error) {
 			return e.cause, nil
 		}
 		return None, nil
-	case "extra":
-		return e.extra, nil
+	case "details":
+		return e.details, nil
 	default:
 		return nil, NoSuchAttrError(fmt.Sprintf("%s has no attribute %q", e.Type(), name))
 	}
 }
 
 func (e *Error) AttrNames() []string {
-	return []string{"cause", "extra", "message", "tag"}
+	return []string{"cause", "details", "message", "tag"}
 }
 
 func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, error) {
 	y := y_.(*Error)
 	return x.tag.CompareSameType(op, y.tag, depth)
+}
+
+// Tag returns the error's tag.
+func (e *Error) Tag() *ErrorTag { return e.tag }
+
+// Message returns the error's message, falling back to the tag name.
+func (e *Error) Message() string {
+	if e.message != nil {
+		return *e.message
+	}
+	return e.tag.name
 }
 
 // FailError is the error returned by the fail() builtin when called with
@@ -1875,6 +1886,15 @@ type FailError struct {
 }
 
 func (e *FailError) Error() string { return e.Msg }
+
+// UnhandledError is returned by Call when a !-function propagates a Starlark
+// error to the top level without it being caught by a catch block. Go callers
+// can use errors.As to extract the underlying *Error and inspect its tag.
+type UnhandledError struct {
+	Value *Error
+}
+
+func (e *UnhandledError) Error() string { return e.Value.tag.name }
 
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {
