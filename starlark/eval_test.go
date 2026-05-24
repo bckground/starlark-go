@@ -152,7 +152,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/defer.star",
 		"testdata/dict.star",
 		"testdata/errdefer.star",
-		"testdata/error_details.star",
+		"testdata/error_extra.star",
 		"testdata/error_tags.star",
 		"testdata/float.star",
 		"testdata/function.star",
@@ -1854,38 +1854,38 @@ func TestErrorAccessors(t *testing.T) {
 	})
 }
 
-// TestErrorDetails verifies the details kwarg on ErrorTag constructor and the .details attribute.
-func TestErrorDetails(t *testing.T) {
+// TestErrorExtra verifies the extra kwarg on ErrorTag constructor and the .extra attribute.
+func TestErrorExtra(t *testing.T) {
 	tag := starlark.NewErrorTag(1, "MyError")
 	predeclared := starlark.StringDict{"my_error": tag}
 
 	tests := []struct {
-		name       string
-		src        string
-		wantTag    string
-		wantMsg    string
-		wantDetail string // expected repr of .details, "" means None
+		name      string
+		src       string
+		wantTag   string
+		wantMsg   string
+		wantExtra string // expected repr of .extra, "" means None
 	}{
 		{
-			name:       "no details defaults to None",
-			src:        `err = my_error(message="oops")`,
-			wantTag:    "MyError",
-			wantMsg:    "oops",
-			wantDetail: "None",
+			name:      "no extra defaults to None",
+			src:       `err = my_error(message="oops")`,
+			wantTag:   "MyError",
+			wantMsg:   "oops",
+			wantExtra: "None",
 		},
 		{
-			name:       "details list is preserved",
-			src:        `err = my_error(message="oops", details=[1, 2, 3])`,
-			wantTag:    "MyError",
-			wantMsg:    "oops",
-			wantDetail: "[1, 2, 3]",
+			name:      "extra list is preserved",
+			src:       `err = my_error(message="oops", extra=[1, 2, 3])`,
+			wantTag:   "MyError",
+			wantMsg:   "oops",
+			wantExtra: "[1, 2, 3]",
 		},
 		{
-			name:       "details string is preserved",
-			src:        `err = my_error(message="oops", details="context")`,
-			wantTag:    "MyError",
-			wantMsg:    "oops",
-			wantDetail: `"context"`,
+			name:      "extra string is preserved",
+			src:       `err = my_error(message="oops", extra="context")`,
+			wantTag:   "MyError",
+			wantMsg:   "oops",
+			wantExtra: `"context"`,
 		},
 	}
 
@@ -1906,12 +1906,12 @@ func TestErrorDetails(t *testing.T) {
 			if got := errVal.Message(); got != tc.wantMsg {
 				t.Errorf("message = %q, want %q", got, tc.wantMsg)
 			}
-			details, err2 := errVal.Attr("details")
+			extra, err2 := errVal.Attr("extra")
 			if err2 != nil {
-				t.Fatalf("Attr(details): %v", err2)
+				t.Fatalf("Attr(extra): %v", err2)
 			}
-			if got := details.String(); got != tc.wantDetail {
-				t.Errorf("details = %s, want %s", got, tc.wantDetail)
+			if got := extra.String(); got != tc.wantExtra {
+				t.Errorf("extra = %s, want %s", got, tc.wantExtra)
 			}
 		})
 	}
