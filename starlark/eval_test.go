@@ -2123,3 +2123,142 @@ def outer()!:
 		}
 	})
 }
+
+// TestGetAndClearPendingError verifies the GetAndClearPendingError helper, which
+// allows Go builtins to recover errors that were set by ! functions inside non-!
+// lambdas — a situation where Call() does not surface the error through callErr
+// because len(thread.stack) > 1 when the lambda returns.
+func TestGetAndClearPendingError(t *testing.T) {
+	tag := starlark.NewErrorTag(99, "PendingTestTag")
+
+	// failBuiltin is a ! builtin that always returns the error tag.
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+		return tag, nil
+	})
+
+	t.Run("returns false on a thread with no pending error", func(t *testing.T) {
+		thread := &starlark.Thread{Name: "no-pending"}
+		got, ok := starlark.GetAndClearPendingError(thread)
+		if ok || got != nil {
+			t.Errorf("GetAndClearPendingError() = (%v, %v), want (nil, false)", got, ok)
+		}
+	})
+
+	t.Run("returns false when the non-! lambda succeeds without error", func(t *testing.T) {
+		var pending *starlark.Error
+		probeBuiltin := starlark.NewBuiltin("probe", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			var fn starlark.Callable
+			if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &fn); err != nil {
+				return nil, err
+			}
+			starlark.Call(thread, fn, nil, nil) //nolint:errcheck
+			pending, _ = starlark.GetAndClearPendingError(thread)
+			return starlark.None, nil
+		})
+		src := `probe(lambda: "no error here")`
+		thread := &starlark.Thread{Name: "success"}
+		if _, err := starlark.ExecFile(thread, "success.star", src, starlark.StringDict{"probe": probeBuiltin}); err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		if pending != nil {
+			t.Errorf("pending = %v, want nil", pending)
+		}
+	})
+
+	// This is the motivating scenario: a Go builtin (like assert.catch) calls
+	// starlark.Call on a non-! lambda that wraps a ! builtin. Because the Go
+	// builtin's own frame is on the stack, len(thread.stack) > 1 when the lambda
+	// returns, so Call() does not surface the error through callErr. The error
+	// lives in pendingErrorValue and is retrieved via GetAndClearPendingError.
+	//
+	// Note: the lambda calls `fn` (a local variable), not `fail` (the predeclared
+	// ! name) directly, because the resolver statically rejects bare calls to known
+	// ! functions from a non-! context. Accessing via a local variable or dot
+	// expression (as in `lambda: module.fn(arg)` in the real stdlib tests) is
+	// errorCallUnknown to the resolver and passes through.
+	t.Run("captures pending error from non-! lambda wrapping ! builtin", func(t *testing.T) {
+		var capturedErr *starlark.Error
+		captureBuiltin := starlark.NewBuiltin("capture", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			var fn starlark.Callable
+			if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &fn); err != nil {
+				return nil, err
+			}
+			_, callErr := starlark.Call(thread, fn, nil, nil)
+			if callErr != nil {
+				return starlark.None, callErr
+			}
+			capturedErr, _ = starlark.GetAndClearPendingError(thread)
+			return starlark.None, nil
+		})
+
+		// Assign fail to a local variable so the resolver sees an unknown-status
+		// free-variable call in the lambda rather than a known ! function call.
+		src := `
+fn = fail
+capture(lambda: fn())
+`
+		thread := &starlark.Thread{Name: "capture"}
+		if _, err := starlark.ExecFile(thread, "capture.star", src, starlark.StringDict{
+			"fail":    failBuiltin,
+			"capture": captureBuiltin,
+		}); err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		if capturedErr == nil {
+			t.Fatal("capturedErr = nil; want error from fail()")
+		}
+		if capturedErr.Tag() != tag {
+			t.Errorf("capturedErr.Tag() = %v, want %v", capturedErr.Tag(), tag)
+		}
+	})
+
+	t.Run("clears the error so a second call finds nothing", func(t *testing.T) {
+		var first, second *starlark.Error
+		captureBuiltin := starlark.NewBuiltin("capture", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			var fn starlark.Callable
+			if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &fn); err != nil {
+				return nil, err
+			}
+			starlark.Call(thread, fn, nil, nil) //nolint:errcheck
+			first, _ = starlark.GetAndClearPendingError(thread)
+			second, _ = starlark.GetAndClearPendingError(thread)
+			return starlark.None, nil
+		})
+
+		src := `
+fn = fail
+capture(lambda: fn())
+`
+		thread := &starlark.Thread{Name: "clear"}
+		if _, err := starlark.ExecFile(thread, "clear.star", src, starlark.StringDict{
+			"fail":    failBuiltin,
+			"capture": captureBuiltin,
+		}); err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		if first == nil {
+			t.Fatal("first = nil; want error from fail()")
+		}
+		if first.Tag() != tag {
+			t.Errorf("first.Tag() = %v, want %v", first.Tag(), tag)
+		}
+		if second != nil {
+			t.Errorf("second = %v after clear, want nil", second)
+		}
+	})
+
+	t.Run("returns false after ! builtin called directly at outermost Go frame", func(t *testing.T) {
+		// When a ! builtin is called directly from Go with an empty stack,
+		// len(thread.stack)==1 during the call, so Call() converts pendingErrorValue
+		// to callErr and clears it. GetAndClearPendingError should find nothing.
+		thread := &starlark.Thread{Name: "outermost"}
+		_, callErr := starlark.Call(thread, failBuiltin, nil, nil)
+		if callErr == nil {
+			t.Fatal("expected callErr != nil for direct ! builtin call from Go")
+		}
+		pending, ok := starlark.GetAndClearPendingError(thread)
+		if ok || pending != nil {
+			t.Errorf("GetAndClearPendingError() = (%v, %v) after outermost Call(); want (nil, false)", pending, ok)
+		}
+	})
+}
