@@ -1917,8 +1917,98 @@ func TestErrorExtra(t *testing.T) {
 	}
 }
 
+// TestReturnedError verifies that Call surfaces a *ReturnedError when a
+// !-function explicitly returns an error value (return error.X(...)).
+func TestReturnedError(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "NotFound")
+
+	t.Run("explicit return surfaces ReturnedError", func(t *testing.T) {
+		src := `
+def main()!:
+    return my_tag(message = "gone")
+`
+		predeclared := starlark.StringDict{"my_tag": tag}
+		thread := &starlark.Thread{Name: "returned"}
+		globals, err := starlark.ExecFile(thread, "returned.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		if callErr == nil {
+			t.Fatal("Call returned nil error, want *ReturnedError")
+		}
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
+		}
+		if returned.Value.Tag() != tag {
+			t.Errorf("ReturnedError.Value.Tag() = %v, want %v", returned.Value.Tag(), tag)
+		}
+		if got := returned.Value.Message(); got != "gone" {
+			t.Errorf("ReturnedError.Value.Message() = %q, want %q", got, "gone")
+		}
+	})
+
+	t.Run("ReturnedError.Error returns tag name", func(t *testing.T) {
+		src := `
+def main()!:
+    return my_tag(message = "gone")
+`
+		predeclared := starlark.StringDict{"my_tag": tag}
+		thread := &starlark.Thread{Name: "errstring"}
+		globals, err := starlark.ExecFile(thread, "errstring.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false")
+		}
+		if got := returned.Error(); got != "NotFound" {
+			t.Errorf("Error() = %q, want %q", got, "NotFound")
+		}
+	})
+
+	t.Run("try propagation does not produce ReturnedError", func(t *testing.T) {
+		failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			msg := "item not found"
+			return starlark.NewError(tag, &msg, nil, nil), nil
+		})
+		src := `
+def main()!:
+    return try fail_builtin()
+`
+		predeclared := starlark.StringDict{"fail_builtin": failBuiltin}
+		thread := &starlark.Thread{Name: "try-not-returned"}
+		globals, err := starlark.ExecFile(thread, "try.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var returned *starlark.ReturnedError
+		if errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = true; expected UnhandledError, not ReturnedError")
+		}
+		var unhandled *starlark.UnhandledError
+		if !errors.As(callErr, &unhandled) {
+			t.Fatalf("errors.As(*UnhandledError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+}
+
 // TestUnhandledError verifies that Call surfaces an *UnhandledError when a
-// !-function propagates an error to the top level without catching it.
+// !-function propagates an error to the top level via try without explicitly
+// returning it.
 func TestUnhandledError(t *testing.T) {
 	tag := starlark.NewErrorTag(1, "NotFound")
 

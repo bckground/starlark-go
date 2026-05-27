@@ -83,6 +83,11 @@ type Thread struct {
 	// CATCH_CHECK opcodes, and materialized onto the stack by LOAD_ERROR.
 	pendingErrorValue Value
 
+	// pendingErrorIsReturn is true when pendingErrorValue was set by an explicit
+	// RETURN opcode (return error.X(...)), and false when it was propagated by
+	// a TRY opcode. Used by Call to surface ReturnedError vs UnhandledError.
+	pendingErrorIsReturn bool
+
 	// cancelReason records the reason from the first call to Cancel.
 	cancelReason atomic.Pointer[error]
 
@@ -1313,12 +1318,19 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	}
 
 	// If we are returning to Go code (outermost frame) and a Starlark error
-	// was propagated without being caught, surface it as *UnhandledError so
-	// callers can detect and map it rather than treating it as a crash.
+	// was not caught, surface it as a typed Go error. An explicit return
+	// (return error.X(...)) becomes ReturnedError; a try propagation becomes
+	// UnhandledError.
 	if err == nil && thread.pendingErrorValue != nil && len(thread.stack) == 1 {
 		if pending, ok := thread.pendingErrorValue.(*Error); ok {
+			isReturn := thread.pendingErrorIsReturn
 			thread.pendingErrorValue = nil
-			err = thread.evalError(&UnhandledError{Value: pending})
+			thread.pendingErrorIsReturn = false
+			if isReturn {
+				err = thread.evalError(&ReturnedError{Value: pending})
+			} else {
+				err = thread.evalError(&UnhandledError{Value: pending})
+			}
 		}
 	}
 

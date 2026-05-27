@@ -1887,8 +1887,17 @@ type FailError struct {
 
 func (e *FailError) Error() string { return e.Msg }
 
+// ReturnedError is returned by Call when a !-function explicitly returns an
+// error value (return error.X(...)). Go callers can use errors.As to extract
+// the underlying *Error and inspect its tag.
+type ReturnedError struct {
+	Value *Error
+}
+
+func (e *ReturnedError) Error() string { return e.Value.tag.name }
+
 // UnhandledError is returned by Call when a !-function propagates a Starlark
-// error to the top level without it being caught by a catch block. Go callers
+// error to the top level via try without explicitly returning it. Go callers
 // can use errors.As to extract the underlying *Error and inspect its tag.
 type UnhandledError struct {
 	Value *Error
