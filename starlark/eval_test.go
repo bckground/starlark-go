@@ -1826,3 +1826,700 @@ def cannot_error():
 		t.Error("builtin no-error via ErrorReturner: CanReturnError() = true, want false")
 	}
 }
+
+// TestErrorAccessors verifies the Tag() and Message() accessors on *Error.
+func TestErrorAccessors(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "MyError")
+
+	t.Run("Tag returns the error tag", func(t *testing.T) {
+		err := starlark.NewError(tag, nil, nil, nil)
+		if err.Tag() != tag {
+			t.Errorf("Tag() = %v, want %v", err.Tag(), tag)
+		}
+	})
+
+	t.Run("Message with no message falls back to tag name", func(t *testing.T) {
+		err := starlark.NewError(tag, nil, nil, nil)
+		if got := err.Message(); got != "MyError" {
+			t.Errorf("Message() = %q, want %q", got, "MyError")
+		}
+	})
+
+	t.Run("Message returns the message string", func(t *testing.T) {
+		msg := "something went wrong"
+		err := starlark.NewError(tag, &msg, nil, nil)
+		if got := err.Message(); got != msg {
+			t.Errorf("Message() = %q, want %q", got, msg)
+		}
+	})
+}
+
+// TestErrorExtra verifies the extra kwarg on ErrorTag constructor and the .extra attribute.
+func TestErrorExtra(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "MyError")
+	predeclared := starlark.StringDict{"my_error": tag}
+
+	tests := []struct {
+		name      string
+		src       string
+		wantTag   string
+		wantMsg   string
+		wantExtra string // expected repr of .extra, "" means None
+	}{
+		{
+			name:      "no extra defaults to None",
+			src:       `err = my_error(message="oops")`,
+			wantTag:   "MyError",
+			wantMsg:   "oops",
+			wantExtra: "None",
+		},
+		{
+			name:      "extra list is preserved",
+			src:       `err = my_error(message="oops", extra=[1, 2, 3])`,
+			wantTag:   "MyError",
+			wantMsg:   "oops",
+			wantExtra: "[1, 2, 3]",
+		},
+		{
+			name:      "extra string is preserved",
+			src:       `err = my_error(message="oops", extra="context")`,
+			wantTag:   "MyError",
+			wantMsg:   "oops",
+			wantExtra: `"context"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: tc.name}
+			globals, err := starlark.ExecFile(thread, tc.name+".star", tc.src, predeclared)
+			if err != nil {
+				t.Fatalf("ExecFile failed: %v", err)
+			}
+			errVal, ok := globals["err"].(*starlark.Error)
+			if !ok {
+				t.Fatalf("err is not *starlark.Error: %T", globals["err"])
+			}
+			if got := errVal.Tag().Name(); got != tc.wantTag {
+				t.Errorf("tag = %q, want %q", got, tc.wantTag)
+			}
+			if got := errVal.Message(); got != tc.wantMsg {
+				t.Errorf("message = %q, want %q", got, tc.wantMsg)
+			}
+			extra, err2 := errVal.Attr("extra")
+			if err2 != nil {
+				t.Fatalf("Attr(extra): %v", err2)
+			}
+			if got := extra.String(); got != tc.wantExtra {
+				t.Errorf("extra = %s, want %s", got, tc.wantExtra)
+			}
+		})
+	}
+}
+
+// TestReturnedError verifies that Call surfaces a *ReturnedError when a
+// !-function explicitly returns an error value (return error.X(...)).
+func TestReturnedError(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "NotFound")
+
+	t.Run("explicit return surfaces ReturnedError", func(t *testing.T) {
+		src := `
+def main()!:
+    return my_tag(message = "gone")
+`
+		predeclared := starlark.StringDict{"my_tag": tag}
+		thread := &starlark.Thread{Name: "returned"}
+		globals, err := starlark.ExecFile(thread, "returned.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		if callErr == nil {
+			t.Fatal("Call returned nil error, want *ReturnedError")
+		}
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
+		}
+		if returned.Value.Tag() != tag {
+			t.Errorf("ReturnedError.Value.Tag() = %v, want %v", returned.Value.Tag(), tag)
+		}
+		if got := returned.Value.Message(); got != "gone" {
+			t.Errorf("ReturnedError.Value.Message() = %q, want %q", got, "gone")
+		}
+	})
+
+	t.Run("ReturnedError.Error returns tag name", func(t *testing.T) {
+		src := `
+def main()!:
+    return my_tag(message = "gone")
+`
+		predeclared := starlark.StringDict{"my_tag": tag}
+		thread := &starlark.Thread{Name: "errstring"}
+		globals, err := starlark.ExecFile(thread, "errstring.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false")
+		}
+		if got := returned.Error(); got != "NotFound" {
+			t.Errorf("Error() = %q, want %q", got, "NotFound")
+		}
+	})
+
+	t.Run("try propagation produces ReturnedError", func(t *testing.T) {
+		failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			msg := "item not found"
+			return starlark.NewError(tag, &msg, nil, nil), nil
+		})
+		src := `
+def main()!:
+    return try fail_builtin()
+`
+		predeclared := starlark.StringDict{"fail_builtin": failBuiltin}
+		thread := &starlark.Thread{Name: "try-returned"}
+		globals, err := starlark.ExecFile(thread, "try.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+}
+
+// TestReturnedErrorViaTry verifies that Call surfaces a *ReturnedError when a
+// !-function propagates an error to the top level via try.
+func TestReturnedErrorViaTry(t *testing.T) {
+	tag := starlark.NewErrorTag(1, "NotFound")
+
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		msg := "item not found"
+		return starlark.NewError(tag, &msg, nil, nil), nil
+	})
+
+	predeclared := starlark.StringDict{"fail_builtin": failBuiltin}
+
+	t.Run("propagation via try returns ReturnedError", func(t *testing.T) {
+		src := `
+def main()!:
+    return try fail_builtin()
+`
+		thread := &starlark.Thread{Name: "try-returned"}
+		globals, err := starlark.ExecFile(thread, "try.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn, ok := globals["main"].(*starlark.Function)
+		if !ok {
+			t.Fatal("main not found or not a Function")
+		}
+
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		if callErr == nil {
+			t.Fatal("Call returned nil error, want *ReturnedError")
+		}
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
+		}
+		if returned.Value.Tag() != tag {
+			t.Errorf("ReturnedError.Value.Tag() = %v, want %v", returned.Value.Tag(), tag)
+		}
+		if got := returned.Value.Message(); got != "item not found" {
+			t.Errorf("ReturnedError.Value.Message() = %q, want %q", got, "item not found")
+		}
+	})
+
+	t.Run("caught error does not produce ReturnedError", func(t *testing.T) {
+		src := `
+def main()!:
+    result = fail_builtin() catch "default"
+    return result
+`
+		thread := &starlark.Thread{Name: "caught"}
+		globals, err := starlark.ExecFile(thread, "caught.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		result, callErr := starlark.Call(thread, fn, nil, nil)
+		if callErr != nil {
+			t.Fatalf("Call returned error: %v", callErr)
+		}
+		if result.String() != `"default"` {
+			t.Errorf("result = %s, want %q", result.String(), "default")
+		}
+	})
+
+	t.Run("ReturnedError.Error returns tag name", func(t *testing.T) {
+		src := `
+def main()!:
+    return try fail_builtin()
+`
+		thread := &starlark.Thread{Name: "errstring"}
+		globals, err := starlark.ExecFile(thread, "errstring.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false")
+		}
+		if got := returned.Error(); got != "NotFound" {
+			t.Errorf("Error() = %q, want %q", got, "NotFound")
+		}
+	})
+
+	t.Run("nested propagation via try surfaces ReturnedError", func(t *testing.T) {
+		src := `
+def inner()!:
+    return try fail_builtin()
+
+def outer()!:
+    return try inner()
+`
+		thread := &starlark.Thread{Name: "nested"}
+		globals, err := starlark.ExecFile(thread, "nested.star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+
+		fn := globals["outer"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
+		}
+		if returned.Value.Tag() != tag {
+			t.Errorf("tag = %v, want %v", returned.Value.Tag(), tag)
+		}
+	})
+}
+
+// TestGetAndClearPendingError verifies the GetAndClearPendingError helper, which
+// allows Go builtins to recover errors that were set by ! functions inside non-!
+// lambdas — a situation where Call() does not surface the error through callErr
+// because len(thread.stack) > 1 when the lambda returns.
+func TestGetAndClearPendingError(t *testing.T) {
+	tag := starlark.NewErrorTag(99, "PendingTestTag")
+
+	// failBuiltin is a ! builtin that always returns the error tag.
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+		return tag, nil
+	})
+
+	t.Run("returns false on a thread with no pending error", func(t *testing.T) {
+		thread := &starlark.Thread{Name: "no-pending"}
+		got, ok := starlark.GetAndClearPendingError(thread)
+		if ok || got != nil {
+			t.Errorf("GetAndClearPendingError() = (%v, %v), want (nil, false)", got, ok)
+		}
+	})
+
+	t.Run("returns false when the non-! lambda succeeds without error", func(t *testing.T) {
+		var pending *starlark.Error
+		probeBuiltin := starlark.NewBuiltin("probe", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			var fn starlark.Callable
+			if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &fn); err != nil {
+				return nil, err
+			}
+			starlark.Call(thread, fn, nil, nil) //nolint:errcheck
+			pending, _ = starlark.GetAndClearPendingError(thread)
+			return starlark.None, nil
+		})
+		src := `probe(lambda: "no error here")`
+		thread := &starlark.Thread{Name: "success"}
+		if _, err := starlark.ExecFile(thread, "success.star", src, starlark.StringDict{"probe": probeBuiltin}); err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		if pending != nil {
+			t.Errorf("pending = %v, want nil", pending)
+		}
+	})
+
+	// This is the motivating scenario: a Go builtin (like assert.catch) calls
+	// starlark.Call on a non-! lambda that wraps a ! builtin. Because the Go
+	// builtin's own frame is on the stack, len(thread.stack) > 1 when the lambda
+	// returns, so Call() does not surface the error through callErr. The error
+	// lives in pendingErrorValue and is retrieved via GetAndClearPendingError.
+	//
+	// Note: the lambda calls `fn` (a local variable), not `fail` (the predeclared
+	// ! name) directly, because the resolver statically rejects bare calls to known
+	// ! functions from a non-! context. Accessing via a local variable or dot
+	// expression (as in `lambda: module.fn(arg)` in the real stdlib tests) is
+	// errorCallUnknown to the resolver and passes through.
+	t.Run("captures pending error from non-! lambda wrapping ! builtin", func(t *testing.T) {
+		var capturedErr *starlark.Error
+		captureBuiltin := starlark.NewBuiltin("capture", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			var fn starlark.Callable
+			if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &fn); err != nil {
+				return nil, err
+			}
+			_, callErr := starlark.Call(thread, fn, nil, nil)
+			if callErr != nil {
+				return starlark.None, callErr
+			}
+			capturedErr, _ = starlark.GetAndClearPendingError(thread)
+			return starlark.None, nil
+		})
+
+		// Assign fail to a local variable so the resolver sees an unknown-status
+		// free-variable call in the lambda rather than a known ! function call.
+		src := `
+fn = fail
+capture(lambda: fn())
+`
+		thread := &starlark.Thread{Name: "capture"}
+		if _, err := starlark.ExecFile(thread, "capture.star", src, starlark.StringDict{
+			"fail":    failBuiltin,
+			"capture": captureBuiltin,
+		}); err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		if capturedErr == nil {
+			t.Fatal("capturedErr = nil; want error from fail()")
+		}
+		if capturedErr.Tag() != tag {
+			t.Errorf("capturedErr.Tag() = %v, want %v", capturedErr.Tag(), tag)
+		}
+	})
+
+	t.Run("clears the error so a second call finds nothing", func(t *testing.T) {
+		var first, second *starlark.Error
+		captureBuiltin := starlark.NewBuiltin("capture", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			var fn starlark.Callable
+			if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &fn); err != nil {
+				return nil, err
+			}
+			starlark.Call(thread, fn, nil, nil) //nolint:errcheck
+			first, _ = starlark.GetAndClearPendingError(thread)
+			second, _ = starlark.GetAndClearPendingError(thread)
+			return starlark.None, nil
+		})
+
+		src := `
+fn = fail
+capture(lambda: fn())
+`
+		thread := &starlark.Thread{Name: "clear"}
+		if _, err := starlark.ExecFile(thread, "clear.star", src, starlark.StringDict{
+			"fail":    failBuiltin,
+			"capture": captureBuiltin,
+		}); err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		if first == nil {
+			t.Fatal("first = nil; want error from fail()")
+		}
+		if first.Tag() != tag {
+			t.Errorf("first.Tag() = %v, want %v", first.Tag(), tag)
+		}
+		if second != nil {
+			t.Errorf("second = %v after clear, want nil", second)
+		}
+	})
+
+	t.Run("returns false after ! builtin called directly at outermost Go frame", func(t *testing.T) {
+		// When a ! builtin is called directly from Go with an empty stack,
+		// len(thread.stack)==1 during the call, so Call() converts pendingErrorValue
+		// to callErr and clears it. GetAndClearPendingError should find nothing.
+		thread := &starlark.Thread{Name: "outermost"}
+		_, callErr := starlark.Call(thread, failBuiltin, nil, nil)
+		if callErr == nil {
+			t.Fatal("expected callErr != nil for direct ! builtin call from Go")
+		}
+		pending, ok := starlark.GetAndClearPendingError(thread)
+		if ok || pending != nil {
+			t.Errorf("GetAndClearPendingError() = (%v, %v) after outermost Call(); want (nil, false)", pending, ok)
+		}
+	})
+}
+
+// TestBuiltinArgError verifies the BuiltinArgError type and its StarlarkRuntimeError
+// interface implementation, as produced by UnpackArgs and UnpackPositionalArgs.
+func TestBuiltinArgError(t *testing.T) {
+	t.Run("UnpackArgs returns BuiltinArgError on type mismatch", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(err, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", err, err)
+		}
+	})
+
+	t.Run("BuiltinArgError satisfies StarlarkRuntimeError", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
+		var rte starlark.StarlarkRuntimeError
+		if !errors.As(err, &rte) {
+			t.Fatalf("errors.As(StarlarkRuntimeError) = false; got %T", err)
+		}
+	})
+
+	t.Run("StarlarkError returns Error with BuiltinArgErrorTag", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
+		var argErr *starlark.BuiltinArgError
+		errors.As(err, &argErr)
+		se := argErr.StarlarkError()
+		if se.Tag() != starlark.BuiltinArgErrorTag {
+			t.Errorf("Tag() = %v, want BuiltinArgErrorTag", se.Tag())
+		}
+		if got, want := se.Tag().Name(), "ARGUMENT_ERROR"; got != want {
+			t.Errorf("Tag().Name() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("UnpackPositionalArgs returns BuiltinArgError on wrong argument count", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackPositionalArgs("g", starlark.Tuple{}, nil, 1, &s)
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(err, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", err, err)
+		}
+	})
+}
+
+// TestStarlarkRuntimeErrorPanic verifies that a BuiltinArgError causes a VM panic
+// that is not catchable by Starlark try or catch expressions.
+func TestStarlarkRuntimeErrorPanic(t *testing.T) {
+	// panicBuiltin requires one string argument; called with none it triggers BuiltinArgError.
+	panicBuiltin := starlark.NewBuiltin("panic_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var s string
+		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
+	})
+	// panicErrBuiltin is the ! variant required for catch/try syntax.
+	panicErrBuiltin := starlark.NewBuiltinCanReturnError("panic_err_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var s string
+		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
+	})
+
+	runMain := func(t *testing.T, name, src string, predeclared starlark.StringDict) error {
+		t.Helper()
+		thread := &starlark.Thread{Name: name}
+		globals, err := starlark.ExecFile(thread, name+".star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		return callErr
+	}
+
+	t.Run("surfaces as EvalError wrapping BuiltinArgError", func(t *testing.T) {
+		src := `
+def main():
+    panic_builtin()
+`
+		callErr := runMain(t, "panic-surfaces", src, starlark.StringDict{"panic_builtin": panicBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil, want error")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+
+	t.Run("catch expression does not intercept BuiltinArgError", func(t *testing.T) {
+		src := `
+def main()!:
+    x = panic_err_builtin() catch "recovered"
+    return x
+`
+		callErr := runMain(t, "catch-panic", src, starlark.StringDict{"panic_err_builtin": panicErrBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil — BuiltinArgError must not be caught by catch")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+
+	t.Run("try expression does not intercept BuiltinArgError", func(t *testing.T) {
+		src := `
+def main()!:
+    return try panic_err_builtin()
+`
+		callErr := runMain(t, "try-panic", src, starlark.StringDict{"panic_err_builtin": panicErrBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil — BuiltinArgError must not be intercepted by try")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+
+	t.Run("propagates through nested Starlark function calls", func(t *testing.T) {
+		src := `
+def inner():
+    panic_builtin()
+
+def main():
+    inner()
+`
+		callErr := runMain(t, "nested-panic", src, starlark.StringDict{"panic_builtin": panicBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil, want error")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+}
+
+// TestStarlarkRuntimeErrorDefers verifies the Go panic/defer model for BuiltinArgError:
+// deferred calls run in LIFO order, errdefers fire before defers, and the model
+// cascades through nested Starlark frames.
+func TestStarlarkRuntimeErrorDefers(t *testing.T) {
+	// panicBuiltin requires one string argument; called with none it triggers BuiltinArgError.
+	panicBuiltin := starlark.NewBuiltin("panic_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var s string
+		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
+	})
+
+	// newRecorder returns a record builtin and a pointer to its accumulated log.
+	// The builtin does not use UnpackPositionalArgs to avoid a secondary panic when
+	// called from inside a deferred call.
+	newRecorder := func() (*starlark.Builtin, *[]string) {
+		var log []string
+		b := starlark.NewBuiltin("record", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			if len(args) == 1 {
+				if s, ok := starlark.AsString(args[0]); ok {
+					log = append(log, s)
+				}
+			}
+			return starlark.None, nil
+		})
+		return b, &log
+	}
+
+	runMain := func(t *testing.T, name, src string, predeclared starlark.StringDict) error {
+		t.Helper()
+		thread := &starlark.Thread{Name: name}
+		globals, err := starlark.ExecFile(thread, name+".star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		return callErr
+	}
+
+	t.Run("single defer runs on panic", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def main():
+    defer record("deferred")
+    panic_builtin()
+    record("unreachable")
+`
+		callErr := runMain(t, "single-defer", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if callErr == nil {
+			t.Fatal("expected error")
+		}
+		if want := []string{"deferred"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("multiple defers run in LIFO order", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def main():
+    defer record("first")
+    defer record("second")
+    defer record("third")
+    panic_builtin()
+`
+		runMain(t, "lifo-defer", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if want := []string{"third", "second", "first"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("errdefer runs before defer during panic", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def main()!:
+    defer record("defer")
+    errdefer record("errdefer")
+    panic_builtin()
+`
+		runMain(t, "errdefer-order", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if want := []string{"errdefer", "defer"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("defers cascade through nested frames", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def inner():
+    defer record("inner-defer")
+    panic_builtin()
+
+def main():
+    defer record("outer-defer")
+    inner()
+`
+		runMain(t, "nested-defers", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if want := []string{"inner-defer", "outer-defer"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("secondary panic in defer is discarded; original error propagates", func(t *testing.T) {
+		record, log := newRecorder()
+		// defer record("safe") is registered first (deferstack[0]).
+		// defer panic_builtin() is registered second (deferstack[1]).
+		// LIFO: panic_builtin() fires first — secondary panic is discarded;
+		//       then record("safe") fires.
+		src := `
+def main():
+    defer record("safe")
+    defer panic_builtin()
+    panic_builtin()
+`
+		callErr := runMain(t, "secondary-panic", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if callErr == nil {
+			t.Fatal("expected error")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("original BuiltinArgError not preserved; got %T: %v", callErr, callErr)
+		}
+		if want := []string{"safe"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+}

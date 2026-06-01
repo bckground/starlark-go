@@ -1312,6 +1312,17 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		}
 	}
 
+	// If we are returning to Go code (outermost frame) and a Starlark error
+	// was not caught, surface it as ReturnedError. pendingErrorValue is only
+	// set via RETURN or TRY in a ! function, both of which are explicit
+	// acknowledgments of the error.
+	if err == nil && thread.pendingErrorValue != nil && len(thread.stack) == 1 {
+		if pending, ok := thread.pendingErrorValue.(*Error); ok {
+			thread.pendingErrorValue = nil
+			err = thread.evalError(&ReturnedError{Value: pending})
+		}
+	}
+
 	// Always return an EvalError with an accurate frame.
 	if err != nil {
 		if _, ok := err.(*EvalError); !ok {
@@ -1320,6 +1331,21 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	}
 
 	return result, err
+}
+
+// GetAndClearPendingError returns and clears any pending error on the thread.
+// Returns (error, true) if a pending error was found; (nil, false) otherwise.
+// Use this in Go builtins that call a function and need to detect errors set
+// by ! functions inside non-! lambdas (which the standard callErr path misses).
+func GetAndClearPendingError(t *Thread) (*Error, bool) {
+	if t.pendingErrorValue == nil {
+		return nil, false
+	}
+	if e, ok := t.pendingErrorValue.(*Error); ok {
+		t.pendingErrorValue = nil
+		return e, true
+	}
+	return nil, false
 }
 
 func slice(x, lo, hi, step_ Value) (Value, error) {
