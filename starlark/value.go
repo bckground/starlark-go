@@ -1906,19 +1906,19 @@ type StarlarkRuntimeError interface {
 	StarlarkError() *Error
 }
 
-// BuiltinArgErrorTag is the ErrorTag carried by BuiltinArgError values.
+// RuntimeErrorTag is the ErrorTag carried by RuntimeError values.
 // Embedders may map this to a domain-specific error tag at the kernel boundary.
-var BuiltinArgErrorTag = NewErrorTag(0, "ARGUMENT_ERROR")
+var RuntimeErrorTag = NewErrorTag(0, "RUNTIME_ERROR")
 
-// BuiltinArgError is a StarlarkRuntimeError produced by UnpackArgs and
-// UnpackPositionalArgs when a builtin receives invalid arguments. It causes a
-// VM panic: defers run in each frame and execution terminates with a typed error.
-type BuiltinArgError struct {
+// RuntimeError is a StarlarkRuntimeError produced by UnpackArgs,
+// UnpackPositionalArgs, and thread.Panic/PanicWithError. It causes a VM panic:
+// defers run in each frame and execution terminates with a typed error.
+type RuntimeError struct {
 	msg string
 }
 
-func (e *BuiltinArgError) Error() string         { return e.msg }
-func (e *BuiltinArgError) StarlarkError() *Error { return NewError(BuiltinArgErrorTag, &e.msg, nil, nil) }
+func (e *RuntimeError) Error() string         { return e.msg }
+func (e *RuntimeError) StarlarkError() *Error { return NewError(RuntimeErrorTag, &e.msg, nil, nil) }
 
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {

@@ -2258,22 +2258,22 @@ capture(lambda: fn())
 	})
 }
 
-// TestBuiltinArgError verifies the BuiltinArgError type and its StarlarkRuntimeError
+// TestRuntimeError verifies the RuntimeError type and its StarlarkRuntimeError
 // interface implementation, as produced by UnpackArgs and UnpackPositionalArgs.
-func TestBuiltinArgError(t *testing.T) {
-	t.Run("UnpackArgs returns BuiltinArgError on type mismatch", func(t *testing.T) {
+func TestRuntimeError(t *testing.T) {
+	t.Run("UnpackArgs returns RuntimeError on type mismatch", func(t *testing.T) {
 		var s string
 		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(err, &argErr) {
-			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", err, err)
+			t.Fatalf("errors.As(*RuntimeError) = false; got %T: %v", err, err)
 		}
 	})
 
-	t.Run("BuiltinArgError satisfies StarlarkRuntimeError", func(t *testing.T) {
+	t.Run("RuntimeError satisfies StarlarkRuntimeError", func(t *testing.T) {
 		var s string
 		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
 		var rte starlark.StarlarkRuntimeError
@@ -2282,34 +2282,34 @@ func TestBuiltinArgError(t *testing.T) {
 		}
 	})
 
-	t.Run("StarlarkError returns Error with BuiltinArgErrorTag", func(t *testing.T) {
+	t.Run("StarlarkError returns Error with RuntimeErrorTag", func(t *testing.T) {
 		var s string
 		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		errors.As(err, &argErr)
 		se := argErr.StarlarkError()
-		if se.Tag() != starlark.BuiltinArgErrorTag {
-			t.Errorf("Tag() = %v, want BuiltinArgErrorTag", se.Tag())
+		if se.Tag() != starlark.RuntimeErrorTag {
+			t.Errorf("Tag() = %v, want RuntimeErrorTag", se.Tag())
 		}
-		if got, want := se.Tag().Name(), "ARGUMENT_ERROR"; got != want {
+		if got, want := se.Tag().Name(), "RUNTIME_ERROR"; got != want {
 			t.Errorf("Tag().Name() = %q, want %q", got, want)
 		}
 	})
 
-	t.Run("UnpackPositionalArgs returns BuiltinArgError on wrong argument count", func(t *testing.T) {
+	t.Run("UnpackPositionalArgs returns RuntimeError on wrong argument count", func(t *testing.T) {
 		var s string
 		err := starlark.UnpackPositionalArgs("g", starlark.Tuple{}, nil, 1, &s)
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(err, &argErr) {
-			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", err, err)
+			t.Fatalf("errors.As(*RuntimeError) = false; got %T: %v", err, err)
 		}
 	})
 }
 
-// TestStarlarkRuntimeErrorPanic verifies that a BuiltinArgError causes a VM panic
+// TestStarlarkRuntimeErrorPanic verifies that a RuntimeError causes a VM panic
 // that is not catchable by Starlark try or catch expressions.
 func TestStarlarkRuntimeErrorPanic(t *testing.T) {
-	// panicBuiltin requires one string argument; called with none it triggers BuiltinArgError.
+	// panicBuiltin requires one string argument; called with none it triggers RuntimeError.
 	panicBuiltin := starlark.NewBuiltin("panic_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var s string
 		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
@@ -2332,7 +2332,7 @@ func TestStarlarkRuntimeErrorPanic(t *testing.T) {
 		return callErr
 	}
 
-	t.Run("surfaces as EvalError wrapping BuiltinArgError", func(t *testing.T) {
+	t.Run("surfaces as EvalError wrapping RuntimeError", func(t *testing.T) {
 		src := `
 def main():
     panic_builtin()
@@ -2341,13 +2341,13 @@ def main():
 		if callErr == nil {
 			t.Fatal("Call returned nil, want error")
 		}
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(callErr, &argErr) {
-			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+			t.Fatalf("errors.As(*RuntimeError) = false; got %T: %v", callErr, callErr)
 		}
 	})
 
-	t.Run("catch expression does not intercept BuiltinArgError", func(t *testing.T) {
+	t.Run("catch expression does not intercept RuntimeError", func(t *testing.T) {
 		src := `
 def main()!:
     x = panic_err_builtin() catch "recovered"
@@ -2355,26 +2355,26 @@ def main()!:
 `
 		callErr := runMain(t, "catch-panic", src, starlark.StringDict{"panic_err_builtin": panicErrBuiltin})
 		if callErr == nil {
-			t.Fatal("Call returned nil — BuiltinArgError must not be caught by catch")
+			t.Fatal("Call returned nil — RuntimeError must not be caught by catch")
 		}
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(callErr, &argErr) {
-			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+			t.Fatalf("errors.As(*RuntimeError) = false; got %T: %v", callErr, callErr)
 		}
 	})
 
-	t.Run("try expression does not intercept BuiltinArgError", func(t *testing.T) {
+	t.Run("try expression does not intercept RuntimeError", func(t *testing.T) {
 		src := `
 def main()!:
     return try panic_err_builtin()
 `
 		callErr := runMain(t, "try-panic", src, starlark.StringDict{"panic_err_builtin": panicErrBuiltin})
 		if callErr == nil {
-			t.Fatal("Call returned nil — BuiltinArgError must not be intercepted by try")
+			t.Fatal("Call returned nil — RuntimeError must not be intercepted by try")
 		}
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(callErr, &argErr) {
-			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+			t.Fatalf("errors.As(*RuntimeError) = false; got %T: %v", callErr, callErr)
 		}
 	})
 
@@ -2390,18 +2390,18 @@ def main():
 		if callErr == nil {
 			t.Fatal("Call returned nil, want error")
 		}
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(callErr, &argErr) {
-			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+			t.Fatalf("errors.As(*RuntimeError) = false; got %T: %v", callErr, callErr)
 		}
 	})
 }
 
-// TestStarlarkRuntimeErrorDefers verifies the Go panic/defer model for BuiltinArgError:
+// TestStarlarkRuntimeErrorDefers verifies the Go panic/defer model for RuntimeError:
 // deferred calls run in LIFO order, errdefers fire before defers, and the model
 // cascades through nested Starlark frames.
 func TestStarlarkRuntimeErrorDefers(t *testing.T) {
-	// panicBuiltin requires one string argument; called with none it triggers BuiltinArgError.
+	// panicBuiltin requires one string argument; called with none it triggers RuntimeError.
 	panicBuiltin := starlark.NewBuiltin("panic_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var s string
 		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
@@ -2514,9 +2514,9 @@ def main():
 		if callErr == nil {
 			t.Fatal("expected error")
 		}
-		var argErr *starlark.BuiltinArgError
+		var argErr *starlark.RuntimeError
 		if !errors.As(callErr, &argErr) {
-			t.Fatalf("original BuiltinArgError not preserved; got %T: %v", callErr, callErr)
+			t.Fatalf("original RuntimeError not preserved; got %T: %v", callErr, callErr)
 		}
 		if want := []string{"safe"}; !reflect.DeepEqual(*log, want) {
 			t.Errorf("log = %v, want %v", *log, want)
