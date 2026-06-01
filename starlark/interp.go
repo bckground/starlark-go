@@ -538,9 +538,6 @@ loop:
 				}
 				errDeferstack = nil
 
-				// Propagation via try is not an explicit return: clear the flag
-				// so Call surfaces UnhandledError rather than ReturnedError.
-				thread.pendingErrorIsReturn = false
 				result = None
 				break loop
 			}
@@ -583,11 +580,9 @@ loop:
 				switch v := result.(type) {
 				case *ErrorTag:
 					thread.pendingErrorValue = NewError(v, nil, nil, nil)
-					thread.pendingErrorIsReturn = true
 					result = None
 				case *Error:
 					thread.pendingErrorValue = v
-					thread.pendingErrorIsReturn = true
 					result = None
 				}
 			}

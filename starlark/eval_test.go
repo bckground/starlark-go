@@ -1976,7 +1976,7 @@ def main()!:
 		}
 	})
 
-	t.Run("try propagation does not produce ReturnedError", func(t *testing.T) {
+	t.Run("try propagation produces ReturnedError", func(t *testing.T) {
 		failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 			msg := "item not found"
 			return starlark.NewError(tag, &msg, nil, nil), nil
@@ -1986,7 +1986,7 @@ def main()!:
     return try fail_builtin()
 `
 		predeclared := starlark.StringDict{"fail_builtin": failBuiltin}
-		thread := &starlark.Thread{Name: "try-not-returned"}
+		thread := &starlark.Thread{Name: "try-returned"}
 		globals, err := starlark.ExecFile(thread, "try.star", src, predeclared)
 		if err != nil {
 			t.Fatalf("ExecFile failed: %v", err)
@@ -1996,20 +1996,15 @@ def main()!:
 		_, callErr := starlark.Call(thread, fn, nil, nil)
 
 		var returned *starlark.ReturnedError
-		if errors.As(callErr, &returned) {
-			t.Fatalf("errors.As(*ReturnedError) = true; expected UnhandledError, not ReturnedError")
-		}
-		var unhandled *starlark.UnhandledError
-		if !errors.As(callErr, &unhandled) {
-			t.Fatalf("errors.As(*UnhandledError) = false; got %T: %v", callErr, callErr)
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
 		}
 	})
 }
 
-// TestUnhandledError verifies that Call surfaces an *UnhandledError when a
-// !-function propagates an error to the top level via try without explicitly
-// returning it.
-func TestUnhandledError(t *testing.T) {
+// TestReturnedErrorViaTry verifies that Call surfaces a *ReturnedError when a
+// !-function propagates an error to the top level via try.
+func TestReturnedErrorViaTry(t *testing.T) {
 	tag := starlark.NewErrorTag(1, "NotFound")
 
 	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -2019,13 +2014,13 @@ func TestUnhandledError(t *testing.T) {
 
 	predeclared := starlark.StringDict{"fail_builtin": failBuiltin}
 
-	t.Run("unhandled propagation returns UnhandledError", func(t *testing.T) {
+	t.Run("propagation via try returns ReturnedError", func(t *testing.T) {
 		src := `
 def main()!:
     return try fail_builtin()
 `
-		thread := &starlark.Thread{Name: "unhandled"}
-		globals, err := starlark.ExecFile(thread, "unhandled.star", src, predeclared)
+		thread := &starlark.Thread{Name: "try-returned"}
+		globals, err := starlark.ExecFile(thread, "try.star", src, predeclared)
 		if err != nil {
 			t.Fatalf("ExecFile failed: %v", err)
 		}
@@ -2037,22 +2032,22 @@ def main()!:
 
 		_, callErr := starlark.Call(thread, fn, nil, nil)
 		if callErr == nil {
-			t.Fatal("Call returned nil error, want *UnhandledError")
+			t.Fatal("Call returned nil error, want *ReturnedError")
 		}
 
-		var unhandled *starlark.UnhandledError
-		if !errors.As(callErr, &unhandled) {
-			t.Fatalf("errors.As(*UnhandledError) = false; got %T: %v", callErr, callErr)
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
 		}
-		if unhandled.Value.Tag() != tag {
-			t.Errorf("UnhandledError.Value.Tag() = %v, want %v", unhandled.Value.Tag(), tag)
+		if returned.Value.Tag() != tag {
+			t.Errorf("ReturnedError.Value.Tag() = %v, want %v", returned.Value.Tag(), tag)
 		}
-		if got := unhandled.Value.Message(); got != "item not found" {
-			t.Errorf("UnhandledError.Value.Message() = %q, want %q", got, "item not found")
+		if got := returned.Value.Message(); got != "item not found" {
+			t.Errorf("ReturnedError.Value.Message() = %q, want %q", got, "item not found")
 		}
 	})
 
-	t.Run("caught error does not produce UnhandledError", func(t *testing.T) {
+	t.Run("caught error does not produce ReturnedError", func(t *testing.T) {
 		src := `
 def main()!:
     result = fail_builtin() catch "default"
@@ -2074,7 +2069,7 @@ def main()!:
 		}
 	})
 
-	t.Run("UnhandledError.Error returns tag name", func(t *testing.T) {
+	t.Run("ReturnedError.Error returns tag name", func(t *testing.T) {
 		src := `
 def main()!:
     return try fail_builtin()
@@ -2088,16 +2083,16 @@ def main()!:
 		fn := globals["main"].(*starlark.Function)
 		_, callErr := starlark.Call(thread, fn, nil, nil)
 
-		var unhandled *starlark.UnhandledError
-		if !errors.As(callErr, &unhandled) {
-			t.Fatalf("errors.As(*UnhandledError) = false")
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false")
 		}
-		if got := unhandled.Error(); got != "NotFound" {
+		if got := returned.Error(); got != "NotFound" {
 			t.Errorf("Error() = %q, want %q", got, "NotFound")
 		}
 	})
 
-	t.Run("nested propagation still surfaces UnhandledError", func(t *testing.T) {
+	t.Run("nested propagation via try surfaces ReturnedError", func(t *testing.T) {
 		src := `
 def inner()!:
     return try fail_builtin()
@@ -2114,12 +2109,12 @@ def outer()!:
 		fn := globals["outer"].(*starlark.Function)
 		_, callErr := starlark.Call(thread, fn, nil, nil)
 
-		var unhandled *starlark.UnhandledError
-		if !errors.As(callErr, &unhandled) {
-			t.Fatalf("errors.As(*UnhandledError) = false; got %T: %v", callErr, callErr)
+		var returned *starlark.ReturnedError
+		if !errors.As(callErr, &returned) {
+			t.Fatalf("errors.As(*ReturnedError) = false; got %T: %v", callErr, callErr)
 		}
-		if unhandled.Value.Tag() != tag {
-			t.Errorf("tag = %v, want %v", unhandled.Value.Tag(), tag)
+		if returned.Value.Tag() != tag {
+			t.Errorf("tag = %v, want %v", returned.Value.Tag(), tag)
 		}
 	})
 }

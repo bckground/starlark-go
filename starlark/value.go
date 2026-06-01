@@ -1896,15 +1896,6 @@ type ReturnedError struct {
 
 func (e *ReturnedError) Error() string { return e.Value.tag.name }
 
-// UnhandledError is returned by Call when a !-function propagates a Starlark
-// error to the top level via try without explicitly returning it. Go callers
-// can use errors.As to extract the underlying *Error and inspect its tag.
-type UnhandledError struct {
-	Value *Error
-}
-
-func (e *UnhandledError) Error() string { return e.Value.tag.name }
-
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {
 	names []string
