@@ -1313,7 +1313,9 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	}
 
 	// If we are returning to Go code (outermost frame) and a Starlark error
-	// was not caught, surface it as a ReturnedError.
+	// was not caught, surface it as ReturnedError. pendingErrorValue is only
+	// set via RETURN or TRY in a ! function, both of which are explicit
+	// acknowledgments of the error.
 	if err == nil && thread.pendingErrorValue != nil && len(thread.stack) == 1 {
 		if pending, ok := thread.pendingErrorValue.(*Error); ok {
 			thread.pendingErrorValue = nil

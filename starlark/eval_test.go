@@ -2257,3 +2257,269 @@ capture(lambda: fn())
 		}
 	})
 }
+
+// TestBuiltinArgError verifies the BuiltinArgError type and its StarlarkRuntimeError
+// interface implementation, as produced by UnpackArgs and UnpackPositionalArgs.
+func TestBuiltinArgError(t *testing.T) {
+	t.Run("UnpackArgs returns BuiltinArgError on type mismatch", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(err, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", err, err)
+		}
+	})
+
+	t.Run("BuiltinArgError satisfies StarlarkRuntimeError", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
+		var rte starlark.StarlarkRuntimeError
+		if !errors.As(err, &rte) {
+			t.Fatalf("errors.As(StarlarkRuntimeError) = false; got %T", err)
+		}
+	})
+
+	t.Run("StarlarkError returns Error with BuiltinArgErrorTag", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackArgs("f", starlark.Tuple{starlark.MakeInt(42)}, nil, "x", &s)
+		var argErr *starlark.BuiltinArgError
+		errors.As(err, &argErr)
+		se := argErr.StarlarkError()
+		if se.Tag() != starlark.BuiltinArgErrorTag {
+			t.Errorf("Tag() = %v, want BuiltinArgErrorTag", se.Tag())
+		}
+		if got, want := se.Tag().Name(), "ARGUMENT_ERROR"; got != want {
+			t.Errorf("Tag().Name() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("UnpackPositionalArgs returns BuiltinArgError on wrong argument count", func(t *testing.T) {
+		var s string
+		err := starlark.UnpackPositionalArgs("g", starlark.Tuple{}, nil, 1, &s)
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(err, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", err, err)
+		}
+	})
+}
+
+// TestStarlarkRuntimeErrorPanic verifies that a BuiltinArgError causes a VM panic
+// that is not catchable by Starlark try or catch expressions.
+func TestStarlarkRuntimeErrorPanic(t *testing.T) {
+	// panicBuiltin requires one string argument; called with none it triggers BuiltinArgError.
+	panicBuiltin := starlark.NewBuiltin("panic_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var s string
+		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
+	})
+	// panicErrBuiltin is the ! variant required for catch/try syntax.
+	panicErrBuiltin := starlark.NewBuiltinCanReturnError("panic_err_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var s string
+		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
+	})
+
+	runMain := func(t *testing.T, name, src string, predeclared starlark.StringDict) error {
+		t.Helper()
+		thread := &starlark.Thread{Name: name}
+		globals, err := starlark.ExecFile(thread, name+".star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		return callErr
+	}
+
+	t.Run("surfaces as EvalError wrapping BuiltinArgError", func(t *testing.T) {
+		src := `
+def main():
+    panic_builtin()
+`
+		callErr := runMain(t, "panic-surfaces", src, starlark.StringDict{"panic_builtin": panicBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil, want error")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+
+	t.Run("catch expression does not intercept BuiltinArgError", func(t *testing.T) {
+		src := `
+def main()!:
+    x = panic_err_builtin() catch "recovered"
+    return x
+`
+		callErr := runMain(t, "catch-panic", src, starlark.StringDict{"panic_err_builtin": panicErrBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil — BuiltinArgError must not be caught by catch")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+
+	t.Run("try expression does not intercept BuiltinArgError", func(t *testing.T) {
+		src := `
+def main()!:
+    return try panic_err_builtin()
+`
+		callErr := runMain(t, "try-panic", src, starlark.StringDict{"panic_err_builtin": panicErrBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil — BuiltinArgError must not be intercepted by try")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+
+	t.Run("propagates through nested Starlark function calls", func(t *testing.T) {
+		src := `
+def inner():
+    panic_builtin()
+
+def main():
+    inner()
+`
+		callErr := runMain(t, "nested-panic", src, starlark.StringDict{"panic_builtin": panicBuiltin})
+		if callErr == nil {
+			t.Fatal("Call returned nil, want error")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("errors.As(*BuiltinArgError) = false; got %T: %v", callErr, callErr)
+		}
+	})
+}
+
+// TestStarlarkRuntimeErrorDefers verifies the Go panic/defer model for BuiltinArgError:
+// deferred calls run in LIFO order, errdefers fire before defers, and the model
+// cascades through nested Starlark frames.
+func TestStarlarkRuntimeErrorDefers(t *testing.T) {
+	// panicBuiltin requires one string argument; called with none it triggers BuiltinArgError.
+	panicBuiltin := starlark.NewBuiltin("panic_builtin", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var s string
+		return nil, starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &s)
+	})
+
+	// newRecorder returns a record builtin and a pointer to its accumulated log.
+	// The builtin does not use UnpackPositionalArgs to avoid a secondary panic when
+	// called from inside a deferred call.
+	newRecorder := func() (*starlark.Builtin, *[]string) {
+		var log []string
+		b := starlark.NewBuiltin("record", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			if len(args) == 1 {
+				if s, ok := starlark.AsString(args[0]); ok {
+					log = append(log, s)
+				}
+			}
+			return starlark.None, nil
+		})
+		return b, &log
+	}
+
+	runMain := func(t *testing.T, name, src string, predeclared starlark.StringDict) error {
+		t.Helper()
+		thread := &starlark.Thread{Name: name}
+		globals, err := starlark.ExecFile(thread, name+".star", src, predeclared)
+		if err != nil {
+			t.Fatalf("ExecFile failed: %v", err)
+		}
+		fn := globals["main"].(*starlark.Function)
+		_, callErr := starlark.Call(thread, fn, nil, nil)
+		return callErr
+	}
+
+	t.Run("single defer runs on panic", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def main():
+    defer record("deferred")
+    panic_builtin()
+    record("unreachable")
+`
+		callErr := runMain(t, "single-defer", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if callErr == nil {
+			t.Fatal("expected error")
+		}
+		if want := []string{"deferred"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("multiple defers run in LIFO order", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def main():
+    defer record("first")
+    defer record("second")
+    defer record("third")
+    panic_builtin()
+`
+		runMain(t, "lifo-defer", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if want := []string{"third", "second", "first"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("errdefer runs before defer during panic", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def main()!:
+    defer record("defer")
+    errdefer record("errdefer")
+    panic_builtin()
+`
+		runMain(t, "errdefer-order", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if want := []string{"errdefer", "defer"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("defers cascade through nested frames", func(t *testing.T) {
+		record, log := newRecorder()
+		src := `
+def inner():
+    defer record("inner-defer")
+    panic_builtin()
+
+def main():
+    defer record("outer-defer")
+    inner()
+`
+		runMain(t, "nested-defers", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if want := []string{"inner-defer", "outer-defer"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+
+	t.Run("secondary panic in defer is discarded; original error propagates", func(t *testing.T) {
+		record, log := newRecorder()
+		// defer record("safe") is registered first (deferstack[0]).
+		// defer panic_builtin() is registered second (deferstack[1]).
+		// LIFO: panic_builtin() fires first — secondary panic is discarded;
+		//       then record("safe") fires.
+		src := `
+def main():
+    defer record("safe")
+    defer panic_builtin()
+    panic_builtin()
+`
+		callErr := runMain(t, "secondary-panic", src, starlark.StringDict{"panic_builtin": panicBuiltin, "record": record})
+		if callErr == nil {
+			t.Fatal("expected error")
+		}
+		var argErr *starlark.BuiltinArgError
+		if !errors.As(callErr, &argErr) {
+			t.Fatalf("original BuiltinArgError not preserved; got %T: %v", callErr, callErr)
+		}
+		if want := []string{"safe"}; !reflect.DeepEqual(*log, want) {
+			t.Errorf("log = %v, want %v", *log, want)
+		}
+	})
+}

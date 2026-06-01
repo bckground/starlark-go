@@ -865,7 +865,31 @@ loop:
 			break loop
 		}
 	}
-	// (deferred cleanup runs here)
+
+	// If a StarlarkRuntimeError (VM panic) exited the loop, run defers in this
+	// frame before propagating — matching Go's panic/defer model. RETURN clears
+	// both stacks when it fires normally, so this only runs for panic exits.
+	if err != nil {
+		var rte StarlarkRuntimeError
+		if errors.As(err, &rte) {
+			for i := len(errDeferstack) - 1; i >= 0; i-- {
+				deferred := errDeferstack[i]
+				if _, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs); deferErr != nil {
+					// Secondary panic during defer is discarded; original error propagates.
+					_ = deferErr
+				}
+			}
+			errDeferstack = nil
+			for i := len(deferstack) - 1; i >= 0; i-- {
+				deferred := deferstack[i]
+				if _, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs); deferErr != nil {
+					_ = deferErr
+				}
+			}
+			deferstack = nil
+		}
+	}
+
 	return result, err
 }
 

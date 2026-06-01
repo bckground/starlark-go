@@ -1896,6 +1896,30 @@ type ReturnedError struct {
 
 func (e *ReturnedError) Error() string { return e.Value.tag.name }
 
+// StarlarkRuntimeError is implemented by Go errors that cause an immediate VM
+// panic. When any builtin returns an error implementing this interface, the VM
+// runs defers in each frame (matching Go's panic/defer model) and terminates
+// execution. Unlike errors from ! functions, these are not catchable with try
+// or catch in Starlark code.
+type StarlarkRuntimeError interface {
+	error
+	StarlarkError() *Error
+}
+
+// BuiltinArgErrorTag is the ErrorTag carried by BuiltinArgError values.
+// Embedders may map this to a domain-specific error tag at the kernel boundary.
+var BuiltinArgErrorTag = NewErrorTag(0, "ARGUMENT_ERROR")
+
+// BuiltinArgError is a StarlarkRuntimeError produced by UnpackArgs and
+// UnpackPositionalArgs when a builtin receives invalid arguments. It causes a
+// VM panic: defers run in each frame and execution terminates with a typed error.
+type BuiltinArgError struct {
+	msg string
+}
+
+func (e *BuiltinArgError) Error() string         { return e.msg }
+func (e *BuiltinArgError) StarlarkError() *Error { return NewError(BuiltinArgErrorTag, &e.msg, nil, nil) }
+
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {
 	names []string
