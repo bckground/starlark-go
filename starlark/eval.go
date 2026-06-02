@@ -86,9 +86,6 @@ type Thread struct {
 	// cancelReason records the reason from the first call to Cancel.
 	cancelReason atomic.Pointer[error]
 
-	// panicErr records the error from the first call to Panic or PanicWithError.
-	panicErr atomic.Pointer[error]
-
 	// locals holds arbitrary "thread-local" Go values belonging to the client.
 	// They are accessible to the client but not to any Starlark program.
 	locals map[string]any
@@ -141,19 +138,6 @@ func (thread *Thread) CancelWithError(err error) {
 	}
 	// Atomically set cancelReason, preserving earlier reason if any.
 	thread.cancelReason.CompareAndSwap(nil, &err)
-}
-
-// Panic causes the current thread to terminate with reason after the builtin
-// returns. All pending defers run. The builtin should return nil, nil.
-func (thread *Thread) Panic(reason string) {
-	thread.PanicWithError(errors.New(reason))
-}
-
-// PanicWithError causes the current thread to terminate with err after the
-// builtin returns. All pending defers run. The builtin should return nil, nil.
-func (thread *Thread) PanicWithError(err error) {
-	panicErr := error(&RuntimeError{msg: err.Error()})
-	thread.panicErr.CompareAndSwap(nil, &panicErr)
 }
 
 // SetLocal sets the thread-local value associated with the specified key.
@@ -1307,15 +1291,6 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	}()
 
 	result, err := c.CallInternal(thread, args, kwargs)
-
-	// Detect a panic set by thread.Panic/PanicWithError. Clear it so defers
-	// called during unwinding can execute normally.
-	if err == nil {
-		if panicErr := thread.panicErr.Load(); panicErr != nil {
-			thread.panicErr.Store(nil)
-			return nil, *panicErr
-		}
-	}
 
 	// Sanity check: nil is not a valid Starlark value.
 	if result == nil && err == nil {
