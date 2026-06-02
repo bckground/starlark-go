@@ -1878,6 +1878,9 @@ func (e *Error) Message() string {
 	return e.tag.name
 }
 
+// Extra returns the error's extra value, or None if not set.
+func (e *Error) Extra() Value { return e.extra }
+
 // FailError is the error returned by the fail() builtin when called with
 // a Starlark Error value. Go callers can use errors.As to extract it.
 type FailError struct {
