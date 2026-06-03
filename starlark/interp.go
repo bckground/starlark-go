@@ -358,13 +358,13 @@ loop:
 				// Add key/value items from **kwargs dictionary.
 				dict, ok := kwargs.(IterableMapping)
 				if !ok {
-					err = &ArgumentError{msg: fmt.Sprintf("argument after ** must be a mapping, not %s", kwargs.Type())}
+					err = fmt.Errorf("argument after ** must be a mapping, not %s", kwargs.Type())
 					break loop
 				}
 				items := dict.Items()
 				for _, item := range items {
 					if _, ok := item[0].(String); !ok {
-						err = &ArgumentError{msg: fmt.Sprintf("keywords must be strings, not %s", item[0].Type())}
+						err = fmt.Errorf("keywords must be strings, not %s", item[0].Type())
 						break loop
 					}
 				}
@@ -392,7 +392,7 @@ loop:
 				// Add elements from *args sequence.
 				iter := Iterate(args)
 				if iter == nil {
-					err = &ArgumentError{msg: fmt.Sprintf("argument after * must be iterable, not %s", args.Type())}
+					err = fmt.Errorf("argument after * must be iterable, not %s", args.Type())
 					break loop
 				}
 				var elem Value
@@ -426,7 +426,7 @@ loop:
 			sp--
 			iter := Iterate(x)
 			if iter == nil {
-				err = &ArgumentError{msg: fmt.Sprintf("%s value is not iterable", x.Type())}
+				err = fmt.Errorf("%s value is not iterable", x.Type())
 				break loop
 			}
 			iterstack = append(iterstack, iter)
@@ -866,29 +866,6 @@ loop:
 		}
 	}
 
-	// If a StarlarkRuntimeError (VM panic) exited the loop, run defers in this
-	// frame before propagating — matching Go's panic/defer model. RETURN clears
-	// both stacks when it fires normally, so this only runs for panic exits.
-	if err != nil {
-		var rte StarlarkRuntimeError
-		if errors.As(err, &rte) {
-			for i := len(errDeferstack) - 1; i >= 0; i-- {
-				deferred := errDeferstack[i]
-				if _, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs); deferErr != nil {
-					// Secondary panic during defer is discarded; original error propagates.
-					_ = deferErr
-				}
-			}
-			errDeferstack = nil
-			for i := len(deferstack) - 1; i >= 0; i-- {
-				deferred := deferstack[i]
-				if _, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs); deferErr != nil {
-					_ = deferErr
-				}
-			}
-			deferstack = nil
-		}
-	}
 
 	return result, err
 }

@@ -108,8 +108,8 @@ func UnpackArgs(fnname string, args Tuple, kwargs []Tuple, pairs ...any) error {
 
 	// positional arguments
 	if len(args) > nparams {
-		return &ArgumentError{msg: fmt.Sprintf("%s: got %d arguments, want at most %d",
-			fnname, len(args), nparams)}
+		return fmt.Errorf("%s: got %d arguments, want at most %d",
+			fnname, len(args), nparams)
 	}
 	for i, arg := range args {
 		defined.set(i)
@@ -120,7 +120,7 @@ func UnpackArgs(fnname string, args Tuple, kwargs []Tuple, pairs ...any) error {
 			}
 		}
 		if err := UnpackArg(arg, pairs[2*i+1]); err != nil {
-			return &ArgumentError{msg: fmt.Sprintf("%s: for parameter %s: %s", fnname, name, err)}
+			return fmt.Errorf("%s: for parameter %s: %s", fnname, name, err)
 		}
 	}
 
@@ -133,8 +133,8 @@ kwloop:
 			if pName == string(name) {
 				// found it
 				if defined.set(i) {
-					return &ArgumentError{msg: fmt.Sprintf("%s: got multiple values for keyword argument %s",
-						fnname, name)}
+					return fmt.Errorf("%s: got multiple values for keyword argument %s",
+						fnname, name)
 				}
 
 				if skipNone {
@@ -145,7 +145,7 @@ kwloop:
 
 				ptr := pairs[2*i+1]
 				if err := UnpackArg(arg, ptr); err != nil {
-					return &ArgumentError{msg: fmt.Sprintf("%s: for parameter %s: %s", fnname, name, err)}
+					return fmt.Errorf("%s: for parameter %s: %s", fnname, name, err)
 				}
 				continue kwloop
 			}
@@ -159,7 +159,7 @@ kwloop:
 		if n := spell.Nearest(string(name), names); n != "" {
 			msg = fmt.Sprintf("%s (did you mean %s?)", msg, n)
 		}
-		return &ArgumentError{msg: msg}
+		return fmt.Errorf("%s", msg)
 	}
 
 	// Check that all non-optional parameters are defined.
@@ -173,7 +173,7 @@ kwloop:
 			continue
 		}
 		if !defined.get(i) {
-			return &ArgumentError{msg: fmt.Sprintf("%s: missing argument for %s", fnname, name)}
+			return fmt.Errorf("%s: missing argument for %s", fnname, name)
 		}
 	}
 
@@ -191,7 +191,7 @@ kwloop:
 // See UnpackArgs for general comments.
 func UnpackPositionalArgs(fnname string, args Tuple, kwargs []Tuple, min int, vars ...any) error {
 	if len(kwargs) > 0 {
-		return &ArgumentError{msg: fmt.Sprintf("%s: unexpected keyword arguments", fnname)}
+		return fmt.Errorf("%s: unexpected keyword arguments", fnname)
 	}
 	max := len(vars)
 	if len(args) < min {
@@ -199,18 +199,18 @@ func UnpackPositionalArgs(fnname string, args Tuple, kwargs []Tuple, min int, va
 		if min < max {
 			atleast = "at least "
 		}
-		return &ArgumentError{msg: fmt.Sprintf("%s: got %d arguments, want %s%d", fnname, len(args), atleast, min)}
+		return fmt.Errorf("%s: got %d arguments, want %s%d", fnname, len(args), atleast, min)
 	}
 	if len(args) > max {
 		var atmost string
 		if max > min {
 			atmost = "at most "
 		}
-		return &ArgumentError{msg: fmt.Sprintf("%s: got %d arguments, want %s%d", fnname, len(args), atmost, max)}
+		return fmt.Errorf("%s: got %d arguments, want %s%d", fnname, len(args), atmost, max)
 	}
 	for i, arg := range args {
 		if err := UnpackArg(arg, vars[i]); err != nil {
-			return &ArgumentError{msg: fmt.Sprintf("%s: for parameter %d: %s", fnname, i+1, err)}
+			return fmt.Errorf("%s: for parameter %d: %s", fnname, i+1, err)
 		}
 	}
 	return nil
