@@ -865,8 +865,7 @@ loop:
 			break loop
 		}
 	}
-
-
+	// (deferred cleanup runs here)
 	return result, err
 }
 
