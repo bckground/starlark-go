@@ -1913,15 +1913,28 @@ type StarlarkRuntimeError interface {
 // Embedders may map this to a domain-specific error tag at the kernel boundary.
 var RuntimeErrorTag = NewErrorTag(0, "RUNTIME_ERROR")
 
-// RuntimeError is a StarlarkRuntimeError produced by UnpackArgs,
-// UnpackPositionalArgs, and thread.Panic/PanicWithError. It causes a VM panic:
-// defers run in each frame and execution terminates with a typed error.
+// RuntimeError is a StarlarkRuntimeError that causes a VM panic: defers run in
+// each frame and execution terminates with a typed error.
 type RuntimeError struct {
 	msg string
 }
 
 func (e *RuntimeError) Error() string         { return e.msg }
 func (e *RuntimeError) StarlarkError() *Error { return NewError(RuntimeErrorTag, &e.msg, nil, nil) }
+
+// ArgumentErrorTag is the ErrorTag carried by ArgumentError values.
+var ArgumentErrorTag = NewErrorTag(0, "ARGUMENT_ERROR")
+
+// ArgumentError is a StarlarkRuntimeError produced by UnpackArgs,
+// UnpackPositionalArgs, and the VM when call-site argument types are wrong
+// (e.g. ** applied to a non-mapping). It causes a VM panic identical to
+// RuntimeError but carries the ARGUMENT_ERROR tag for finer-grained handling.
+type ArgumentError struct {
+	msg string
+}
+
+func (e *ArgumentError) Error() string         { return e.msg }
+func (e *ArgumentError) StarlarkError() *Error { return NewError(ArgumentErrorTag, &e.msg, nil, nil) }
 
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {
