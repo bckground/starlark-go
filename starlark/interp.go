@@ -358,13 +358,13 @@ loop:
 				// Add key/value items from **kwargs dictionary.
 				dict, ok := kwargs.(IterableMapping)
 				if !ok {
-					err = fmt.Errorf("argument after ** must be a mapping, not %s", kwargs.Type())
+					err = &RuntimeError{msg: fmt.Sprintf("argument after ** must be a mapping, not %s", kwargs.Type())}
 					break loop
 				}
 				items := dict.Items()
 				for _, item := range items {
 					if _, ok := item[0].(String); !ok {
-						err = fmt.Errorf("keywords must be strings, not %s", item[0].Type())
+						err = &RuntimeError{msg: fmt.Sprintf("keywords must be strings, not %s", item[0].Type())}
 						break loop
 					}
 				}
@@ -392,7 +392,7 @@ loop:
 				// Add elements from *args sequence.
 				iter := Iterate(args)
 				if iter == nil {
-					err = fmt.Errorf("argument after * must be iterable, not %s", args.Type())
+					err = &RuntimeError{msg: fmt.Sprintf("argument after * must be iterable, not %s", args.Type())}
 					break loop
 				}
 				var elem Value
@@ -426,7 +426,7 @@ loop:
 			sp--
 			iter := Iterate(x)
 			if iter == nil {
-				err = fmt.Errorf("%s value is not iterable", x.Type())
+				err = &RuntimeError{msg: fmt.Sprintf("%s value is not iterable", x.Type())}
 				break loop
 			}
 			iterstack = append(iterstack, iter)
