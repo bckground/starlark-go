@@ -150,16 +150,16 @@ kwloop:
 				continue kwloop
 			}
 		}
-		msg := fmt.Sprintf("%s: unexpected keyword argument %s", fnname, name)
+		err := fmt.Errorf("%s: unexpected keyword argument %s", fnname, name)
 		names := make([]string, 0, nparams)
 		for i := 0; i < nparams; i += 2 {
 			param, _ := paramName(pairs[i])
 			names = append(names, param)
 		}
 		if n := spell.Nearest(string(name), names); n != "" {
-			msg = fmt.Sprintf("%s (did you mean %s?)", msg, n)
+			err = fmt.Errorf("%s (did you mean %s?)", err.Error(), n)
 		}
-		return fmt.Errorf("%s", msg)
+		return err
 	}
 
 	// Check that all non-optional parameters are defined.
