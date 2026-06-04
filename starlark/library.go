@@ -385,8 +385,7 @@ func errorTags(thread *Thread, _ *Builtin, args Tuple, kwargs []Tuple) (Value, e
 
 	es := NewErrorTags(names, make(StringDict, len(names)))
 	for _, name := range names {
-		id := errorIDCounter.Add(1)
-		es.attrs[name] = NewErrorTag(id, name)
+		es.attrs[name] = NewErrorTag(name)
 	}
 	return es, nil
 }
@@ -415,9 +414,9 @@ func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error)
 	}
 
 	if starlarkErr != nil {
-		return nil, &FailError{Msg: buf.String(), Value: starlarkErr}
+		return nil, &FailError{Msg: buf.String(), StarlarkError: starlarkErr}
 	}
-	return nil, errors.New(buf.String())
+	return nil, &FailError{Msg: buf.String()}
 }
 
 func float(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error) {

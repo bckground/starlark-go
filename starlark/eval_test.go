@@ -150,6 +150,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/catch_unpack.star",
 		"testdata/control.star",
 		"testdata/defer.star",
+		"testdata/defer_errors.star",
 		"testdata/dict.star",
 		"testdata/errdefer.star",
 		"testdata/error_extra.star",
@@ -607,6 +608,322 @@ Error in join: join: in list, want string, got int`,
 			t.Errorf("error was %s, want %s", got, want)
 		}
 	}
+}
+
+// TestDeferOnFailure verifies that defer and errdefer blocks execute when a
+// function frame is torn down by a failure rather than by a normal return or a
+// recoverable error-value propagation. An implicit failure (here, integer
+// division by zero) sets the interpreter's Go err, breaks the bytecode loop, and
+// is cleaned up by the deferred func in (*Function).CallInternal — the "break
+// loop" path, as opposed to the RETURN opcode path. The failure unwinds every
+// frame and cannot be intercepted by catch.
+func TestDeferOnFailure(t *testing.T) {
+	// newRecorder returns a predeclared record(str) builtin that appends to a
+	// Go-side slice, so we can observe cleanup that runs during a failure unwind
+	// (which aborts the script, so it can't be asserted from Starlark).
+	newRecorder := func() (starlark.StringDict, *[]string) {
+		var log []string
+		record := func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var s string
+			if err := starlark.UnpackPositionalArgs("record", args, kwargs, 1, &s); err != nil {
+				return nil, err
+			}
+			log = append(log, s)
+			return starlark.None, nil
+		}
+		return starlark.StringDict{"record": starlark.NewBuiltin("record", record)}, &log
+	}
+
+	t.Run("defer in ordinary function", func(t *testing.T) {
+		predeclared, log := newRecorder()
+		const src = `
+def f():
+    defer record("defer")
+    record("body")
+    x = 1 // 0          # failure: aborts and unwinds the frame
+    return "unreachable"
+f()
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "failure.star", src, predeclared)
+		var evalErr *starlark.EvalError
+		if !errors.As(err, &evalErr) {
+			t.Fatalf("got err %v (%T), want *starlark.EvalError", err, err)
+		}
+		if !strings.Contains(evalErr.Error(), "division by zero") {
+			t.Errorf("error = %q, want it to mention division by zero", evalErr.Error())
+		}
+		if got, want := strings.Join(*log, ","), "body,defer"; got != want {
+			t.Errorf("log = %q, want %q: defer must run during a failure unwind", got, want)
+		}
+	})
+
+	t.Run("errdefer and defer in error-returning function", func(t *testing.T) {
+		predeclared, log := newRecorder()
+		// g is a '!' function, so the resolver requires it be called with
+		// try/catch. But a failure is not a recoverable error value: it unwinds
+		// straight through the catch, so "caught" is never assigned and ExecFile
+		// still fails. Both errdefer and defer must still run.
+		const src = `
+def g()!:
+    defer record("defer")
+    errdefer record("errdefer")
+    record("body")
+    x = 1 // 0
+    return "unreachable"
+result = g() catch "caught"
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "failure.star", src, predeclared)
+		var evalErr *starlark.EvalError
+		if !errors.As(err, &evalErr) {
+			t.Fatalf("got err %v (%T), want *starlark.EvalError: catch must not swallow a failure", err, err)
+		}
+		// On the error path errdefer runs before defer, both during the unwind.
+		if got, want := strings.Join(*log, ","), "body,errdefer,defer"; got != want {
+			t.Errorf("log = %q, want %q: errdefer then defer must run during a failure unwind", got, want)
+		}
+	})
+}
+
+// TestDeferFailureChaining verifies how failures raised by deferred calls combine
+// with the failure (if any) that triggered the unwind: failures are recorded on
+// the primary EvalError's Cleanup list, errors raised by cleanup are ignored, and
+// every deferred call runs regardless. The companion .star file
+// (defer_errors.star) asserts the observable message/order; this test asserts the
+// error structure that Starlark cannot introspect.
+func TestDeferFailureChaining(t *testing.T) {
+	exec := func(src string) error {
+		_, err := starlark.ExecFile(&starlark.Thread{}, "chain.star", src, nil)
+		return err
+	}
+
+	// The primary error keeps its own clean backtrace; cleanup errors are recorded
+	// in EvalError.Cleanup and rendered separately, not flattened into the primary.
+	t.Run("cleanup recorded structurally with intact primary backtrace", func(t *testing.T) {
+		err := exec(`
+def boom(tag): fail("boom-" + tag)
+def f():
+    defer boom("A")
+    defer boom("B")
+    x = 1 // 0
+    return "unreachable"
+f()
+`)
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("got %v (%T), want *starlark.EvalError", err, err)
+		}
+		if len(ee.Cleanup) != 2 {
+			t.Fatalf("len(Cleanup) = %d, want 2", len(ee.Cleanup))
+		}
+		// The primary message is just the trigger — not muddied with cleanup text.
+		if ee.Msg != "floored division by zero" {
+			t.Errorf("primary Msg = %q, want just the trigger", ee.Msg)
+		}
+		// The cleanup errors carry their own backtraces (they are *EvalErrors).
+		bt := ee.Backtrace()
+		if n := strings.Count(bt, "During deferred cleanup, another error occurred:"); n != 2 {
+			t.Errorf("backtrace has %d cleanup sections, want 2:\n%s", n, bt)
+		}
+		// The primary backtrace section ends at the trigger, before any cleanup.
+		head := bt[:strings.Index(bt, "During deferred cleanup")]
+		if !strings.Contains(head, "floored division by zero") || strings.Contains(head, "boom-") {
+			t.Errorf("primary backtrace section is not clean:\n%s", head)
+		}
+	})
+
+	// Two failing deferred calls on a clean return are chained, LIFO order, and
+	// the top-level error remains an *EvalError.
+	t.Run("cleanup failures chained on clean return", func(t *testing.T) {
+		err := exec(`
+def boom(tag): fail("boom-" + tag)
+def f():
+    defer boom("A")
+    defer boom("B")
+    return "ok"
+f()
+`)
+		var evalErr *starlark.EvalError
+		if !errors.As(err, &evalErr) {
+			t.Fatalf("got %v (%T), want *starlark.EvalError", err, err)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "boom-B") || !strings.Contains(msg, "boom-A") {
+			t.Errorf("error %q must contain both chained cleanup failures", msg)
+		}
+		if strings.Index(msg, "boom-B") > strings.Index(msg, "boom-A") {
+			t.Errorf("error %q: boom-B (last deferred) should appear before boom-A", msg)
+		}
+	})
+
+	// A deferred call's failure is chained onto the failure that triggered the
+	// unwind; both are present.
+	t.Run("cleanup failure chained to triggering failure", func(t *testing.T) {
+		err := exec(`
+def boom(tag): fail("boom-" + tag)
+def f():
+    defer boom("A")
+    x = 1 // 0
+    return "unreachable"
+f()
+`)
+		msg := err.Error()
+		if !strings.Contains(msg, "division by zero") || !strings.Contains(msg, "boom-A") {
+			t.Errorf("error %q must chain the trigger and the cleanup error", msg)
+		}
+	})
+
+	// A failing errdefer on the error path replaces the catchable error and
+	// bypasses catch: the result is an uncatchable *EvalError, not "caught".
+	t.Run("failing errdefer bypasses catch", func(t *testing.T) {
+		err := exec(`
+errors = error_tags("E")
+def bad(): pass
+def f()!:
+    errdefer bad(1, 2)
+    return errors.E
+result = f() catch "caught"
+`)
+		if err == nil {
+			t.Fatal("got nil error, want the errdefer failure to bypass catch")
+		}
+		if !strings.Contains(err.Error(), "accepts no arguments") {
+			t.Errorf("error %q, want the errdefer's arity error", err.Error())
+		}
+	})
+}
+
+// TestDeferErrorReturningBuiltin verifies that an error-returning (CanReturnError)
+// builtin may be deferred, and that an error it returns is ignored — like Go
+// discards the return values of a function called in a defer block. The '!'
+// Starlark-function path is covered by defer_errors.star; this covers the builtin
+// path, which needs a predeclared builtin.
+func TestDeferErrorReturningBuiltin(t *testing.T) {
+	tag := starlark.NewErrorTag("E")
+	var calls int
+	errFn := starlark.NewBuiltinCanReturnError("errfn", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+		calls++
+		return tag, nil // returns a recoverable error value
+	})
+	predeclared := starlark.StringDict{"errfn": errFn}
+
+	// Deferring the error-returning builtin resolves, runs it, and ignores the
+	// returned error: the function returns successfully.
+	const src = `
+def f():
+    defer errfn()
+    return "ok"
+g = f()
+`
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "defer_builtin.star", src, predeclared)
+	if err != nil {
+		t.Fatalf("ExecFile failed: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("deferred builtin called %d times, want 1", calls)
+	}
+	if got := globals["g"]; got != starlark.String("ok") {
+		t.Errorf("g = %v, want \"ok\" (error from deferred builtin must be ignored)", got)
+	}
+}
+
+// TestPendingErrorNoLeak verifies that a pending error abandoned by a failure
+// (uncatchable) unwind does not leak into a later execution on the same thread.
+// Regression test: previously the pending error was never reset, so a stale value
+// caused a spurious catch in a subsequent call.
+func TestPendingErrorNoLeak(t *testing.T) {
+	thread := &starlark.Thread{} // reused across both executions
+
+	// Program 1: an errdefer raises a failure that bypasses catch, abandoning the
+	// (uncaught) pending error E.
+	_, err1 := starlark.ExecFile(thread, "p1.star", `
+errors = error_tags("E")
+def bad(): pass
+def f()!:
+    errdefer bad(1, 2)
+    return errors.E
+result = f() catch "caught"
+`, nil)
+	if err1 == nil {
+		t.Fatal("program 1 should fail (errdefer bypasses catch)")
+	}
+
+	// Program 2 on the same thread: a '!' function returning normally, caught. If
+	// the pending error leaked, the catch fires spuriously.
+	globals, err2 := starlark.ExecFile(thread, "p2.star", `
+def ok()!:
+    return "fine"
+result = ok() catch "SPURIOUS"
+`, nil)
+	if err2 != nil {
+		t.Fatalf("program 2 failed: %v", err2)
+	}
+	if got := globals["result"]; got != starlark.String("fine") {
+		t.Errorf("result = %v, want \"fine\" (pending error leaked across executions)", got)
+	}
+}
+
+// TestCancelDeferInteraction verifies the frame-local error register and
+// deferred-cleanup teardown interact correctly with thread cancellation: a
+// cancelled deferred Starlark call does not duplicate the cancellation message,
+// deferred builtins still run, the error stays a CanceledError, and a thread
+// reused after Uncancel carries no stale pending error.
+func TestCancelDeferInteraction(t *testing.T) {
+	t.Run("cancellation during defer is not duplicated", func(t *testing.T) {
+		thread := &starlark.Thread{}
+		thread.SetMaxExecutionSteps(50)
+		var builtinRan int
+		predeclared := starlark.StringDict{
+			"release": starlark.NewBuiltin("release", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+				builtinRan++
+				return starlark.None, nil
+			}),
+		}
+		// Both a deferred Starlark call (which re-trips cancel) and a deferred
+		// builtin (which still runs).
+		_, err := starlark.ExecFile(thread, "cancel.star", `
+def cleanup(): release()
+def f():
+    defer cleanup()
+    defer release()
+    x = 0
+    for i in range(100000):
+        x += i
+    return x
+f()
+`, predeclared)
+		if got, want := fmt.Sprint(err), "Starlark computation canceled: too many steps"; got != want {
+			t.Errorf("error = %q, want %q (no duplicated cancellation from cleanup)", got, want)
+		}
+		var canceled *starlark.CanceledError
+		if !errors.As(err, &canceled) {
+			t.Errorf("error is not a CanceledError: %v", err)
+		}
+		if builtinRan == 0 {
+			t.Error("deferred builtin did not run during cancellation")
+		}
+	})
+
+	t.Run("Uncancel clears no stale pending error", func(t *testing.T) {
+		thread := &starlark.Thread{}
+		thread.Cancel("stop")
+		if _, err := starlark.ExecFile(thread, "p1.star", `x = 1`, nil); err == nil {
+			t.Fatal("expected cancellation error")
+		}
+		thread.Uncancel()
+		// Reuse the thread: a ! function returning normally, caught. A stale
+		// pending error would make the catch fire spuriously.
+		globals, err := starlark.ExecFile(thread, "p2.star", `
+def ok()!:
+    return "fine"
+result = ok() catch "SPURIOUS"
+`, nil)
+		if err != nil {
+			t.Fatalf("reuse after Uncancel failed: %v", err)
+		}
+		if got := globals["result"]; got != starlark.String("fine") {
+			t.Errorf("result = %v, want \"fine\" (stale pending error after Uncancel)", got)
+		}
+	})
 }
 
 func TestLoadBacktrace(t *testing.T) {
@@ -1401,7 +1718,7 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
 }
 
 func TestNewBuiltinCanError(t *testing.T) {
-	errTag := starlark.NewErrorTag(1, "TestError")
+	errTag := starlark.NewErrorTag("TestError")
 
 	// A builtin that returns an ErrorTag value.
 	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -1614,7 +1931,7 @@ func TestNewBuiltinCannotUseTryCatch(t *testing.T) {
 }
 
 func TestDynamicErrorReturningCalls(t *testing.T) {
-	errTag := starlark.NewErrorTag(1, "TestError")
+	errTag := starlark.NewErrorTag("TestError")
 
 	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		return errTag, nil

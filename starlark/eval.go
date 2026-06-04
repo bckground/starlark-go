@@ -78,11 +78,6 @@ type Thread struct {
 	// The precise meaning of "step" is not specified and may change.
 	Steps, maxSteps uint64
 
-	// pendingErrorValue holds the Starlark Error value from a ! function call
-	// that has not been caught by a catch expression. It is checked by TRY and
-	// CATCH_CHECK opcodes, and materialized onto the stack by LOAD_ERROR.
-	pendingErrorValue Value
-
 	// cancelReason records the reason from the first call to Cancel.
 	cancelReason atomic.Pointer[error]
 
@@ -221,10 +216,11 @@ func (d StringDict) Has(key string) bool { _, ok := d[key]; return ok }
 // A frame records a call to a Starlark function (including module toplevel)
 // or a built-in function or method.
 type frame struct {
-	callable  Callable // current function (or toplevel) or built-in
-	pc        uint32   // program counter (Starlark frames only)
-	locals    []Value  // local variables (Starlark frames only)
-	spanStart int64    // start time of current profiler span
+	callable     Callable // current function (or toplevel) or built-in
+	pc           uint32   // program counter (Starlark frames only)
+	locals       []Value  // local variables (Starlark frames only)
+	spanStart    int64    // start time of current profiler span
+	pendingError Value    // recoverable error (from a ! call) awaiting handling in this frame
 }
 
 // Position returns the source position of the current point of execution in this frame.
@@ -279,6 +275,11 @@ type EvalError struct {
 	Msg       string
 	CallStack CallStack
 	cause     error
+	// Cleanup holds errors raised by defer/errdefer calls that ran while this
+	// error was unwinding the stack. They are secondary to this (primary) error:
+	// its backtrace is the one of record, and the cleanup errors are reported
+	// after it rather than merged into Msg. Usually empty.
+	Cleanup []error
 }
 
 // A CallFrame represents the function name and current
@@ -303,11 +304,56 @@ func (thread *Thread) evalError(err error) *EvalError {
 	}
 }
 
-func (e *EvalError) Error() string { return e.Msg }
+// chainCleanupError folds an error raised by a deferred (defer/errdefer) call
+// into the error already unwinding the frame. The first error is the primary
+// error; each subsequent one is recorded in the primary *EvalError's Cleanup
+// list — preserving the primary's backtrace — instead of being flattened into
+// its message. inFlight may be nil (the deferred call is the first error) or a
+// not-yet-wrapped Go error, which is wrapped here while the failing frame is
+// still on the stack so its backtrace stays accurate.
+func (thread *Thread) chainCleanupError(inFlight, cleanupErr error) error {
+	if inFlight == nil {
+		return cleanupErr
+	}
+	ee, ok := inFlight.(*EvalError)
+	if !ok {
+		ee = thread.evalError(inFlight)
+	}
+	ee.Cleanup = append(ee.Cleanup, cleanupErr)
+	return ee
+}
+
+func (e *EvalError) Error() string {
+	if len(e.Cleanup) == 0 {
+		return e.Msg
+	}
+	var b strings.Builder
+	b.WriteString(e.Msg)
+	for _, c := range e.Cleanup {
+		b.WriteString("\nduring deferred cleanup: ")
+		b.WriteString(c.Error())
+	}
+	return b.String()
+}
 
 // Backtrace returns a user-friendly error message describing the stack
-// of calls that led to this error.
+// of calls that led to this error. Errors raised by deferred cleanup while this
+// error was unwinding (see Cleanup) are appended, each with its own backtrace.
 func (e *EvalError) Backtrace() string {
+	s := e.backtrace()
+	for _, c := range e.Cleanup {
+		s += "\nDuring deferred cleanup, another error occurred:\n"
+		if ce, ok := c.(*EvalError); ok {
+			s += ce.Backtrace()
+		} else {
+			s += "Error: " + c.Error()
+		}
+	}
+	return s
+}
+
+// backtrace renders just this error's stack and message, without its Cleanup list.
+func (e *EvalError) backtrace() string {
 	// If the topmost stack frame is a built-in function,
 	// remove it from the stack and add print "Error in fn:".
 	stack := e.CallStack
@@ -1297,19 +1343,29 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		err = fmt.Errorf("internal error: nil (not None) returned from %s", fn)
 	}
 
-	// If this is an error-returning builtin (marked with !)
-	// and the result is an Error value, set pendingErrorValue.
+	// Transfer the recoverable error produced by this call (if any) to the
+	// caller's frame, so the caller's TRY/CATCH_CHECK can handle it. The error
+	// comes either from a ! builtin returning an Error value, or from a Starlark
+	// callee that left it on its own (now-returning) frame fr. A failure
+	// supersedes any error, and a call with no Starlark caller frame simply drops
+	// it — in both cases the error dies with the frame, so nothing leaks.
+	var pendingErr Value
 	if err == nil {
 		if b, ok := c.(*Builtin); ok && b.canReturnError {
 			switch v := result.(type) {
 			case *ErrorTag:
-				thread.pendingErrorValue = NewError(v, nil, nil, nil)
+				pendingErr = NewError(v, nil, nil, nil)
 				result = None
 			case *Error:
-				thread.pendingErrorValue = v
+				pendingErr = v
 				result = None
 			}
+		} else {
+			pendingErr = fr.pendingError
 		}
+	}
+	if n := len(thread.stack); n >= 2 {
+		thread.stack[n-2].pendingError = pendingErr // set or clear the caller's pending error
 	}
 
 	// Always return an EvalError with an accurate frame.
