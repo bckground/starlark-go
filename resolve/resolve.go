@@ -300,11 +300,13 @@ type guardSite struct {
 	isTry       bool
 }
 
-// Tri-state result for isErrorReturningCall.
+// Tri-state result for isErrorReturningCall. Unknown is the zero value, so an
+// unset or defaulted result fails open (defers to the runtime check) rather than
+// fabricating a "must be handled" diagnostic.
 const (
-	errorCallYes     = iota // known error-returning (def f()!: or predeclared with canError)
+	errorCallUnknown = iota // cannot determine statically (variable, load, index/dot access, etc.)
+	errorCallYes            // known error-returning (def f()!: or predeclared with canError)
 	errorCallNo             // known NOT error-returning (def f(): or predeclared without canError)
-	errorCallUnknown        // cannot determine statically (variable, load, index/dot access, etc.)
 )
 
 // container returns the innermost enclosing "container" block:
