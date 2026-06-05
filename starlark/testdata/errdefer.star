@@ -46,6 +46,40 @@ def test_errdefer_not_on_success():
 
 test_errdefer_not_on_success()
 
+# Test errdefer runs when a '!' function unwinds via a failure (an uncatchable
+# abort), not only when it returns an error value. A failure is either explicit
+# (fail()) or implicit (a runtime fault such as 1//0). Failures cannot be caught,
+# so we observe the cleanup with assert.fails, which swallows the failure at the
+# harness level while the closure-captured log survives.
+def test_errdefer_runs_on_failure():
+    log = []
+
+    def cleanup():
+        log.append("cleanup")
+
+    # Explicit failure.
+    def explicit()!:
+        errdefer cleanup()
+        log.append("body")
+        fail("boom")
+
+    log = []
+    assert.fails(explicit, "boom")
+    assert.eq(log, ["body", "cleanup"])
+
+    # Implicit failure (runtime fault).
+    def implicit()!:
+        errdefer cleanup()
+        log.append("body")
+        x = 1 // 0
+        return "unreachable"
+
+    log = []
+    assert.fails(implicit, "division by zero")
+    assert.eq(log, ["body", "cleanup"])
+
+test_errdefer_runs_on_failure()
+
 # Test multiple errdefers execute in LIFO order.
 def test_multiple_errdefers():
     log = []
