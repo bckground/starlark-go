@@ -982,6 +982,27 @@ def fails()!:
 			t.Errorf("err = %v, want a division-by-zero failure", err)
 		}
 	})
+
+	t.Run("explicit error from a ! builtin is a ReturnedError", func(t *testing.T) {
+		// The error is produced by the builtin's own return value (the
+		// canReturnError conversion branch), not by a Starlark callee.
+		tag := starlark.NewErrorTag("Boom")
+		msg := "kaboom"
+		errBuiltin := starlark.NewBuiltinCanReturnError("errb", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return starlark.NewError(tag, &msg, nil, nil), nil
+		})
+		_, err := starlark.Call(&starlark.Thread{}, errBuiltin, nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if got := re.Value.Tag().Name(); got != "Boom" {
+			t.Errorf("tag = %q, want Boom", got)
+		}
+		if got := re.Value.Message(); got != "kaboom" {
+			t.Errorf("message = %q, want kaboom", got)
+		}
+	})
 }
 
 // TestPlainCallFromBuiltinSurfacesReturnedError checks that when a Go builtin
