@@ -1845,6 +1845,12 @@ func TestUnpackArgsOptionalInference(t *testing.T) {
 	}
 }
 
+// TestNewBuiltinCanError covers the in-language side of an error-returning
+// builtin: the builtin is called from Starlark source (directly and via
+// variable/index/dict) and the error it produces is consumed by try/catch on a
+// Starlark frame. The complementary case — the same error reaching a Go caller
+// as a *ReturnedError — is covered by TestReturnedError and
+// TestCallInBuiltinLeavesFrameClean.
 func TestNewBuiltinCanError(t *testing.T) {
 	errTag := starlark.NewErrorTag("TestError")
 
