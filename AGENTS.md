@@ -221,7 +221,15 @@ accident of implementation:
    flow through a frame-local error register (`frame.pendingError`) and are
    **recoverable**: `try` propagates them, `catch` intercepts them, and `recover`
    resumes from them. Use them for expected, handleable outcomes — the Zig-style
-   explicit error channel.
+   explicit error channel. When a `!` function returns an error that no Starlark
+   caller caught and control returns to Go — whether to the embedder at the
+   outermost frame or to a Go builtin that invoked the function via `Call` —
+   `Call` surfaces it on its error result as a `*ReturnedError` (recoverable via
+   `errors.As`; inspect `.Value`), keeping it distinct from a failure. The error
+   is only ever transferred onto the caller's `frame.pendingError` when the caller
+   is a Starlark function, which has the `try`/`catch` opcodes to consume it; a Go
+   caller, having none, receives it explicitly instead of having it stranded on a
+   frame it cannot read.
 
 2. **Failures — unrecoverable aborts, surfaced as `*EvalError`.** A failure is
    either **explicit** (a call to `fail()`) or **implicit** (a runtime fault such
