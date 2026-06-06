@@ -1866,6 +1866,17 @@ func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, err
 	return x.tag.CompareSameType(op, y.tag, depth)
 }
 
+func (e *Error) Tag() *ErrorTag { return e.tag }
+
+func (e *Error) Message() string {
+	if e.message != nil {
+		return *e.message
+	}
+	return e.tag.name
+}
+
+func (e *Error) Extra() Value { return e.extra }
+
 // FailError is the error returned by the fail() builtin when called with
 // a Starlark Error value. Go callers can use errors.As to extract it.
 type FailError struct {
@@ -1874,6 +1885,22 @@ type FailError struct {
 }
 
 func (e *FailError) Error() string { return e.Msg }
+
+// ReturnedError is the error returned by [Call] when an error-returning (!)
+// function, invoked directly from Go, explicitly returns an error value that no
+// Starlark caller caught. It distinguishes such a recoverable, introspectable
+// error from a failure (a runtime fault or fail(), which surface as a plain
+// *EvalError). Go callers can use errors.As to extract it and inspect Value.
+type ReturnedError struct {
+	Value *Error
+}
+
+func (e *ReturnedError) Error() string {
+	if e.Value.message != nil {
+		return e.Value.tag.name + ": " + *e.Value.message
+	}
+	return e.Value.tag.name
+}
 
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {
