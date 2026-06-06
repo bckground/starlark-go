@@ -26,9 +26,10 @@ type deferredCall struct {
 // Each deferred call runs with a clean pending-error slate, and the policy is:
 //
 //   - A recoverable error raised by a deferred call (a '!' function or
-//     error-returning builtin yielding an Error value, landing on
-//     fr.pendingError) is ignored: cleanup must not hijack propagation. The error
-//     that triggered the unwind, if any, is preserved.
+//     error-returning builtin yielding an Error value — deposited on
+//     fr.pendingError, or surfaced as a ReturnedError) is ignored: cleanup must
+//     not hijack propagation. The error that triggered the unwind, if any, is
+//     preserved.
 //   - A failure (Go error) returned by a deferred call is folded into inFlight by
 //     chainCleanupError: the first failure stays primary (keeping its backtrace)
 //     and later ones are recorded as its Cleanup, so nothing is lost or muddied.
@@ -43,8 +44,13 @@ func (thread *Thread) runDeferred(fr *frame, stack []deferredCall, inFlight erro
 		saved := fr.pendingError
 		fr.pendingError = nil
 		_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
-		fr.pendingError = saved // ignore any error raised by the cleanup itself
-		if deferErr != nil && !redundantCancel(inFlight, deferErr) {
+		fr.pendingError = saved // ignore a recoverable error deposited on fr by the cleanup
+		// A recoverable error returned by the deferred call is ignored regardless of
+		// how Call delivered it: deposited on fr (a Starlark-function frame, undone by
+		// the restore above) or surfaced as a ReturnedError (any other caller frame).
+		// Only a genuine failure is folded into the in-flight error.
+		var re *ReturnedError
+		if deferErr != nil && !errors.As(deferErr, &re) && !redundantCancel(inFlight, deferErr) {
 			inFlight = thread.chainCleanupError(inFlight, deferErr)
 		}
 	}

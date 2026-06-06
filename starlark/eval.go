@@ -220,7 +220,7 @@ type frame struct {
 	pc           uint32   // program counter (Starlark frames only)
 	locals       []Value  // local variables (Starlark frames only)
 	spanStart    int64    // start time of current profiler span
-	pendingError Value    // recoverable error (from a ! call) awaiting handling in this frame
+	pendingError *Error   // recoverable error (from a ! call) awaiting handling in this frame
 }
 
 // Position returns the source position of the current point of execution in this frame.
@@ -1343,13 +1343,11 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		err = fmt.Errorf("internal error: nil (not None) returned from %s", fn)
 	}
 
-	// Transfer the recoverable error produced by this call (if any) to the
-	// caller's frame, so the caller's TRY/CATCH_CHECK can handle it. The error
-	// comes either from a ! builtin returning an Error value, or from a Starlark
-	// callee that left it on its own (now-returning) frame fr. A failure
-	// supersedes any error, and a call with no Starlark caller frame simply drops
-	// it — in both cases the error dies with the frame, so nothing leaks.
-	var pendingErr Value
+	// Determine the recoverable error produced by this call, if any. It comes
+	// either from a ! builtin returning an Error value, or from a Starlark callee
+	// that left it on its own (now-returning) frame fr. A failure supersedes any
+	// error.
+	var pendingErr *Error
 	if err == nil {
 		if b, ok := c.(*Builtin); ok && b.canReturnError {
 			switch v := result.(type) {
@@ -1364,8 +1362,23 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 			pendingErr = fr.pendingError
 		}
 	}
-	if n := len(thread.stack); n >= 2 {
-		thread.stack[n-2].pendingError = pendingErr // set or clear the caller's pending error
+	// Deliver it to the caller. Only a Starlark *Function caller has TRY/CATCH_CHECK
+	// opcodes to consume an error left on its frame, so transfer it there (set or
+	// clear, so the caller's check reflects exactly this call). Any other caller —
+	// a builtin, a custom Go Callable, or the embedder itself at the outermost
+	// frame — is Go code with no opcodes to read the frame; deliver an uncaught
+	// error as a ReturnedError on the Go error channel instead, so it can neither
+	// be stranded on a frame the caller cannot read nor silently leak up. result is
+	// already None on every path that set pendingErr.
+	n := len(thread.stack)
+	starlarkCaller := false
+	if n >= 2 {
+		_, starlarkCaller = thread.stack[n-2].callable.(*Function)
+	}
+	if starlarkCaller {
+		thread.stack[n-2].pendingError = pendingErr
+	} else if pendingErr != nil {
+		err = thread.evalError(&ReturnedError{Value: pendingErr})
 	}
 
 	// Always return an EvalError with an accurate frame.

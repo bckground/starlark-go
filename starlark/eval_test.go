@@ -926,6 +926,113 @@ result = ok() catch "SPURIOUS"
 	})
 }
 
+// TestReturnedError verifies that a !-function invoked directly from Go surfaces
+// an explicitly returned error as a *ReturnedError (recoverable, introspectable),
+// distinct from a failure (a plain *EvalError) and from a normal return.
+func TestReturnedError(t *testing.T) {
+	const src = `
+errors = error_tags("NotFound")
+def returns_error()!:
+    return errors.NotFound(message = "missing", extra = {"id": 42})
+def returns_value()!:
+    return "ok"
+def fails()!:
+    x = 1 // 0
+    return "unreachable"
+`
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "returned.star", src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("explicit error is a ReturnedError", func(t *testing.T) {
+		_, err := starlark.Call(&starlark.Thread{}, globals["returns_error"], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if got := re.Value.Tag().Name(); got != "NotFound" {
+			t.Errorf("tag = %q, want NotFound", got)
+		}
+		if got := re.Value.Message(); got != "missing" {
+			t.Errorf("message = %q, want missing", got)
+		}
+		if re.Value.Extra() == nil {
+			t.Error("Extra() = nil, want the supplied dict")
+		}
+	})
+
+	t.Run("normal return is not an error", func(t *testing.T) {
+		v, err := starlark.Call(&starlark.Thread{}, globals["returns_value"], nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if v != starlark.String("ok") {
+			t.Errorf("result = %v, want \"ok\"", v)
+		}
+	})
+
+	t.Run("failure is a plain EvalError, not a ReturnedError", func(t *testing.T) {
+		_, err := starlark.Call(&starlark.Thread{}, globals["fails"], nil, nil)
+		var re *starlark.ReturnedError
+		if errors.As(err, &re) {
+			t.Errorf("failure incorrectly surfaced as ReturnedError: %v", err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "division by zero") {
+			t.Errorf("err = %v, want a division-by-zero failure", err)
+		}
+	})
+}
+
+// TestPlainCallFromBuiltinSurfacesReturnedError checks that when a Go builtin
+// invokes a !-function via plain Call, an uncaught error comes back to the
+// builtin on the error channel as a ReturnedError, rather than being deposited
+// on the builtin's frame (where, having no opcodes to read it, the builtin could
+// only let it silently leak up to — or be lost before — its Starlark caller).
+func TestPlainCallFromBuiltinSurfacesReturnedError(t *testing.T) {
+	var (
+		sawReturned bool
+		sawValue    starlark.Value
+		sawFailure  error
+	)
+	probe := starlark.NewBuiltin("probe", func(th *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+		v, err := starlark.Call(th, args[0].(starlark.Callable), nil, nil)
+		if err != nil {
+			var re *starlark.ReturnedError
+			if errors.As(err, &re) {
+				sawReturned = true
+				return starlark.String("handled:" + re.Value.Tag().Name()), nil
+			}
+			sawFailure = err
+			return nil, err
+		}
+		sawValue = v
+		return starlark.String("no-error"), nil
+	})
+
+	const src = `
+errors = error_tags("NotFound")
+def cb()!:
+    return errors.NotFound
+# probe calls cb via plain Call. The error must be contained inside probe; the
+# module continues normally and observes only probe's clean return value.
+result = probe(cb)
+after = "reached"
+`
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "probe.star", src, starlark.StringDict{"probe": probe})
+	if err != nil {
+		t.Fatalf("error leaked past the builtin to the module: %v", err)
+	}
+	if !sawReturned {
+		t.Errorf("builtin saw value=%v failure=%v; want a ReturnedError from plain Call", sawValue, sawFailure)
+	}
+	if got := globals["result"]; got != starlark.String("handled:NotFound") {
+		t.Errorf("result = %v, want \"handled:NotFound\"", got)
+	}
+	if got := globals["after"]; got != starlark.String("reached") {
+		t.Errorf("after = %v, want \"reached\" (execution did not continue cleanly)", got)
+	}
+}
 func TestLoadBacktrace(t *testing.T) {
 	// This test ensures that load() does NOT preserve stack traces,
 	// but that API callers can get them with Unwrap().
