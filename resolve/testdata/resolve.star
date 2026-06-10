@@ -433,6 +433,46 @@ def f()!:
   errdefer noop() # ok
 
 ---
+# deferring an error-returning function is allowed in a
+# non-error-returning function without try/catch
+
+def may_fail()!:
+  pass
+
+def f():
+  defer may_fail() # ok
+
+---
+# deferring an error-returning function is allowed in a
+# error-returning function without try/catch
+
+def may_fail()!:
+  pass
+
+def f()!:
+  defer may_fail() # ok
+
+---
+# errdeferring an error-returning function is allowed in an ! function without try/catch
+
+def may_fail()!:
+  pass
+
+def f()!:
+  errdefer may_fail() # ok
+
+---
+# an error-returning call as an ARGUMENT to a deferred call must still be handled
+
+def may_fail()!:
+  pass
+
+def sink(x): pass
+
+def f():
+  defer sink(may_fail()) ### "call to error-returning function .* must be handled with try or catch"
+
+---
 # calling ! function without try/catch in non-! function is an error
 
 def may_fail()!:
@@ -529,6 +569,28 @@ def may_fail()!:
 
 def caller():
   x = try may_fail() ### "try requires enclosing error-returning function"
+
+---
+# try context does not leak into a nested lambda: the ! call inside the lambda
+# is a separate function body and still needs its own try/catch.
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  x = try (lambda: may_fail())() ### "call to error-returning function .* must be handled with try or catch"
+  return x
+
+---
+# try context does not leak into a nested def either.
+
+def may_fail()!:
+  pass
+
+def caller()!:
+  def inner():
+    may_fail() ### "call to error-returning function .* must be handled with try or catch"
+  return try may_fail()
 
 ---
 # try at module level on ! function is allowed

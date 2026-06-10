@@ -78,7 +78,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"unicode/utf8"
 
 	"go.starlark.net/internal/compile"
@@ -1741,22 +1740,22 @@ func (b Bytes) Has(y Value) (bool, error) {
 }
 
 // ErrorTag represents a Starlark error value.
+// An ErrorTag is a distinct error kind created by error_tags(). Identity is by
+// pointer: each ErrorTag value is unique, and error_tags() returns the same
+// *ErrorTag for a given name on every access, so equality needs no global id.
 type ErrorTag struct {
-	id   uint64 // unique identifier for this error instance
 	name string
 }
 
-var errorIDCounter atomic.Uint64
-
-func NewErrorTag(id uint64, name string) *ErrorTag {
-	return &ErrorTag{id: id, name: name}
+func NewErrorTag(name string) *ErrorTag {
+	return &ErrorTag{name: name}
 }
 
 func (e *ErrorTag) String() string        { return e.name }
 func (e *ErrorTag) Type() string          { return "error_tag" }
 func (e *ErrorTag) Freeze()               {} // error tags are immutable
 func (e *ErrorTag) Truth() Bool           { return False }
-func (e *ErrorTag) Hash() (uint32, error) { return uint32(e.id) ^ hashString(e.name), nil }
+func (e *ErrorTag) Hash() (uint32, error) { return hashString(e.name), nil }
 func (e *ErrorTag) Name() string          { return e.name }
 
 func (e *ErrorTag) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Value, error) {
@@ -1796,9 +1795,9 @@ func (x *ErrorTag) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, 
 	y := y_.(*ErrorTag)
 	switch op {
 	case syntax.EQL:
-		return x.id == y.id, nil
+		return x == y, nil
 	case syntax.NEQ:
-		return x.id != y.id, nil
+		return x != y, nil
 	default:
 		return false, fmt.Errorf("error does not support ordered comparison")
 	}
@@ -1867,14 +1866,41 @@ func (x *Error) CompareSameType(op syntax.Token, y_ Value, depth int) (bool, err
 	return x.tag.CompareSameType(op, y.tag, depth)
 }
 
+func (e *Error) Tag() *ErrorTag { return e.tag }
+
+func (e *Error) Message() string {
+	if e.message != nil {
+		return *e.message
+	}
+	return e.tag.name
+}
+
+func (e *Error) Extra() Value { return e.extra }
+
 // FailError is the error returned by the fail() builtin when called with
 // a Starlark Error value. Go callers can use errors.As to extract it.
 type FailError struct {
-	Msg   string
-	Value *Error
+	Msg           string
+	StarlarkError *Error
 }
 
 func (e *FailError) Error() string { return e.Msg }
+
+// ReturnedError is the error returned by [Call] when an error-returning (!)
+// function, invoked directly from Go, explicitly returns an error value that no
+// Starlark caller caught. It distinguishes such a recoverable, introspectable
+// error from a failure (a runtime fault or fail(), which surface as a plain
+// *EvalError). Go callers can use errors.As to extract it and inspect Value.
+type ReturnedError struct {
+	Value *Error
+}
+
+func (e *ReturnedError) Error() string {
+	if e.Value.message != nil {
+		return e.Value.tag.name + ": " + *e.Value.message
+	}
+	return e.Value.tag.name
+}
 
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {

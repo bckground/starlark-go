@@ -19,6 +19,54 @@ type deferredCall struct {
 	kwargs []Tuple
 }
 
+// runDeferred executes a stack of deferred calls (defer or errdefer) in LIFO
+// order while a frame is being torn down, and reports the failure to propagate.
+//
+// inFlight is the failure already unwinding the frame (nil on a normal return).
+// Each deferred call runs with a clean pending-error slate, and the policy is:
+//
+//   - A recoverable error raised by a deferred call (a '!' function or
+//     error-returning builtin yielding an Error value — deposited on
+//     fr.pendingError, or surfaced as a ReturnedError) is ignored: cleanup must
+//     not hijack propagation. The error that triggered the unwind, if any, is
+//     preserved.
+//   - A failure (Go error) returned by a deferred call is folded into inFlight by
+//     chainCleanupError: the first failure stays primary (keeping its backtrace)
+//     and later ones are recorded as its Cleanup, so nothing is lost or muddied.
+//   - Every deferred call in the stack runs regardless of failures raised by the
+//     others.
+//
+// fr is the frame being torn down (the caller of the deferred calls), whose
+// pendingError holds the triggering error and receives any raised by cleanup.
+func (thread *Thread) runDeferred(fr *frame, stack []deferredCall, inFlight error) error {
+	for i := len(stack) - 1; i >= 0; i-- {
+		deferred := stack[i]
+		saved := fr.pendingError
+		fr.pendingError = nil
+		_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+		fr.pendingError = saved // ignore a recoverable error deposited on fr by the cleanup
+		// A recoverable error returned by the deferred call is ignored regardless of
+		// how Call delivered it: deposited on fr (a Starlark-function frame, undone by
+		// the restore above) or surfaced as a ReturnedError (any other caller frame).
+		// Only a genuine failure is folded into the in-flight error.
+		var re *ReturnedError
+		if deferErr != nil && !errors.As(deferErr, &re) && !redundantCancel(inFlight, deferErr) {
+			inFlight = thread.chainCleanupError(inFlight, deferErr)
+		}
+	}
+	return inFlight
+}
+
+// redundantCancel reports whether deferErr is the thread's cancellation merely
+// re-surfacing in a deferred call while inFlight already carries that same
+// cancellation. A cancelled thread re-trips its cancel check at the first step of
+// every deferred Starlark call, so without this each such call would chain a
+// duplicate "computation canceled" message onto the error.
+func redundantCancel(inFlight, deferErr error) bool {
+	var a, b *CanceledError
+	return errors.As(inFlight, &a) && errors.As(deferErr, &b)
+}
+
 const vmdebug = false // TODO(adonovan): use a bitfield of specific kinds of error.
 
 var ErrTooManySteps = errors.New("too many steps")
@@ -27,7 +75,10 @@ var ErrTooManySteps = errors.New("too many steps")
 // - optimize position table.
 // - opt: record MaxIterStack during compilation and preallocate the stack.
 
-func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Value, error) {
+// Named return values: the deferred teardown below (which runs defer/errdefer
+// blocks on the break-loop, panic, and error-unwind paths) modifies err, so it
+// must be a named result for those modifications to be observed by the caller.
+func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (result Value, err error) {
 	// Postcondition: args is not mutated. This is stricter than required by Callable,
 	// but allows CALL to avoid a copy.
 
@@ -73,7 +124,7 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	stack := space[nlocals:]          // operand stack
 
 	// Digest arguments and set parameters.
-	err := setArgs(locals, fn, args, kwargs)
+	err = setArgs(locals, fn, args, kwargs)
 	if err != nil {
 		return nil, thread.evalError(err)
 	}
@@ -103,31 +154,14 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 	// Use defer so that application panics can pass through
 	// interpreter without leaving thread in a bad state.
 	defer func() {
-		// Execute error deferred calls first, but only if there's an error.
-		// These are errdefer statements that only run on error paths.
-		// Check both err (Go error) and pendingErrorValue (Starlark error propagation).
-		if err != nil || thread.pendingErrorValue != nil {
-			for i := len(errDeferstack) - 1; i >= 0; i-- {
-				deferred := errDeferstack[i]
-				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
-				if deferErr != nil && err == nil {
-					err = deferErr
-				}
-			}
+		// Single teardown for every exit path — normal return, failure unwind
+		// (break loop), and panic. errdefers run first, and only on an error path:
+		// a failure in flight (err), or a pending error from a ! return.
+		if err != nil || fr.pendingError != nil {
+			err = thread.runDeferred(fr, errDeferstack, err)
 		}
-
-		// Execute regular deferred calls in LIFO order (for panics/errors).
-		// Normal returns execute defers in the RETURN case.
-		for i := len(deferstack) - 1; i >= 0; i-- {
-			deferred := deferstack[i]
-			_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
-			// If a deferred call fails and we don't already have an
-			// error, use it. We can instead use errors.Join once we
-			// require go >= 1.20.
-			if deferErr != nil && err == nil {
-				err = deferErr
-			}
-		}
+		// Regular defers run on every path, in LIFO order.
+		err = thread.runDeferred(fr, deferstack, err)
 
 		// ITERPOP the rest of the iterator stack.
 		for _, iter := range iterstack {
@@ -139,7 +173,6 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (Va
 
 	sp := 0
 	var pc uint32
-	var result Value
 	code := f.Code
 loop:
 	for {
@@ -524,41 +557,31 @@ loop:
 			})
 
 		case compile.TRY:
-			// Check if there's a pending error from a ! function call.
-			// If so, propagate it by returning from the current function.
-			// Leave pendingErrorValue set so the caller can handle it.
-			if thread.pendingErrorValue != nil {
-				// Execute errdefers before propagating.
-				for i := len(errDeferstack) - 1; i >= 0; i-- {
-					deferred := errDeferstack[i]
-					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
-					if deferErr != nil && err == nil {
-						err = deferErr
-					}
-				}
-				errDeferstack = nil
-
+			// If a ! call left a pending error on this frame, propagate it by
+			// returning; Call transfers it to the caller's frame. The deferred
+			// teardown runs cleanup — errdefers fire because the error is pending —
+			// like every other exit path.
+			if fr.pendingError != nil {
 				result = None
 				break loop
 			}
 
 		case compile.CATCH_CHECK:
-			// Check if there's a pending error from a ! function call.
+			// Check whether the preceding ! call left a pending error on this frame.
 			// If so, jump to the catch handler.
-			// Otherwise, continue normally.
-			// Note: pendingErrorValue is NOT cleared here - LOAD_ERROR will
-			// clear it after materializing it for the catch block.
-			if thread.pendingErrorValue != nil {
+			// Note: pendingError is NOT cleared here - LOAD_ERROR or RECOVER clears
+			// it after the catch block has consumed it.
+			if fr.pendingError != nil {
 				pc = arg
 			}
 
 		case compile.LOAD_ERROR:
-			// Materialize pendingErrorValue onto the stack.
+			// Materialize this frame's pending error onto the stack and clear it.
 			// This is used in catch blocks to bind the error to a variable.
 			// LOAD_ERROR should only be executed after CATCH_CHECK has
 			// confirmed there's an error.
-			stack[sp] = thread.pendingErrorValue
-			thread.pendingErrorValue = nil
+			stack[sp] = fr.pendingError
+			fr.pendingError = nil
 			sp++
 
 		case compile.CATCH_BLOCK_ERROR:
@@ -566,51 +589,31 @@ loop:
 
 		case compile.RECOVER:
 			// The recover value is already on the stack (from evaluating the expression).
-			// Clear pendingErrorValue and jump to the done block.
+			// Clear this frame's pending error and jump to the done block.
 			// The value stays on the stack as the result of the catch expression.
-			thread.pendingErrorValue = nil
+			fr.pendingError = nil
 			pc = arg
 
 		case compile.RETURN:
 			result = stack[sp-1]
 
-			// If this is an error-returning function (marked with !)
-			// and the result is an Error value, set pendingErrorValue.
+			// On a clean return, this frame's pending error must reflect reality so
+			// that Call transfers the right thing to the caller: for an
+			// error-returning function a returned Error value becomes the pending
+			// error; any other return (including from a non-! function that ran an
+			// internal catch) clears it. Deferred calls run in the single teardown
+			// (the defer above), like every other exit path.
+			fr.pendingError = nil
 			if f.CanReturnError {
 				switch v := result.(type) {
 				case *ErrorTag:
-					thread.pendingErrorValue = NewError(v, nil, nil, nil)
+					fr.pendingError = NewError(v, nil, nil, nil)
 					result = None
 				case *Error:
-					thread.pendingErrorValue = v
+					fr.pendingError = v
 					result = None
 				}
 			}
-
-			// Execute error deferred calls first, but only if there's an error.
-			if thread.pendingErrorValue != nil {
-				for i := len(errDeferstack) - 1; i >= 0; i-- {
-					deferred := errDeferstack[i]
-					_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
-					if deferErr != nil && err == nil {
-						err = deferErr
-					}
-				}
-			}
-			errDeferstack = nil
-
-			// Execute the regular deferred calls before returning (in LIFO order).
-			for i := len(deferstack) - 1; i >= 0; i-- {
-				deferred := deferstack[i]
-				_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
-				// If a deferred call fails and we don't already
-				// have an error, use it. We can instead use errors.Join once we
-				// require go >= 1.20.
-				if deferErr != nil && err == nil {
-					err = deferErr
-				}
-			}
-			deferstack = nil
 
 			break loop
 

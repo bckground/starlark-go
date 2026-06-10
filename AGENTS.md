@@ -181,9 +181,22 @@ x = may_fail() catch e:
 
 **Compile-Time Validation:**
 
-- Calling `!` functions without try/catch is always a resolver error
+- Calling `!` functions without try/catch is a resolver error, EXCEPT as the
+  top-level call of a `defer`/`errdefer` statement (an error returned by a
+  deferred call is ignored at runtime, like Go discards a deferred call's return
+  values). An error-returning call passed as an *argument* to a deferred call is
+  evaluated eagerly and still requires try/catch.
 - `recover` outside catch blocks is a resolver error
 - `errdefer` in non-`!` functions is a resolver error
+
+**Strictness of the compile-time check:** the "must be handled with try/catch"
+rule is only enforced for calls whose target is *statically resolvable* to a
+known `!` function or error-returning builtin — i.e. a direct call by name. Calls
+through a value whose error-returning-ness cannot be determined at resolve time
+(a variable, parameter, `obj.method()`, `x[i]()`, or a `load()`-ed symbol) are
+**not** rejected by the resolver and are instead validated at runtime. So the
+static guarantee is real but partial: it catches direct misuse, not dynamic
+dispatch. Treat it as a lint that covers the common case, not a soundness proof.
 
 **Catch Block Scoping:**
 
@@ -199,6 +212,39 @@ x = may_fail() catch e:
 - `recover` clears the error state and resumes normal execution
 - Errors are represented as Error values (not Go errors)
 
+**Errors vs failures (this duality is intentional):**
+
+There are two distinct mechanisms, and the difference is deliberate, not an
+accident of implementation:
+
+1. **Errors — what `!` functions and error-returning builtins return.** These
+   flow through a frame-local error register (`frame.pendingError`) and are
+   **recoverable**: `try` propagates them, `catch` intercepts them, and `recover`
+   resumes from them. Use them for expected, handleable outcomes — the Zig-style
+   explicit error channel. When a `!` function returns an error that no Starlark
+   caller caught and control returns to Go — whether to the embedder at the
+   outermost frame or to a Go builtin that invoked the function via `Call` —
+   `Call` surfaces it on its error result as a `*ReturnedError` (recoverable via
+   `errors.As`; inspect `.Value`), keeping it distinct from a failure. The error
+   is only ever transferred onto the caller's `frame.pendingError` when the caller
+   is a Starlark function, which has the `try`/`catch` opcodes to consume it; a Go
+   caller, having none, receives it explicitly instead of having it stranded on a
+   frame it cannot read.
+
+2. **Failures — unrecoverable aborts, surfaced as `*EvalError`.** A failure is
+   either **explicit** (a call to `fail()`) or **implicit** (a runtime fault such
+   as `1 // 0` or an arity mismatch). Failures are **uncatchable**: `try`/`catch`
+   cannot intercept them, they unwind the entire stack, and execution aborts. Use
+   `fail()` for programmer errors and unrecoverable conditions — the Starlark
+   equivalent of a panic. (`defer`/`errdefer` still run during the unwind; a
+   failure raised by cleanup is recorded on the primary `EvalError`'s `Cleanup`
+   list and reported after it, each with its own backtrace, rather than masking it.)
+
+Rule of thumb: `fail()` is for "this should never happen, stop now"; returning an
+error value (e.g. `return errors.NotFound`) is for "this can happen, the caller
+should decide." An error returned by a function called in a `defer`/`errdefer` is
+discarded, mirroring how Go ignores a deferred call's return values.
+
 ### Implementation Architecture
 
 The error handling system follows the same 5-stage pipeline as `defer`:
@@ -207,7 +253,11 @@ The error handling system follows the same 5-stage pipeline as `defer`:
 2. **Parser** - New AST nodes: TryExpr, CatchExpr, ErrDeferStmt, RecoverStmt, DefStmt.Exclaim
 3. **Resolver** - Validates error handling usage, tracks `!` functions, enforces compile-time rules
 4. **Compiler** - New opcodes: TRY, CATCH_CHECK, LOAD_ERROR, ERRDEFER, RECOVER
-5. **Interpreter** - Runtime error propagation via Thread.pendingErrorValue, separate errdefer stack
+5. **Interpreter** - Recoverable errors propagate via a frame-local error
+   register (`frame.pendingError`), transferred to the caller's frame at the call
+   boundary; failures propagate as Go errors that unwind the stack. Separate
+   errdefer stack. Because the error register lives on the frame, it cannot leak
+   across calls or executions.
 
 ### Examples
 

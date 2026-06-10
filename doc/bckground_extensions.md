@@ -190,7 +190,7 @@ An error has the following attributes:
 error.tag        the error tag (error_tag)
 error.message    a human-readable description (string)
 error.cause      an underlying error, or None (error or None)
-error.details    supplementary data (list)
+error.extra      caller-supplied context, or None (any)
 ```
 
 An error used in a Boolean context is considered false.
@@ -202,10 +202,10 @@ with default (empty) metadata:
 
 ```python
 errors = error_tags("IOError")
-e = errors.IOError(message="disk full", details=["sda1"])
+e = errors.IOError(message="disk full", extra={"device": "sda1"})
 e.tag       # IOError
 e.message   # "disk full"
-e.details   # ["sda1"]
+e.extra     # {"device": "sda1"}
 ```
 
 #### Error tag sets
@@ -400,7 +400,7 @@ each of the given string arguments. The tags are accessible as
 attributes of the returned error tag set.
 
 Each error tag is a callable: calling it with optional keyword
-arguments `message`, `cause`, and `details` produces an error value
+arguments `message`, `cause`, and `extra` produces an error value
 with richer metadata.
 
 ```python
