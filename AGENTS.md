@@ -184,13 +184,13 @@ x = may_fail() catch e:
 - Calling `!` functions without try/catch is a resolver error, EXCEPT as the
   top-level call of a `defer`/`errdefer` statement (an error returned by a
   deferred call is ignored at runtime, like Go discards a deferred call's return
-  values). An error-returning call passed as an *argument* to a deferred call is
+  values). An error-returning call passed as an _argument_ to a deferred call is
   evaluated eagerly and still requires try/catch.
 - `recover` outside catch blocks is a resolver error
 - `errdefer` in non-`!` functions is a resolver error
 
 **Strictness of the compile-time check:** the "must be handled with try/catch"
-rule is only enforced for calls whose target is *statically resolvable* to a
+rule is only enforced for calls whose target is _statically resolvable_ to a
 known `!` function or error-returning builtin — i.e. a direct call by name. Calls
 through a value whose error-returning-ness cannot be determined at resolve time
 (a variable, parameter, `obj.method()`, `x[i]()`, or a `load()`-ed symbol) are
