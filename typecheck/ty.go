@@ -13,6 +13,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"go.starlark.net/syntax"
 )
 
 // A Ty is a static type: a union of basic (non-union) alternatives.
@@ -318,7 +320,17 @@ type callableBasic struct {
 	name   string // "" for anonymous callables
 	params *ParamSpec
 	result Ty
+	// specialFn, if non-nil, refines the result type of a call from
+	// its argument types (e.g. sorted(xs) yields a list of xs's
+	// element type). Returning false falls back to result. It does
+	// not participate in identity (basicSortKey): two callables that
+	// agree on name, params, and result are interchangeable.
+	specialFn specialFunc
 }
+
+// A specialFunc computes a builtin call's result type from its
+// argument types, or reports false to use the declared result type.
+type specialFunc func(o *oracle, pos syntax.Position, args callArgs) (Ty, bool)
 
 func (b callableBasic) String() string {
 	if b.name != "" {

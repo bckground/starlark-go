@@ -18,6 +18,12 @@ import (
 // check parses, resolves, and typechecks src.
 func check(t *testing.T, src string, loads map[string]*typecheck.Interface) *typecheck.Result {
 	t.Helper()
+	return checkNamed(t, "test.star", src, loads)
+}
+
+// checkNamed is check with an explicit filename for error positions.
+func checkNamed(t *testing.T, filename, src string, loads map[string]*typecheck.Interface) *typecheck.Result {
+	t.Helper()
 	env := typecheck.UniverseEnv()
 	env["typing"] = typecheck.Module("typing", nil)
 	opts := &syntax.FileOptions{
@@ -27,7 +33,7 @@ func check(t *testing.T, src string, loads map[string]*typecheck.Interface) *typ
 		Recursion:      true,
 		PositionalOnly: true,
 	}
-	f, err := opts.Parse("test.star", src, 0)
+	f, err := opts.Parse(filename, src, 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -402,6 +408,82 @@ def g():
 `,
 			[]string{"Expected type `int` but got `str`"},
 		},
+		{
+			"pointless_comparison",
+			`
+def f(x: int, y: str):
+    return x == y
+`,
+			[]string{"Expected type `int` but got `str`"},
+		},
+		{
+			"comparison_none_narrowing_ok",
+			`
+def f(x: int | None):
+    return x == None
+`,
+			nil,
+		},
+		{
+			"comparison_numeric_ok",
+			`
+def f(x: int, y: float):
+    return x != y
+`,
+			nil,
+		},
+		{
+			"callable_param_ok",
+			`
+def apply(f: typing.Callable[[int], str], x: int) -> str:
+    return f(x)
+
+def g(i: int) -> str:
+    return str(i)
+
+y = apply(g, 1)
+`,
+			nil,
+		},
+		{
+			"callable_param_type_mismatch",
+			`
+def apply(f: typing.Callable[[int], str], x: int) -> str:
+    return f(x)
+
+def g(s: str) -> str:
+    return s
+
+y = apply(g, 1)
+`,
+			[]string{"Expected type `typing.Callable` but got `def g`"},
+		},
+		{
+			"callable_result_mismatch",
+			`
+def apply(f: typing.Callable[[int], str]) -> str:
+    return f(1)
+
+def g(i: int) -> int:
+    return i
+
+y = apply(g)
+`,
+			[]string{"Expected type `typing.Callable` but got `def g`"},
+		},
+		{
+			"callable_arity_mismatch",
+			`
+def apply(f: typing.Callable[[int, int], int]):
+    pass
+
+def g(i: int) -> int:
+    return i
+
+apply(g)
+`,
+			[]string{"but got `def g`"},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			res := check(t, test.src, nil)
@@ -462,6 +544,54 @@ def f(xs: list[int]):
 		if !found {
 			t.Errorf("binding %s not in TypeMap:\n%s", name, tmStr)
 		}
+	}
+}
+
+// TestPreciseBuiltinResults exercises the argument-aware result types
+// of the universe signature table (universe.go's specialFuncs).
+func TestPreciseBuiltinResults(t *testing.T) {
+	for _, test := range []struct {
+		src  string // must bind a global x
+		want string // expected type of x
+	}{
+		{`x = sorted([3, 1, 2])`, "list[int]"},
+		{`x = sorted(["b", "a"], reverse=True)`, "list[str]"},
+		{`x = reversed([1.0])`, "list[float]"},
+		{`x = max(1, 2)`, "int"},
+		{`x = max(1, "a")`, "int | str"},
+		{`x = min([1.0, 2.0])`, "float"},
+		{`x = abs(-1)`, "int"},
+		{`x = abs(1.5)`, "float"},
+		{`x = list("abc".elems())`, "list[str]"},
+		{`x = list()`, "list[typing.Never]"},
+		{`x = set([1])`, "set[int]"},
+		{`x = tuple([1])`, "tuple[int, ...]"},
+		{`x = zip([1], ["a"])`, "list[tuple[int, str]]"},
+		{`x = enumerate(["a"])`, "list[tuple[int, str]]"},
+		{`x = dict(a=1)`, "dict[str, int]"},
+		{`x = dict([(1, "a")])`, "dict[int, str]"},
+		{`x = dict({1: "a"}, b=2)`, "dict[int | str, int | str]"},
+		{`x = {1: "a"}.get(1)`, "None | str"},
+		{`x = {1: "a"}.get(1, "z")`, "str"},
+		{`x = {1: "a"}.get(1, 0)`, "int | str"},
+		{`x = {1: "a"}.pop(1)`, "str"},
+		{`x = {1: "a"}.setdefault(1)`, "None | str"},
+		// *args call forms fall back to the declared (lenient) result.
+		{`args = ([1], [2])` + "\n" + `x = zip(*args)`, "list[tuple]"},
+	} {
+		t.Run(test.want, func(t *testing.T) {
+			res := check(t, test.src, nil)
+			if len(res.Errors) > 0 {
+				t.Fatalf("unexpected errors: %v", res.Errors)
+			}
+			ty, ok := res.Interface.Get("x")
+			if !ok {
+				t.Fatalf("no global x")
+			}
+			if ty.String() != test.want {
+				t.Errorf("x = %s, want %s", ty, test.want)
+			}
+		})
 	}
 }
 

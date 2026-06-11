@@ -82,10 +82,8 @@ func basicIntersect(x, y Basic) bool {
 		y, ok := y.(tupleBasic)
 		return ok && tupleIntersect(x, y)
 	case callableBasic:
-		// Any two callables intersect: parameter compatibility is
-		// not solved statically (rust approximates similarly).
-		_, ok := y.(callableBasic)
-		return ok
+		y, ok := y.(callableBasic)
+		return ok && callablesIntersect(x, y)
 	case typeBasic:
 		_, ok := y.(typeBasic)
 		return ok
@@ -94,6 +92,88 @@ func basicIntersect(x, y Basic) bool {
 		return ok
 	}
 	return false
+}
+
+// callablesIntersect reports whether two callable types intersect:
+// their parameters must be compatible and their results must
+// intersect (rust's callables_intersect).
+func callablesIntersect(x, y callableBasic) bool {
+	return paramsIntersect(x.params, y.params) && intersects(x.result, y.result)
+}
+
+// paramsIntersect reports whether two parameter specifications are
+// compatible, a port of rust's params_intersect. The precise check
+// applies only when at least one spec is in "simple" form — all
+// parameters required, positional-only or named-only, the shape of a
+// typing.Callable[[...], R] annotation. Two general specs always
+// intersect (leniency).
+func paramsIntersect(a, b *ParamSpec) bool {
+	if a.IsAny() || b.IsAny() {
+		return true
+	}
+	apos, anamed, aSimple := allRequiredPosOnlyNamedOnly(a)
+	bpos, bnamed, bSimple := allRequiredPosOnlyNamedOnly(b)
+	switch {
+	case aSimple && bSimple:
+		if len(apos) != len(bpos) || len(anamed) != len(bnamed) {
+			return false
+		}
+		for i := range apos {
+			if !intersects(apos[i], bpos[i]) {
+				return false
+			}
+		}
+		byName := make(map[string]Ty, len(bnamed))
+		for _, p := range bnamed {
+			byName[p.Name] = p.Ty
+		}
+		for _, p := range anamed {
+			q, ok := byName[p.Name]
+			if !ok || !intersects(p.Ty, q) {
+				return false
+			}
+		}
+		return true
+	case aSimple:
+		return simpleParamsCallIntersect(apos, anamed, b)
+	case bSimple:
+		return simpleParamsCallIntersect(bpos, bnamed, a)
+	default:
+		return true
+	}
+}
+
+// allRequiredPosOnlyNamedOnly decomposes a spec into its positional-only
+// and named-only parameter types if every parameter is required and of
+// one of those modes (rust's all_required_pos_only_named_only).
+func allRequiredPosOnlyNamedOnly(ps *ParamSpec) (pos []Ty, named []Param, ok bool) {
+	for _, p := range ps.Params {
+		switch {
+		case p.Mode == PosOnly && p.Required:
+			pos = append(pos, p.Ty)
+		case p.Mode == NameOnly && p.Required:
+			named = append(named, p)
+		default:
+			return nil, nil, false
+		}
+	}
+	return pos, named, true
+}
+
+// simpleParamsCallIntersect reports whether a call with the given
+// required positional and named argument types would be accepted by
+// spec (rust's params_all_pos_only_named_only_intersect).
+func simpleParamsCallIntersect(pos []Ty, named []Param, spec *ParamSpec) bool {
+	var args callArgs
+	for _, t := range pos {
+		args.pos = append(args.pos, tyPos{ty: t})
+	}
+	for _, p := range named {
+		args.named = append(args.named, namedArg{name: p.Name, ty: p.Ty})
+	}
+	var o oracle
+	_, callErr := o.validateCall(syntax.Position{}, callableBasic{params: spec, result: Any()}, args)
+	return callErr == nil
 }
 
 func tupleIntersect(x, y tupleBasic) bool {
@@ -630,6 +710,11 @@ func (o *oracle) call(pos syntax.Position, fnTy Ty, args callArgs) Ty {
 					firstErr = callErr
 				}
 				continue
+			}
+			if alt.specialFn != nil {
+				if st, ok := alt.specialFn(o, pos, args); ok {
+					t = st
+				}
 			}
 			results = append(results, t)
 		case typeBasic:

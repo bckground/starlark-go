@@ -896,8 +896,11 @@ func (c *checker) binaryType(e *syntax.BinaryExpr) Ty {
 	case syntax.AND, syntax.OR:
 		return Union(c.exprType(e.X), c.exprType(e.Y))
 	case syntax.EQL, syntax.NEQ:
-		c.exprType(e.X)
-		c.exprType(e.Y)
+		lhs := c.exprType(e.X)
+		rhs := c.exprType(e.Y)
+		// It's not an error to compare two different types, but it is
+		// pointless (rust's expr_bin_op for Equal/NotEqual).
+		c.o.validateType(exprPos(e.Y), rhs, lhs)
 		return Prim("bool")
 	case syntax.IN:
 		return c.o.contains(e.OpPos, c.exprType(e.X), c.exprType(e.Y))

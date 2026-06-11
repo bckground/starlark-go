@@ -11,7 +11,11 @@ package typecheck
 // types as an AnyCallable, so omissions cost precision, never
 // correctness.
 
-import "maps"
+import (
+	"maps"
+
+	"go.starlark.net/syntax"
+)
 
 // Signature construction helpers.
 
@@ -30,6 +34,177 @@ func fn(name string, result Ty, params ...Param) Ty {
 	return Function(name, &ParamSpec{Params: params}, result)
 }
 
+// fnS is fn with a specialFunc that refines the result type from the
+// argument types; result remains the (sound) fallback.
+func fnS(name string, special specialFunc, result Ty, params ...Param) Ty {
+	return Ty{alts: []Basic{callableBasic{
+		name:      name,
+		params:    &ParamSpec{Params: params},
+		result:    result,
+		specialFn: special,
+	}}}
+}
+
+// Result-refining specials. Each bails out (false) on *args/**kwargs
+// call forms, whose shapes are unknown; the declared result type, a
+// superset, then applies. Leniency requires refinements to be sound
+// supersets of the runtime result, never wishful narrowings.
+
+// plainArgs reports whether the call uses neither *args nor **kwargs.
+func plainArgs(args callArgs) bool {
+	return args.starArgs == nil && args.kwargsArgs == nil
+}
+
+// absSpecial: abs(int) is int, abs(float) is float.
+func absSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) || len(args.pos) != 1 {
+		return Never(), false
+	}
+	if t := args.pos[0].ty; t.Equal(Prim("int")) || t.Equal(Prim("float")) {
+		return t, true
+	}
+	return Never(), false
+}
+
+// minMaxSpecial: min/max of one iterable yields its element type; of
+// several arguments, their union.
+func minMaxSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) {
+		return Never(), false
+	}
+	switch len(args.pos) {
+	case 0:
+		return Never(), false
+	case 1:
+		return o.iterItem(args.pos[0].pos, args.pos[0].ty), true
+	default:
+		tys := make([]Ty, len(args.pos))
+		for i, a := range args.pos {
+			tys[i] = a.ty
+		}
+		return Union(tys...), true
+	}
+}
+
+// elemListSpecial: sorted/reversed yield a list of the argument's
+// element type.
+func elemListSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) || len(args.pos) < 1 {
+		return Never(), false
+	}
+	return List(o.iterItem(args.pos[0].pos, args.pos[0].ty)), true
+}
+
+// listSpecial: list() is empty; list(x) holds x's elements.
+func listSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) {
+		return Never(), false
+	}
+	if len(args.pos) == 0 {
+		return List(Never()), true
+	}
+	return List(o.iterItem(args.pos[0].pos, args.pos[0].ty)), true
+}
+
+// setSpecial: like listSpecial, for set.
+func setSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) {
+		return Never(), false
+	}
+	if len(args.pos) == 0 {
+		return Set(Never()), true
+	}
+	return Set(o.iterItem(args.pos[0].pos, args.pos[0].ty)), true
+}
+
+// tupleSpecial: tuple() is the empty tuple; tuple(x) has unknown arity
+// over x's element type.
+func tupleSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) {
+		return Never(), false
+	}
+	if len(args.pos) == 0 {
+		return Tuple(), true
+	}
+	return TupleOf(o.iterItem(args.pos[0].pos, args.pos[0].ty)), true
+}
+
+// zipSpecial: zip is arity-aware — zip(xs, ys) yields
+// list[tuple[elem(xs), elem(ys)]].
+func zipSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) {
+		return Never(), false
+	}
+	elems := make([]Ty, len(args.pos))
+	for i, a := range args.pos {
+		elems[i] = o.iterItem(a.pos, a.ty)
+	}
+	return List(Tuple(elems...)), true
+}
+
+// enumerateSpecial: enumerate(xs) yields list[tuple[int, elem(xs)]].
+func enumerateSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) || len(args.pos) < 1 {
+		return Never(), false
+	}
+	return List(Tuple(Prim("int"), o.iterItem(args.pos[0].pos, args.pos[0].ty))), true
+}
+
+// dictSpecial: dict() from a dict argument, an iterable of pairs, or
+// keyword arguments.
+func dictSpecial(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+	if !plainArgs(args) || len(args.pos) > 1 {
+		return Never(), false
+	}
+	key, val := Never(), Never()
+	if len(args.pos) == 1 {
+		t := args.pos[0].ty
+		if t.IsAny() {
+			return Never(), false
+		}
+		for _, alt := range t.alts {
+			if d, ok := alt.(dictBasic); ok {
+				key, val = Union(key, d.key), Union(val, d.val)
+				continue
+			}
+			// An iterable of fixed pairs: dict([(k, v), ...]).
+			item, ok := iterItemBasic(alt)
+			if !ok {
+				return Never(), false
+			}
+			k, v, ok := pairElems(item)
+			if !ok {
+				return Never(), false
+			}
+			key, val = Union(key, k), Union(val, v)
+		}
+	}
+	if len(args.named) > 0 {
+		key = Union(key, Prim("string"))
+		for _, na := range args.named {
+			val = Union(val, na.ty)
+		}
+	}
+	return Dict(key, val), true
+}
+
+// pairElems decomposes t into the components of a two-element tuple,
+// if every alternative of t is one.
+func pairElems(t Ty) (k, v Ty, ok bool) {
+	if t.IsAny() || t.IsNever() {
+		return Never(), Never(), false
+	}
+	k, v = Never(), Never()
+	for _, alt := range t.alts {
+		tup, isTuple := alt.(tupleBasic)
+		if !isTuple || tup.of != nil || len(tup.elems) != 2 {
+			return Never(), Never(), false
+		}
+		k, v = Union(k, tup.elems[0]), Union(v, tup.elems[1])
+	}
+	return k, v, true
+}
+
 // universeTypes returns the types of the universal environment.
 // It is computed once.
 var universeTypes = func() map[string]Ty {
@@ -44,15 +219,15 @@ var universeTypes = func() map[string]Ty {
 		"True":  boolT,
 		"False": boolT,
 
-		"abs":       fn("abs", num, posOnly(num)),
+		"abs":       fnS("abs", absSpecial, num, posOnly(num)),
 		"any":       fn("any", boolT, posOnly(iterAny)),
 		"all":       fn("all", boolT, posOnly(iterAny)),
 		"bool":      fn("bool", boolT, optPosOnly(Any())),
 		"bytes":     fn("bytes", Prim("bytes"), posOnly(Any())),
 		"chr":       fn("chr", str, posOnly(intT)),
-		"dict":      fn("dict", Dict(Any(), Any()), optPosOnly(Any()), varKwargs(Any())),
+		"dict":      fnS("dict", dictSpecial, Dict(Any(), Any()), optPosOnly(Any()), varKwargs(Any())),
 		"dir":       fn("dir", List(str), posOnly(Any())),
-		"enumerate": fn("enumerate", List(Tuple(intT, Any())), posOnly(iterAny), optPosOnly(intT)),
+		"enumerate": fnS("enumerate", enumerateSpecial, List(Tuple(intT, Any())), posOnly(iterAny), optPosOnly(intT)),
 		"fail":      fn("fail", Never(), varArgs(Any()), nameOnly("sep", str)),
 		"float":     fn("float", Prim("float"), optPosOnly(Any())),
 		"getattr":   fn("getattr", Any(), posOnly(Any()), posOnly(str), optPosOnly(Any())),
@@ -60,20 +235,20 @@ var universeTypes = func() map[string]Ty {
 		"hash":      fn("hash", intT, posOnly(Union(str, Prim("bytes")))),
 		"int":       fn("int", intT, optPosOnly(Any()), opt("base", intT)),
 		"len":       fn("len", intT, posOnly(Any())),
-		"list":      fn("list", List(Any()), optPosOnly(iterAny)),
-		"max":       fn("max", Any(), varArgs(Any()), nameOnly("key", Any())),
-		"min":       fn("min", Any(), varArgs(Any()), nameOnly("key", Any())),
+		"list":      fnS("list", listSpecial, List(Any()), optPosOnly(iterAny)),
+		"max":       fnS("max", minMaxSpecial, Any(), varArgs(Any()), nameOnly("key", Any())),
+		"min":       fnS("min", minMaxSpecial, Any(), varArgs(Any()), nameOnly("key", Any())),
 		"ord":       fn("ord", intT, posOnly(Union(str, Prim("bytes")))),
 		"print":     fn("print", None(), varArgs(Any()), nameOnly("sep", str)),
 		"range":     fn("range", Prim("range"), posOnly(intT), optPosOnly(intT), optPosOnly(intT)),
 		"repr":      fn("repr", str, posOnly(Any())),
-		"reversed":  fn("reversed", List(Any()), posOnly(iterAny)),
-		"set":       fn("set", Set(Any()), optPosOnly(iterAny)),
-		"sorted":    fn("sorted", List(Any()), posOnly(iterAny), nameOnly("key", Any()), nameOnly("reverse", boolT)),
+		"reversed":  fnS("reversed", elemListSpecial, List(Any()), posOnly(iterAny)),
+		"set":       fnS("set", setSpecial, Set(Any()), optPosOnly(iterAny)),
+		"sorted":    fnS("sorted", elemListSpecial, List(Any()), posOnly(iterAny), nameOnly("key", Any()), nameOnly("reverse", boolT)),
 		"str":       fn("str", str, optPosOnly(Any())),
-		"tuple":     fn("tuple", AnyTuple(), optPosOnly(iterAny)),
+		"tuple":     fnS("tuple", tupleSpecial, AnyTuple(), optPosOnly(iterAny)),
 		"type":      fn("type", str, posOnly(Any())),
-		"zip":       fn("zip", List(AnyTuple()), varArgs(iterAny)),
+		"zip":       fnS("zip", zipSpecial, List(AnyTuple()), varArgs(iterAny)),
 
 		// typing extension
 		"isinstance": fn("isinstance", boolT, posOnly(Any()), posOnly(Any())),
@@ -117,23 +292,38 @@ func listMethod(elem Ty, name string) (Ty, bool) {
 }
 
 func dictMethod(key, val Ty, name string) (Ty, bool) {
+	// get(k) -> V | None, get(k, d) -> V | typeof(d), and similarly
+	// pop and setdefault: the default argument's type joins the
+	// result, so the precise result is computed per call site.
+	withDefault := func(oneArg Ty) specialFunc {
+		return func(o *oracle, pos syntax.Position, args callArgs) (Ty, bool) {
+			if !plainArgs(args) {
+				return Never(), false
+			}
+			switch len(args.pos) {
+			case 1:
+				return oneArg, true
+			case 2:
+				return Union(val, args.pos[1].ty), true
+			}
+			return Never(), false
+		}
+	}
 	switch name {
 	case "clear":
 		return fn("clear", None()), true
 	case "get":
-		// get(k) -> V | None; get(k, default) -> V | typeof(default):
-		// approximated as the union of both signatures' results.
-		return fn("get", Union(val, None(), Any()), posOnly(key), optPosOnly(Any())), true
+		return fnS("get", withDefault(Union(val, None())), Any(), posOnly(key), optPosOnly(Any())), true
 	case "items":
 		return fn("items", List(Tuple(key, val))), true
 	case "keys":
 		return fn("keys", List(key)), true
 	case "pop":
-		return fn("pop", Union(val, Any()), posOnly(key), optPosOnly(Any())), true
+		return fnS("pop", withDefault(val), Any(), posOnly(key), optPosOnly(Any())), true
 	case "popitem":
 		return fn("popitem", Tuple(key, val)), true
 	case "setdefault":
-		return fn("setdefault", Union(val, Any()), posOnly(key), optPosOnly(Any())), true
+		return fnS("setdefault", withDefault(Union(val, None())), Any(), posOnly(key), optPosOnly(Any())), true
 	case "update":
 		return fn("update", None(), optPosOnly(Any()), varKwargs(Any())), true
 	case "values":
