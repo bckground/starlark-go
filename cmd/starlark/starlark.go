@@ -19,9 +19,12 @@ import (
 	"go.starlark.net/lib/json"
 	"go.starlark.net/lib/math"
 	"go.starlark.net/lib/time"
+	"go.starlark.net/lib/typing"
 	"go.starlark.net/repl"
 	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
+	"go.starlark.net/typecheck"
 	"golang.org/x/term"
 )
 
@@ -32,6 +35,8 @@ var (
 	profile    = flag.String("profile", "", "gather Starlark time profile in this file")
 	showenv    = flag.Bool("showenv", false, "on success, print final global environment")
 	execprog   = flag.String("c", "", "execute program `prog`")
+	types      = flag.String("types", "off", `support for type annotations: "off", "parse", or "on"`)
+	typecheckF = flag.Bool("typecheck", false, "run the static typechecker before execution (implies -types=on unless set)")
 )
 
 func init() {
@@ -90,7 +95,23 @@ func doMain() int {
 		}()
 	}
 
-	thread := &starlark.Thread{Load: repl.MakeLoad()}
+	opts := syntax.LegacyFileOptions()
+	switch *types {
+	case "off":
+		opts.Types = syntax.TypesDisabled
+	case "parse":
+		opts.Types = syntax.TypesParseOnly
+	case "on":
+		opts.Types = syntax.TypesEnabled
+	default:
+		log.Printf(`invalid -types value %q: want "off", "parse", or "on"`, *types)
+		return 1
+	}
+	if *typecheckF && opts.Types == syntax.TypesDisabled {
+		opts.Types = syntax.TypesEnabled
+	}
+
+	thread := &starlark.Thread{Load: repl.MakeLoadOptions(opts)}
 	globals := make(starlark.StringDict)
 
 	// Ideally this statement would update the predeclared environment.
@@ -98,6 +119,7 @@ func doMain() int {
 	starlark.Universe["json"] = json.Module
 	starlark.Universe["time"] = time.Module
 	starlark.Universe["math"] = math.Module
+	starlark.Universe["typing"] = typing.Module
 
 	switch {
 	case flag.NArg() == 1 || *execprog != "":
@@ -115,10 +137,38 @@ func doMain() int {
 			filename = flag.Arg(0)
 		}
 		thread.Name = "exec " + filename
-		globals, err = starlark.ExecFile(thread, filename, src, nil)
-		if err != nil {
-			repl.PrintError(err)
-			return 1
+		if *typecheckF {
+			f, prog, err := starlark.SourceProgramOptions(opts, filename, src, starlark.Universe.Has)
+			if err != nil {
+				repl.PrintError(err)
+				return 1
+			}
+			env := typecheck.UniverseEnv()
+			for _, mod := range []string{"json", "time", "math", "typing"} {
+				env[mod] = typecheck.Module(mod, nil)
+			}
+			res, err := typecheck.Check(f, env, nil)
+			if err != nil {
+				log.Print(err)
+				return 1
+			}
+			for _, e := range res.Errors {
+				fmt.Fprintln(os.Stderr, e.Error())
+			}
+			if len(res.Errors) > 0 {
+				return 1
+			}
+			globals, err = prog.Init(thread, nil)
+			if err != nil {
+				repl.PrintError(err)
+				return 1
+			}
+		} else {
+			globals, err = starlark.ExecFileOptions(opts, thread, filename, src, nil)
+			if err != nil {
+				repl.PrintError(err)
+				return 1
+			}
 		}
 	case flag.NArg() == 0:
 		stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
@@ -126,7 +176,7 @@ func doMain() int {
 			fmt.Println("Welcome to Starlark (go.starlark.net)")
 		}
 		thread.Name = "REPL"
-		repl.REPL(thread, globals)
+		repl.REPLOptions(opts, thread, globals)
 		if stdinIsTerminal {
 			fmt.Println()
 		}
