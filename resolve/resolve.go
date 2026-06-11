@@ -601,6 +601,9 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 
 	case *syntax.AssignStmt:
 		r.expr(stmt.RHS)
+		if stmt.Type != nil && r.options.Types == syntax.TypesEnabled {
+			r.expr(stmt.Type)
+		}
 		isAugmented := stmt.Op != syntax.EQ
 		r.assign(stmt.LHS, isAugmented)
 
@@ -610,6 +613,7 @@ func (r *resolver) stmt(stmt syntax.Stmt) {
 			Name:           stmt.Name.Name,
 			Pos:            stmt.Def,
 			Params:         stmt.Params,
+			ReturnType:     stmt.Return,
 			Body:           stmt.Body,
 			CanReturnError: stmt.Exclaim.IsValid(),
 		}
@@ -974,17 +978,38 @@ func (r *resolver) expr(e syntax.Expr) {
 	case *syntax.ParenExpr:
 		r.expr(e.X)
 
+	case *syntax.EllipsisExpr:
+		// nothing to resolve; the parser permits `...` only within
+		// type expressions
+
 	default:
 		log.Panicf("unexpected expr %T", e)
 	}
 }
 
 func (r *resolver) function(function *Function, pos syntax.Position) {
-	// Resolve defaults in enclosing environment.
+	// Resolve defaults and type annotations in the enclosing
+	// environment: like defaults, annotations are evaluated when the
+	// def statement executes. In TypesParseOnly mode annotations are
+	// ignored entirely, so names within them are not resolved.
+	typesEnabled := r.options.Types == syntax.TypesEnabled
 	for _, param := range function.Params {
-		if binary, ok := param.(*syntax.BinaryExpr); ok {
-			r.expr(binary.Y)
+		switch param := param.(type) {
+		case *syntax.BinaryExpr:
+			r.expr(param.Y)
+		case *syntax.TypedParam:
+			if param.Default != nil {
+				r.expr(param.Default)
+			}
+			if typesEnabled {
+				r.expr(param.Type)
+				function.HasTypes = true
+			}
 		}
+	}
+	if function.ReturnType != nil && typesEnabled {
+		r.expr(function.ReturnType)
+		function.HasTypes = true
 	}
 
 	// Enter function block.
@@ -1004,48 +1029,74 @@ func (r *resolver) function(function *Function, pos syntax.Position) {
 	var star *syntax.UnaryExpr // * or *args param
 	var starStar *syntax.Ident // **kwargs ident
 	var numKwonlyParams int
+
+	// e.g. x
+	bindRequired := func(id *syntax.Ident) {
+		if starStar != nil {
+			r.errorf(id.NamePos, "required parameter may not follow **%s", starStar.Name)
+		} else if star != nil {
+			numKwonlyParams++
+		} else if seenOptional {
+			r.errorf(id.NamePos, "required parameter may not follow optional")
+		}
+		if r.bind(id) {
+			r.errorf(id.NamePos, "duplicate parameter: %s", id.Name)
+		}
+	}
+
+	// e.g. y=dflt
+	bindOptional := func(id *syntax.Ident, opPos syntax.Position) {
+		if starStar != nil {
+			r.errorf(opPos, "optional parameter may not follow **%s", starStar.Name)
+		} else if star != nil {
+			numKwonlyParams++
+		}
+		if r.bind(id) {
+			r.errorf(opPos, "duplicate parameter: %s", id.Name)
+		}
+		seenOptional = true
+	}
+
+	// * or *args or **kwargs
+	bindStar := func(param *syntax.UnaryExpr) {
+		if param.Op == syntax.STAR {
+			if starStar != nil {
+				r.errorf(param.OpPos, "* parameter may not follow **%s", starStar.Name)
+			} else if star != nil {
+				r.errorf(param.OpPos, "multiple * parameters not allowed")
+			} else {
+				star = param
+			}
+		} else {
+			if starStar != nil {
+				r.errorf(param.OpPos, "multiple ** parameters not allowed")
+			}
+			starStar = param.X.(*syntax.Ident)
+		}
+	}
+
 	for _, param := range function.Params {
 		switch param := param.(type) {
 		case *syntax.Ident:
-			// e.g. x
-			if starStar != nil {
-				r.errorf(param.NamePos, "required parameter may not follow **%s", starStar.Name)
-			} else if star != nil {
-				numKwonlyParams++
-			} else if seenOptional {
-				r.errorf(param.NamePos, "required parameter may not follow optional")
-			}
-			if r.bind(param) {
-				r.errorf(param.NamePos, "duplicate parameter: %s", param.Name)
-			}
+			bindRequired(param)
 
 		case *syntax.BinaryExpr:
-			// e.g. y=dflt
-			if starStar != nil {
-				r.errorf(param.OpPos, "optional parameter may not follow **%s", starStar.Name)
-			} else if star != nil {
-				numKwonlyParams++
-			}
-			if id := param.X.(*syntax.Ident); r.bind(id) {
-				r.errorf(param.OpPos, "duplicate parameter: %s", id.Name)
-			}
-			seenOptional = true
+			bindOptional(param.X.(*syntax.Ident), param.OpPos)
 
 		case *syntax.UnaryExpr:
-			// * or *args or **kwargs
-			if param.Op == syntax.STAR {
-				if starStar != nil {
-					r.errorf(param.OpPos, "* parameter may not follow **%s", starStar.Name)
-				} else if star != nil {
-					r.errorf(param.OpPos, "multiple * parameters not allowed")
+			bindStar(param)
+
+		case *syntax.TypedParam:
+			// x: T | x: T = dflt | *args: T | **kwargs: T
+			switch x := param.X.(type) {
+			case *syntax.Ident:
+				if param.Default != nil {
+					bindOptional(x, param.EqPos)
 				} else {
-					star = param
+					bindRequired(x)
 				}
-			} else {
-				if starStar != nil {
-					r.errorf(param.OpPos, "multiple ** parameters not allowed")
-				}
-				starStar = param.X.(*syntax.Ident)
+			case *syntax.UnaryExpr:
+				bindStar(x)
 			}
 		}
 	}

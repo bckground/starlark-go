@@ -23,7 +23,19 @@ func getOptions(src string) *syntax.FileOptions {
 		GlobalReassign:    option(src, "globalreassign"),
 		LoadBindsGlobally: option(src, "loadbindsglobally"),
 		Recursion:         option(src, "recursion"),
+		Types:             typesOption(src),
 	}
+}
+
+func typesOption(src string) syntax.TypesMode {
+	// Order matters: "option:types" is a substring of "option:typesparseonly".
+	if option(src, "typesparseonly") {
+		return syntax.TypesParseOnly
+	}
+	if option(src, "types") {
+		return syntax.TypesEnabled
+	}
+	return syntax.TypesDisabled
 }
 
 func option(chunk, name string) bool {

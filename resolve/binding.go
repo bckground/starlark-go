@@ -66,15 +66,17 @@ type Module struct {
 // A Function contains resolver information about a named or anonymous function.
 // The resolver populates the Function field of each syntax.DefStmt and syntax.LambdaExpr.
 type Function struct {
-	Pos    syntax.Position // of DEF or LAMBDA
-	Name   string          // name of def, or "lambda"
-	Params []syntax.Expr   // param = ident | ident=expr | * | *ident | **ident
-	Body   []syntax.Stmt   // contains synthetic 'return expr' for lambda
+	Pos        syntax.Position // of DEF or LAMBDA
+	Name       string          // name of def, or "lambda"
+	Params     []syntax.Expr   // param = ident | ident=expr | * | *ident | **ident | TypedParam
+	ReturnType syntax.Expr     // return type annotation, or nil
+	Body       []syntax.Stmt   // contains synthetic 'return expr' for lambda
 
 	HasVarargs      bool       // whether params includes *args (convenience)
 	HasKwargs       bool       // whether params includes **kwargs (convenience)
 	NumKwonlyParams int        // number of keyword-only optional parameters
 	CanReturnError  bool       // whether function is marked with ! (can return errors)
+	HasTypes        bool       // whether any param or return type annotation is in effect (TypesEnabled only)
 	Locals          []*Binding // this function's local/cell variables, parameters first
 	FreeVars        []*Binding // enclosing cells to capture in closure
 }
