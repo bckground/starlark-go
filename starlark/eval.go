@@ -1652,10 +1652,15 @@ func setArgs(locals []Value, fn *Function, args Tuple, kwargs []Tuple) error {
 	}
 
 	// Bind keyword arguments to parameters.
+	// Positional-only parameters (those before a / marker) cannot be
+	// bound by name; like in Python, their names remain available to
+	// **kwargs.
 	paramIdents := fn.funcode.Locals[:nparams]
+	npos := fn.NumPositionalOnly()
 	for _, pair := range kwargs {
 		k, v := pair[0].(String), pair[1]
-		if i := findParam(paramIdents, string(k)); i >= 0 {
+		if i := findParam(paramIdents[npos:], string(k)); i >= 0 {
+			i += npos
 			if locals[i] != nil {
 				return fmt.Errorf("function %s got multiple values for parameter %s", fn.Name(), k)
 			}
@@ -1663,6 +1668,9 @@ func setArgs(locals []Value, fn *Function, args Tuple, kwargs []Tuple) error {
 			continue
 		}
 		if kwdict == nil {
+			if findParam(paramIdents[:npos], string(k)) >= 0 {
+				return fmt.Errorf("function %s got a value for positional-only parameter %s", fn.Name(), k)
+			}
 			return fmt.Errorf("function %s got an unexpected keyword argument %s", fn.Name(), k)
 		}
 		oldlen := kwdict.Len()

@@ -130,7 +130,7 @@ type DefStmt struct {
 	Def     Position
 	Name    *Ident
 	Lparen  Position
-	Params  []Expr // param = ident | ident=expr | * | *ident | **ident | TypedParam
+	Params  []Expr // param = ident | ident=expr | / | * | *ident | **ident | TypedParam
 	Rparen  Position
 	Exclaim Position // position of '!' if function can return errors (invalid if not error-returning)
 	Arrow   Position // position of '->' if Return != nil
@@ -514,7 +514,8 @@ func (x *TupleExpr) Span() (start, end Position) {
 // A UnaryExpr represents a unary expression: Op X.
 //
 // As a special case, UnaryOp{Op:Star} may also represent
-// the star parameter in def f(*args) or def f(*, x).
+// the star parameter in def f(*args) or def f(*, x),
+// and UnaryOp{Op:Slash} the positional-only marker in def f(x, /).
 type UnaryExpr struct {
 	commentsRef
 	OpPos Position

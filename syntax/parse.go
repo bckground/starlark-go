@@ -600,6 +600,19 @@ func (p *parser) parseParams(inDef bool) []Expr {
 			break
 		}
 
+		// '/': positional-only marker
+		if p.tok == SLASH {
+			if p.options == nil || !p.options.PositionalOnly {
+				p.in.errorf(p.in.pos, "positional-only parameters are not allowed in this dialect")
+			}
+			pos := p.nextToken()
+			params = append(params, &UnaryExpr{
+				OpPos: pos,
+				Op:    SLASH,
+			})
+			continue
+		}
+
 		// * or *args or **kwargs
 		if p.tok == STAR || p.tok == STARSTAR {
 			op := p.tok

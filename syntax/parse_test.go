@@ -408,6 +408,35 @@ func TestTypeAnnotationParseTrees(t *testing.T) {
 	}
 }
 
+func TestPositionalOnlyParseTrees(t *testing.T) {
+	opts := &syntax.FileOptions{PositionalOnly: true, Types: syntax.TypesEnabled}
+	for _, test := range []struct {
+		input, want string
+	}{
+		{
+			`def f(x, /, y): pass`,
+			`(DefStmt Name=f Params=(x (UnaryExpr Op=/) y) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: int, /, y: str) -> int: pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=int) (UnaryExpr Op=/) (TypedParam X=y Type=str)) Return=int Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`f = lambda x, /, y: x`,
+			`(AssignStmt Op== LHS=f RHS=(LambdaExpr Params=(x (UnaryExpr Op=/) y) Body=x))`,
+		},
+	} {
+		f, err := opts.Parse("foo.star", test.input, 0)
+		if err != nil {
+			t.Errorf("parse `%s` failed: %v", test.input, stripPos(err))
+			continue
+		}
+		if got := treeString(f.Stmts[0]); test.want != got {
+			t.Errorf("parse `%s` = %s, want %s", test.input, got, test.want)
+		}
+	}
+}
+
 func TestTypeAnnotationErrors(t *testing.T) {
 	enabled := &syntax.FileOptions{Types: syntax.TypesEnabled}
 	parseonly := &syntax.FileOptions{Types: syntax.TypesParseOnly}
@@ -443,6 +472,9 @@ func TestTypeAnnotationErrors(t *testing.T) {
 		{enabled, `(x, y): int = foo`, `foo.star:1:8: type annotations not allowed on multiple assignments`},
 		{enabled, `x: int`, `foo.star:1:7: got end of file, want '=' after type annotation`},
 		{enabled, `def f(*: int): pass`, `foo.star:1:9: bare * parameter cannot have a type annotation`},
+		// positional-only parameters require their dialect option
+		{enabled, `def f(x, /): pass`, `foo.star:1:11: positional-only parameters are not allowed in this dialect`},
+		{disabled, `def f(x, /): pass`, `foo.star:1:11: positional-only parameters are not allowed in this dialect`},
 	} {
 		_, err := test.opts.Parse("foo.star", test.input, 0)
 		if test.want == "" {

@@ -131,6 +131,8 @@ type annotation system (see TYPES.md for the full description):
 - **Gating**: `syntax.FileOptions.Types` is one of `TypesDisabled` (default,
   parse error), `TypesParseOnly`, `TypesEnabled`. Tests: `# option:types` /
   `# option:typesparseonly`. CLI: `starlark -types=on`, `-typecheck`.
+  Positional-only parameters (`def f(x, /)`) are separately gated by
+  `FileOptions.PositionalOnly` (`# option:positionalonly`, `-positionalonly`).
 - **Runtime semantics**: annotations are ordinary expressions evaluated at
   `def` time in the enclosing scope (like defaults, carried in the MAKEFUNC
   tuple), converted via `starlark.TypeOf` into `*starlark.Type` matchers.

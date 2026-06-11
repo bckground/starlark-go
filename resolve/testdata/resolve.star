@@ -718,3 +718,25 @@ def g(x: T, x: T): ### "duplicate parameter: x"
 
 def h(x: T = 1, y: T): ### "required parameter may not follow optional"
   pass
+
+---
+# option:positionalonly
+# positional-only parameter marker rules
+
+def ok(x, /, y, *args, z, **kwargs):
+  pass
+
+def ok2(x, y=1, /, z=2):
+  pass
+
+def first(/, x): ### "/ must follow at least one parameter"
+  pass
+
+def multiple(x, /, y, /): ### "multiple / parameters not allowed"
+  pass
+
+def afterstar(x, *args, /): ### "/ parameter may not follow"
+  pass
+
+def afterkwargs(x, **kwargs, /): ### "/ parameter may not follow"
+  pass

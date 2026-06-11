@@ -11,10 +11,12 @@ DefStmt = 'def' identifier '(' [Parameters [',']] ')' ['!'] ['->' TypeExpr] ':' 
 Parameters = Parameter {',' Parameter}.
 
 Parameter = identifier [':' TypeExpr] ['=' Test]
+          | '/'
           | '*'
           | '*' identifier [':' TypeExpr]
           | '**' identifier [':' TypeExpr]
           .
+# NOTE: the positional-only marker '/' requires FileOptions.PositionalOnly.
 # NOTE: type annotations (':' TypeExpr, '->' TypeExpr) require
 # FileOptions.Types and are not permitted in lambda parameters.
 

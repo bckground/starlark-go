@@ -23,6 +23,7 @@ func getOptions(src string) *syntax.FileOptions {
 		GlobalReassign:    option(src, "globalreassign"),
 		LoadBindsGlobally: option(src, "loadbindsglobally"),
 		Recursion:         option(src, "recursion"),
+		PositionalOnly:    option(src, "positionalonly"),
 		Types:             typesOption(src),
 	}
 }

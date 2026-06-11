@@ -237,8 +237,11 @@ def may_fail(ok)! -> str:
 def run():
     t: tuple[int, ...] = (1, 2)
     return double(3)
+
+def posonly(x, /, y):
+    return (x, y)
 `
-	opts := &syntax.FileOptions{Types: syntax.TypesEnabled}
+	opts := &syntax.FileOptions{Types: syntax.TypesEnabled, PositionalOnly: true}
 	_, prog, err := SourceProgramOptions(opts, "roundtrip.star", src, func(string) bool { return false })
 	if err != nil {
 		t.Fatal(err)
@@ -287,6 +290,17 @@ def run():
 		t.Errorf("run(): %v", err)
 	} else if v != MakeInt(6) {
 		t.Errorf("run() = %v", v)
+	}
+
+	// Positional-only markers survive the round trip.
+	posonly := globals["posonly"].(*Function)
+	if n := posonly.NumPositionalOnly(); n != 1 {
+		t.Errorf("posonly.NumPositionalOnly() = %d, want 1", n)
+	}
+	if _, err := Call(thread, posonly, nil, []Tuple{{String("x"), MakeInt(1)}, {String("y"), MakeInt(2)}}); err == nil {
+		t.Errorf("posonly(x=1, y=2) succeeded, want positional-only error")
+	} else if !strings.Contains(err.Error(), "positional-only parameter") {
+		t.Errorf("posonly(x=1, y=2) error = %v", err)
 	}
 }
 

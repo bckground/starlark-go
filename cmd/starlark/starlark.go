@@ -37,6 +37,7 @@ var (
 	execprog   = flag.String("c", "", "execute program `prog`")
 	types      = flag.String("types", "off", `support for type annotations: "off", "parse", or "on"`)
 	typecheckF = flag.Bool("typecheck", false, "run the static typechecker before execution (implies -types=on unless set)")
+	posonly    = flag.Bool("positionalonly", false, "allow positional-only parameters: def f(x, /)")
 )
 
 func init() {
@@ -110,6 +111,7 @@ func doMain() int {
 	if *typecheckF && opts.Types == syntax.TypesDisabled {
 		opts.Types = syntax.TypesEnabled
 	}
+	opts.PositionalOnly = *posonly
 
 	thread := &starlark.Thread{Load: repl.MakeLoadOptions(opts)}
 	globals := make(starlark.StringDict)

@@ -37,6 +37,13 @@ def find(id: int)! -> str:               # with this fork's error marker:
 
 Lambdas cannot be annotated (the colon would be ambiguous).
 
+Positional-only parameters (`def f(x, /, y)`, Python semantics: `x`
+cannot be passed by name, and its name remains available to
+`**kwargs`) are supported behind a separate gate,
+`syntax.FileOptions.PositionalOnly` (`starlark -positionalonly`,
+`# option:positionalonly` in tests), since standard Starlark lacks
+them; they compose freely with annotations.
+
 A type expression is syntactically an ordinary expression, but is
 restricted by the parser to: identifier paths (`int`, `typing.Any`),
 parameterization (`list[int]`, `dict[str, int]`, `tuple[int, str]`,

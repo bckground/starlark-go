@@ -544,16 +544,26 @@ func (c *checker) collectDef(stmt *syntax.DefStmt) {
 		}
 
 		if unary != nil {
-			seenStar = true
-			uid, _ := unary.X.(*syntax.Ident)
-			if unary.Op == syntax.STAR {
-				if uid != nil {
+			switch unary.Op {
+			case syntax.SLASH:
+				// Parameters so far are positional-only.
+				for i := range params {
+					if params[i].Mode == PosOrName {
+						params[i].Mode = PosOnly
+					}
+				}
+			case syntax.STAR:
+				seenStar = true
+				if uid, _ := unary.X.(*syntax.Ident); uid != nil {
 					addParam(uid, ArgsMode, false, ty)
 					c.declare(uid, TupleOf(ty))
 				}
-			} else if uid != nil {
-				addParam(uid, KwargsMode, false, ty)
-				c.declare(uid, Dict(Prim("string"), ty))
+			default: // **kwargs
+				seenStar = true
+				if uid, _ := unary.X.(*syntax.Ident); uid != nil {
+					addParam(uid, KwargsMode, false, ty)
+					c.declare(uid, Dict(Prim("string"), ty))
+				}
 			}
 			continue
 		}

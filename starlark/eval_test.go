@@ -43,6 +43,7 @@ func getOptions(src string) *syntax.FileOptions {
 		LoadBindsGlobally: option(src, "loadbindsglobally"),
 		LoadModuleBinding: option(src, "loadmodulebinding"),
 		Recursion:         option(src, "recursion"),
+		PositionalOnly:    option(src, "positionalonly"),
 		Types:             typesOption(src),
 	}
 }
@@ -180,6 +181,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/recover.star",
 		"testdata/recursion.star",
 		"testdata/module.star",
+		"testdata/posonly.star",
 		"testdata/set.star",
 		"testdata/string.star",
 		"testdata/time.star",

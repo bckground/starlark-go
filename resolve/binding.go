@@ -72,11 +72,13 @@ type Function struct {
 	ReturnType syntax.Expr     // return type annotation, or nil
 	Body       []syntax.Stmt   // contains synthetic 'return expr' for lambda
 
-	HasVarargs      bool       // whether params includes *args (convenience)
-	HasKwargs       bool       // whether params includes **kwargs (convenience)
-	NumKwonlyParams int        // number of keyword-only optional parameters
-	CanReturnError  bool       // whether function is marked with ! (can return errors)
-	HasTypes        bool       // whether any param or return type annotation is in effect (TypesEnabled only)
-	Locals          []*Binding // this function's local/cell variables, parameters first
-	FreeVars        []*Binding // enclosing cells to capture in closure
+	HasVarargs        bool       // whether params includes *args (convenience)
+	HasKwargs         bool       // whether params includes **kwargs (convenience)
+	NumKwonlyParams   int        // number of keyword-only optional parameters
+	NumPositionalOnly int        // number of parameters before a / marker
+	HasSlash          bool       // whether params includes a / marker
+	CanReturnError    bool       // whether function is marked with ! (can return errors)
+	HasTypes          bool       // whether any param or return type annotation is in effect (TypesEnabled only)
+	Locals            []*Binding // this function's local/cell variables, parameters first
+	FreeVars          []*Binding // enclosing cells to capture in closure
 }

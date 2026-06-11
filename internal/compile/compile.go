@@ -366,6 +366,7 @@ type Funcode struct {
 	MaxStack              int
 	NumParams             int
 	NumKwonlyParams       int
+	NumPositionalOnly     int // number of parameters before a / marker
 	HasVarargs, HasKwargs bool
 	CanReturnError        bool  // true if function is marked with !
 	TypeParams            []int // local indices of parameters with type annotations, in MAKEFUNC tuple order
@@ -2034,9 +2035,11 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 	seenStar := false
 	for _, param := range f.Params {
 		inner, dflt, _ := unwrapParam(param)
-		switch inner.(type) {
+		switch inner := inner.(type) {
 		case *syntax.UnaryExpr:
-			seenStar = true // * or *args (also **kwargs)
+			if inner.Op != syntax.SLASH {
+				seenStar = true // * or *args (also **kwargs)
+			}
 		case *syntax.Ident:
 			if dflt != nil {
 				fcomp.expr(dflt)
@@ -2048,9 +2051,13 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 		}
 	}
 
-	// def f(a, *, b=1) has only 2 parameters.
+	// The bare markers '*' and '/' are not parameters:
+	// def f(a, *, b=1) and def f(a, /, b) have only 2 parameters.
 	numParams := len(f.Params)
 	if f.NumKwonlyParams > 0 && !f.HasVarargs {
+		numParams--
+	}
+	if f.HasSlash {
 		numParams--
 	}
 
@@ -2129,6 +2136,7 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 
 	funcode.NumParams = numParams
 	funcode.NumKwonlyParams = f.NumKwonlyParams
+	funcode.NumPositionalOnly = f.NumPositionalOnly
 	funcode.HasVarargs = f.HasVarargs
 	funcode.HasKwargs = f.HasKwargs
 	funcode.TypeParams = typeParams

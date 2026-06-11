@@ -1029,6 +1029,7 @@ func (r *resolver) function(function *Function, pos syntax.Position) {
 	var star *syntax.UnaryExpr // * or *args param
 	var starStar *syntax.Ident // **kwargs ident
 	var numKwonlyParams int
+	var numOrdinary int // ordinary (non-marker) parameters seen so far
 
 	// e.g. x
 	bindRequired := func(id *syntax.Ident) {
@@ -1042,6 +1043,7 @@ func (r *resolver) function(function *Function, pos syntax.Position) {
 		if r.bind(id) {
 			r.errorf(id.NamePos, "duplicate parameter: %s", id.Name)
 		}
+		numOrdinary++
 	}
 
 	// e.g. y=dflt
@@ -1055,11 +1057,24 @@ func (r *resolver) function(function *Function, pos syntax.Position) {
 			r.errorf(opPos, "duplicate parameter: %s", id.Name)
 		}
 		seenOptional = true
+		numOrdinary++
 	}
 
-	// * or *args or **kwargs
+	// /, * or *args, or **kwargs
 	bindStar := func(param *syntax.UnaryExpr) {
-		if param.Op == syntax.STAR {
+		switch param.Op {
+		case syntax.SLASH:
+			if star != nil || starStar != nil {
+				r.errorf(param.OpPos, "/ parameter may not follow * or **")
+			} else if function.HasSlash {
+				r.errorf(param.OpPos, "multiple / parameters not allowed")
+			} else if numOrdinary == 0 {
+				r.errorf(param.OpPos, "/ must follow at least one parameter")
+			} else {
+				function.HasSlash = true
+				function.NumPositionalOnly = numOrdinary
+			}
+		case syntax.STAR:
 			if starStar != nil {
 				r.errorf(param.OpPos, "* parameter may not follow **%s", starStar.Name)
 			} else if star != nil {
@@ -1067,7 +1082,7 @@ func (r *resolver) function(function *Function, pos syntax.Position) {
 			} else {
 				star = param
 			}
-		} else {
+		default:
 			if starStar != nil {
 				r.errorf(param.OpPos, "multiple ** parameters not allowed")
 			}

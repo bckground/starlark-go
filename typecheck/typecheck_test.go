@@ -21,10 +21,11 @@ func check(t *testing.T, src string, loads map[string]*typecheck.Interface) *typ
 	env := typecheck.UniverseEnv()
 	env["typing"] = typecheck.Module("typing", nil)
 	opts := &syntax.FileOptions{
-		Types:     syntax.TypesEnabled,
-		Set:       true,
-		While:     true,
-		Recursion: true,
+		Types:          syntax.TypesEnabled,
+		Set:            true,
+		While:          true,
+		Recursion:      true,
+		PositionalOnly: true,
 	}
 	f, err := opts.Parse("test.star", src, 0)
 	if err != nil {
@@ -162,6 +163,30 @@ def g():
     f(x=1, z=2)
 `,
 			[]string{"Unexpected parameter named `z`"},
+		},
+		{
+			"positional_only",
+			`
+def f(x: int, /, y: str):
+    pass
+
+def g():
+    f(1, "a")
+    f(1, y="a")
+    f(x=1, y="a")
+`,
+			[]string{"Unexpected parameter named `x`"},
+		},
+		{
+			"positional_only_kwargs",
+			`
+def f(x, /, **kwargs):
+    pass
+
+def g():
+    f(1, x=2)
+`,
+			nil,
 		},
 		{
 			"vargs_suppresses_missing",

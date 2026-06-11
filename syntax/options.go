@@ -30,6 +30,7 @@ type FileOptions struct {
 
 	// parser
 	LoadModuleBinding bool // allow load("foo.star") as shorthand for load("foo.star", "foo")
+	PositionalOnly    bool // allow positional-only parameters: def f(x, /)
 
 	// parser, resolver, compiler
 	Types TypesMode // support for type annotations (def f(x: int) -> str, x: int = ...)

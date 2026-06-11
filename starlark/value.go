@@ -789,6 +789,10 @@ func (fn *Function) Position() syntax.Position { return fn.funcode.Pos }
 func (fn *Function) NumParams() int            { return fn.funcode.NumParams }
 func (fn *Function) NumKwonlyParams() int      { return fn.funcode.NumKwonlyParams }
 
+// NumPositionalOnly returns the number of parameters that may be
+// filled only positionally (those before a / marker).
+func (fn *Function) NumPositionalOnly() int { return fn.funcode.NumPositionalOnly }
+
 // Param returns the name and position of the ith parameter,
 // where 0 <= i < NumParams().
 // The *args and **kwargs parameters are at the end

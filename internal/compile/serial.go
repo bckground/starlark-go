@@ -43,6 +43,7 @@ package compile
 //	maxstack	varint
 //	numparams	varint
 //	numkwonlyparams	varint
+//	numpositionalonly	varint
 //	hasvarargs	varint (0 or 1)
 //	haskwargs	varint (0 or 1)
 //	canreturnerror	varint (0 or 1)
@@ -206,6 +207,7 @@ func (e *encoder) function(fn *Funcode) {
 	e.int(fn.MaxStack)
 	e.int(fn.NumParams)
 	e.int(fn.NumKwonlyParams)
+	e.int(fn.NumPositionalOnly)
 	e.int(b2i(fn.HasVarargs))
 	e.int(b2i(fn.HasKwargs))
 	e.int(b2i(fn.CanReturnError))
@@ -393,6 +395,7 @@ func (d *decoder) function() *Funcode {
 	maxStack := d.int()
 	numParams := d.int()
 	numKwonlyParams := d.int()
+	numPositionalOnly := d.int()
 	hasVarargs := d.int() != 0
 	hasKwargs := d.int() != 0
 	canReturnError := d.int() != 0
@@ -403,21 +406,22 @@ func (d *decoder) function() *Funcode {
 	}
 	return &Funcode{
 		// Prog is filled in later.
-		Pos:             id.Pos,
-		Name:            id.Name,
-		Doc:             doc,
-		Code:            code,
-		pclinetab:       pclinetab,
-		Locals:          locals,
-		Cells:           cells,
-		FreeVars:        freevars,
-		MaxStack:        maxStack,
-		NumParams:       numParams,
-		NumKwonlyParams: numKwonlyParams,
-		HasVarargs:      hasVarargs,
-		HasKwargs:       hasKwargs,
-		CanReturnError:  canReturnError,
-		TypeParams:      typeParams,
-		HasReturnType:   hasReturnType,
+		Pos:               id.Pos,
+		Name:              id.Name,
+		Doc:               doc,
+		Code:              code,
+		pclinetab:         pclinetab,
+		Locals:            locals,
+		Cells:             cells,
+		FreeVars:          freevars,
+		MaxStack:          maxStack,
+		NumParams:         numParams,
+		NumKwonlyParams:   numKwonlyParams,
+		NumPositionalOnly: numPositionalOnly,
+		HasVarargs:        hasVarargs,
+		HasKwargs:         hasKwargs,
+		CanReturnError:    canReturnError,
+		TypeParams:        typeParams,
+		HasReturnType:     hasReturnType,
 	}
 }
