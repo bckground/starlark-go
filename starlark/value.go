@@ -733,6 +733,8 @@ type Function struct {
 	module   *Module
 	defaults Tuple
 	freevars Tuple
+	ptypes   []*Type // parameter types indexed by local slot; nil if no annotations
+	rtype    *Type   // return type, or nil
 }
 
 // A Module represents an evaluated Starlark module.
@@ -829,6 +831,23 @@ func (fn *Function) ParamDefault(i int) Value {
 func (fn *Function) HasVarargs() bool     { return fn.funcode.HasVarargs }
 func (fn *Function) HasKwargs() bool      { return fn.funcode.HasKwargs }
 func (fn *Function) CanReturnError() bool { return fn.funcode.CanReturnError }
+
+// ParamType returns the type annotation of the specified parameter
+// (0 <= i < NumParams()), or nil if the parameter is unannotated or
+// runtime type checking is not enabled.
+func (fn *Function) ParamType(i int) *Type {
+	if i < 0 || i >= fn.NumParams() {
+		panic(i)
+	}
+	if fn.ptypes == nil {
+		return nil
+	}
+	return fn.ptypes[i]
+}
+
+// ReturnType returns the function's return type annotation, or nil if
+// absent or runtime type checking is not enabled.
+func (fn *Function) ReturnType() *Type { return fn.rtype }
 
 // NumFreeVars returns the number of free variables of this function.
 func (fn *Function) NumFreeVars() int { return len(fn.funcode.FreeVars) }

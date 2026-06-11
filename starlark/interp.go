@@ -129,6 +129,13 @@ func (fn *Function) CallInternal(thread *Thread, args Tuple, kwargs []Tuple) (re
 		return nil, thread.evalError(err)
 	}
 
+	// Check argument values against parameter type annotations.
+	if fn.ptypes != nil {
+		if err := fn.checkParamTypes(locals); err != nil {
+			return nil, thread.evalError(err)
+		}
+	}
+
 	fr.locals = locals
 
 	if vmdebug {
@@ -615,7 +622,32 @@ loop:
 				}
 			}
 
+			// Check the result against the return type annotation.
+			// An error return of a ! function (pendingError set above)
+			// bypasses the check: the annotation describes the success
+			// value.
+			if fn.rtype != nil && fr.pendingError == nil && !fn.rtype.Matches(result) {
+				err = fmt.Errorf("Value `%s` of type `%s` does not match the type annotation `%s` for return type",
+					result.String(), result.Type(), fn.rtype.String())
+				break loop
+			}
+
 			break loop
+
+		case compile.TYPECHECK:
+			// x: T = v — check v (below the type on the stack) against T.
+			tv := stack[sp-1]
+			sp--
+			ty, err2 := TypeOf(tv)
+			if err2 != nil {
+				err = fmt.Errorf("invalid type annotation for %s: %w", f.Prog.Names[arg], err2)
+				break loop
+			}
+			if v := stack[sp-1]; !ty.Matches(v) {
+				err = fmt.Errorf("Value `%s` of type `%s` does not match the type annotation `%s` for assignment `%s`",
+					v.String(), v.Type(), ty.String(), f.Prog.Names[arg])
+				break loop
+			}
 
 		case compile.SETINDEX:
 			z := stack[sp-1]
@@ -753,15 +785,46 @@ loop:
 		case compile.MAKEFUNC:
 			funcode := f.Prog.Functions[arg]
 			tuple := stack[sp-1].(Tuple)
-			n := len(tuple) - len(funcode.FreeVars)
-			defaults := tuple[:n:n]
-			freevars := tuple[n:]
-			stack[sp-1] = &Function{
+			ntypes := len(funcode.TypeParams)
+			if funcode.HasReturnType {
+				ntypes++
+			}
+			nfree := len(funcode.FreeVars)
+			ndefaults := len(tuple) - ntypes - nfree
+			defaults := tuple[:ndefaults:ndefaults]
+			typevals := tuple[ndefaults : ndefaults+ntypes : ndefaults+ntypes]
+			freevars := tuple[ndefaults+ntypes:]
+			nf := &Function{
 				funcode:  funcode,
 				module:   fn.module,
 				defaults: defaults,
 				freevars: freevars,
 			}
+			if len(funcode.TypeParams) > 0 {
+				nf.ptypes = make([]*Type, funcode.NumParams)
+			}
+			if ntypes > 0 {
+				// Convert annotation values to types.
+				for i, slot := range funcode.TypeParams {
+					t, err2 := TypeOf(typevals[i])
+					if err2 != nil {
+						err = fmt.Errorf("invalid type annotation for parameter %s of function %s: %w",
+							funcode.Locals[slot].Name, funcode.Name, err2)
+						break loop
+					}
+					nf.ptypes[slot] = t
+				}
+				if funcode.HasReturnType {
+					t, err2 := TypeOf(typevals[ntypes-1])
+					if err2 != nil {
+						err = fmt.Errorf("invalid return type annotation of function %s: %w",
+							funcode.Name, err2)
+						break loop
+					}
+					nf.rtype = t
+				}
+			}
+			stack[sp-1] = nf
 
 		case compile.LOAD:
 			n := int(arg)

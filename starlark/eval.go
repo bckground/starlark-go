@@ -611,6 +611,8 @@ func makeToplevelFunction(prog *Program, predeclared StringDict) *Function {
 			v = Bytes(c)
 		case float64:
 			v = Float(c)
+		case compile.EllipsisConst:
+			v = Ellipsis
 		default:
 			log.Panicf("unexpected constant %T: %v", c, c)
 		}
@@ -805,6 +807,14 @@ func getIndex(x, y Value) (Value, error) {
 			return nil, outOfRange(origI, n, x)
 		}
 		return x.Index(i), nil
+
+	case *Builtin: // type parameterization: list[int], dict[str, int], ...
+		if kind := typeConstructors[x]; kind != kindInvalid {
+			return parameterizeBuiltin(kind, x.Name(), y)
+		}
+
+	case *Type: // type parameterization: typing.Callable[[int], str], typing.Iterable[int]
+		return typeIndex(x, y)
 	}
 	return nil, fmt.Errorf("unhandled index operation %s[%s]", x.Type(), y.Type())
 }
@@ -1163,6 +1173,13 @@ func Binary(op syntax.Token, x, y Value) (Value, error) {
 			}
 		}
 
+		// Type union: int | None, list[int] | str, ...
+		// (Int and Set values are handled above and are not type-like,
+		// so ordinary value semantics are unaffected.)
+		if isTypeLike(x) && isTypeLike(y) {
+			return typeUnion(x, y)
+		}
+
 	case syntax.AMP:
 		switch x := x.(type) {
 		case Int:
@@ -1508,6 +1525,55 @@ func asIndex(v Value, len int, result *int) error {
 
 // setArgs sets the values of the formal parameters of function fn in
 // based on the actual parameter values in args and kwargs.
+// checkParamTypes checks the values bound to annotated parameters
+// (including values from defaults) against their type annotations.
+// For *args, each element of the bound tuple is checked against the
+// annotation; for **kwargs, each value of the bound dict.
+// It is called by CallInternal after setArgs.
+func (fn *Function) checkParamTypes(locals []Value) error {
+	mismatch := func(v Value, ty *Type, name string) error {
+		return fmt.Errorf("Value `%s` of type `%s` does not match the type annotation `%s` for argument `%s`",
+			v.String(), v.Type(), ty.String(), name)
+	}
+	nparams := fn.NumParams()
+	kwargsSlot := -1
+	if fn.HasKwargs() {
+		kwargsSlot = nparams - 1
+	}
+	varargsSlot := -1
+	if fn.HasVarargs() {
+		varargsSlot = nparams - 1
+		if fn.HasKwargs() {
+			varargsSlot--
+		}
+	}
+	for slot, ty := range fn.ptypes {
+		if ty == nil {
+			continue
+		}
+		name := fn.funcode.Locals[slot].Name
+		switch slot {
+		case varargsSlot:
+			for _, v := range locals[slot].(Tuple) {
+				if !ty.Matches(v) {
+					return mismatch(v, ty, name)
+				}
+			}
+		case kwargsSlot:
+			for _, item := range locals[slot].(*Dict).Items() {
+				if !ty.Matches(item[1]) {
+					return mismatch(item[1], ty, name)
+				}
+			}
+		default:
+			if v := locals[slot]; !ty.Matches(v) {
+				return mismatch(v, ty, name)
+			}
+		}
+	}
+	return nil
+}
+
 func setArgs(locals []Value, fn *Function, args Tuple, kwargs []Tuple) error {
 	// This is the general schema of a function:
 	//

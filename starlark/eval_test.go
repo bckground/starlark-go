@@ -22,6 +22,7 @@ import (
 	starlarkmath "go.starlark.net/lib/math"
 	starlarkproto "go.starlark.net/lib/proto"
 	"go.starlark.net/lib/time"
+	"go.starlark.net/lib/typing"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/starlarktest"
@@ -42,7 +43,19 @@ func getOptions(src string) *syntax.FileOptions {
 		LoadBindsGlobally: option(src, "loadbindsglobally"),
 		LoadModuleBinding: option(src, "loadmodulebinding"),
 		Recursion:         option(src, "recursion"),
+		Types:             typesOption(src),
 	}
+}
+
+func typesOption(src string) syntax.TypesMode {
+	// Order matters: "option:types" is a substring of "option:typesparseonly".
+	if option(src, "typesparseonly") {
+		return syntax.TypesParseOnly
+	}
+	if option(src, "types") {
+		return syntax.TypesEnabled
+	}
+	return syntax.TypesDisabled
 }
 
 func option(chunk, name string) bool {
@@ -173,6 +186,8 @@ func TestExecFile(t *testing.T) {
 		"testdata/try_catch_basic.star",
 		"testdata/try_propagate.star",
 		"testdata/tuple.star",
+		"testdata/types.star",
+		"testdata/types_parseonly.star",
 		"testdata/while.star",
 	} {
 		filename := filepath.Join(testdata, file)
@@ -241,6 +256,9 @@ func load(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 	}
 	if module == "math.star" {
 		return starlark.StringDict{"math": starlarkmath.Module}, nil
+	}
+	if module == "typing.star" {
+		return starlark.StringDict{"typing": typing.Module}, nil
 	}
 	if module == "proto.star" {
 		return starlark.StringDict{"proto": starlarkproto.Module}, nil
