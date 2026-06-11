@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"go.starlark.net/internal/compile"
 	"go.starlark.net/internal/spell"
@@ -649,6 +650,21 @@ loop:
 				break loop
 			}
 
+		case compile.TYPEFETCH:
+			// Push the cached value of a constant type expression,
+			// or False if this slot has not been evaluated yet.
+			var v Value = False
+			if c := fn.typecaches[arg].Load(); c != nil {
+				v = c.(Value)
+			}
+			stack[sp] = v
+			sp++
+
+		case compile.TYPESTORE:
+			// Cache the value of a constant type expression,
+			// leaving it on the stack.
+			fn.typecaches[arg].Store(stack[sp-1])
+
 		case compile.SETINDEX:
 			z := stack[sp-1]
 			y := stack[sp-2]
@@ -799,6 +815,9 @@ loop:
 				module:   fn.module,
 				defaults: defaults,
 				freevars: freevars,
+			}
+			if n := funcode.NumTypeCaches; n > 0 {
+				nf.typecaches = make([]atomic.Value, n)
 			}
 			if len(funcode.TypeParams) > 0 {
 				nf.ptypes = make([]*Type, funcode.NumParams)

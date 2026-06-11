@@ -50,6 +50,7 @@ package compile
 //	numtypeparams	varint
 //	typeparams	[]varint
 //	hasreturntype	varint (0 or 1)
+//	numtypecaches	varint
 //
 // Ident:
 //	filename	string
@@ -216,6 +217,7 @@ func (e *encoder) function(fn *Funcode) {
 		e.int(index)
 	}
 	e.int(b2i(fn.HasReturnType))
+	e.int(fn.NumTypeCaches)
 }
 
 func b2i(b bool) int {
@@ -401,6 +403,7 @@ func (d *decoder) function() *Funcode {
 	canReturnError := d.int() != 0
 	typeParams := d.ints()
 	hasReturnType := d.int() != 0
+	numTypeCaches := d.int()
 	if len(typeParams) == 0 {
 		typeParams = nil
 	}
@@ -423,5 +426,6 @@ func (d *decoder) function() *Funcode {
 		CanReturnError:    canReturnError,
 		TypeParams:        typeParams,
 		HasReturnType:     hasReturnType,
+		NumTypeCaches:     numTypeCaches,
 	}
 }

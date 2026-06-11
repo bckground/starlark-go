@@ -619,7 +619,7 @@ func makeToplevelFunction(prog *Program, predeclared StringDict) *Function {
 		constants[i] = v
 	}
 
-	return &Function{
+	toplevel := &Function{
 		funcode: prog.compiled.Toplevel,
 		module: &Module{
 			program:     prog,
@@ -628,6 +628,10 @@ func makeToplevelFunction(prog *Program, predeclared StringDict) *Function {
 			constants:   constants,
 		},
 	}
+	if n := prog.compiled.Toplevel.NumTypeCaches; n > 0 {
+		toplevel.typecaches = make([]atomic.Value, n)
+	}
+	return toplevel
 }
 
 // Eval calls [EvalOptions] using [syntax.LegacyFileOptions].

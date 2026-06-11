@@ -153,9 +153,11 @@ const (
 	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingErrorValue, jump to handler]
 	RECOVER     //             value RECOVER<addr>     -          [clear pendingErrorValue, set result, jump to done]
 	TYPECHECK   //        value type TYPECHECK<name>   value      [fail unless value matches type; name is the target, for error messages]
+	TYPEFETCH   //                 - TYPEFETCH<cache>  value      [push the cached type value of slot <cache>, or False if empty]
+	TYPESTORE   //             value TYPESTORE<cache>  value      [store the type value in cache slot <cache>, keeping it on the stack]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = TYPECHECK
+	OpcodeMax    = TYPESTORE
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -232,6 +234,8 @@ var opcodeNames = [...]string{
 	LOAD_ERROR:   "load_error",
 	RECOVER:      "recover",
 	TYPECHECK:    "typecheck",
+	TYPEFETCH:    "typefetch",
+	TYPESTORE:    "typestore",
 	UMINUS:       "uminus",
 	UNIVERSAL:    "universal",
 	UNPACK:       "unpack",
@@ -313,6 +317,8 @@ var stackEffect = [...]int8{
 	CATCH_BLOCK_ERROR: 0,
 	RECOVER:           0,
 	TYPECHECK:         -1,
+	TYPEFETCH:         +1,
+	TYPESTORE:         0,
 	UMINUS:            0,
 	UNIVERSAL:         +1,
 	UNPACK:            variableStackEffect,
@@ -320,7 +326,7 @@ var stackEffect = [...]int8{
 }
 
 func (op Opcode) String() string {
-	if op < OpcodeMax {
+	if op <= OpcodeMax {
 		if name := opcodeNames[op]; name != "" {
 			return name
 		}
@@ -371,6 +377,7 @@ type Funcode struct {
 	CanReturnError        bool  // true if function is marked with !
 	TypeParams            []int // local indices of parameters with type annotations, in MAKEFUNC tuple order
 	HasReturnType         bool  // function has a return type annotation
+	NumTypeCaches         int   // number of annotation cache slots (TYPEFETCH/TYPESTORE)
 
 	// -- transient state --
 
@@ -1142,10 +1149,38 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 			if stmt.Type != nil && fcomp.pcomp.typesEnabled {
 				// Evaluate the type and check the value against it.
 				// The type expression is evaluated each time the
-				// statement executes, like in starlark-rust.
-				fcomp.expr(stmt.Type)
-				fcomp.setPos(stmt.TypePos)
-				fcomp.emit1(TYPECHECK, fcomp.pcomp.nameIndex(targetName(stmt.LHS)))
+				// statement executes, like in starlark-rust — except
+				// that an expression certain to evaluate to the same
+				// value every time is evaluated once per function
+				// value and cached.
+				name := fcomp.pcomp.nameIndex(targetName(stmt.LHS))
+				if constTypeExpr(stmt.Type) {
+					slot := uint32(fcomp.fn.NumTypeCaches)
+					fcomp.fn.NumTypeCaches++
+
+					check := fcomp.newBlock()
+					eval := fcomp.newBlock()
+
+					fcomp.setPos(stmt.TypePos)
+					fcomp.emit1(TYPEFETCH, slot)
+					fcomp.emit(DUP)
+					fcomp.condjump(CJMP, check, eval)
+
+					fcomp.block = eval
+					fcomp.emit(POP) // the False placeholder
+					fcomp.expr(stmt.Type)
+					fcomp.setPos(stmt.TypePos)
+					fcomp.emit1(TYPESTORE, slot)
+					fcomp.jump(check)
+
+					fcomp.block = check
+					fcomp.setPos(stmt.TypePos)
+					fcomp.emit1(TYPECHECK, name)
+				} else {
+					fcomp.expr(stmt.Type)
+					fcomp.setPos(stmt.TypePos)
+					fcomp.emit1(TYPECHECK, name)
+				}
 			}
 			fcomp.assign(stmt.OpPos, stmt.LHS)
 
@@ -2001,6 +2036,49 @@ func targetName(e syntax.Expr) string {
 		return targetName(e.X) + "[...]"
 	}
 	return "?"
+}
+
+// constTypeExpr reports whether a type-annotation expression is
+// certain to evaluate to the same value on every execution: every
+// name in it must resolve to a universal or predeclared binding,
+// neither of which can be assigned during execution. The restricted
+// type-expression grammar guarantees the absence of side effects, and
+// predeclared values used in annotations are assumed constant (as in
+// starlark-rust, which compiles every annotation exactly once).
+//
+// The TYPECHECK code generated for such an expression evaluates it
+// once per function value and caches the result (TYPEFETCH/TYPESTORE).
+func constTypeExpr(e syntax.Expr) bool {
+	switch e := e.(type) {
+	case *syntax.Ident:
+		b, _ := e.Binding.(*resolve.Binding)
+		return b != nil && (b.Scope == resolve.Universal || b.Scope == resolve.Predeclared)
+	case *syntax.ParenExpr:
+		return constTypeExpr(e.X)
+	case *syntax.DotExpr:
+		return constTypeExpr(e.X) // selection from a constant path
+	case *syntax.IndexExpr:
+		return constTypeExpr(e.X) && constTypeExpr(e.Y)
+	case *syntax.TupleExpr:
+		for _, x := range e.List {
+			if !constTypeExpr(x) {
+				return false
+			}
+		}
+		return true
+	case *syntax.ListExpr:
+		for _, x := range e.List {
+			if !constTypeExpr(x) {
+				return false
+			}
+		}
+		return true
+	case *syntax.BinaryExpr:
+		return e.Op == syntax.PIPE && constTypeExpr(e.X) && constTypeExpr(e.Y)
+	case *syntax.EllipsisExpr:
+		return true
+	}
+	return false
 }
 
 // unwrapParam reduces a parameter to its legacy shape: inner is an

@@ -78,6 +78,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"go.starlark.net/internal/compile"
@@ -735,6 +736,13 @@ type Function struct {
 	freevars Tuple
 	ptypes   []*Type // parameter types indexed by local slot; nil if no annotations
 	rtype    *Type   // return type, or nil
+
+	// typecaches holds the values of constant annotated-assignment
+	// type expressions, each evaluated once per Function on first
+	// execution (TYPEFETCH/TYPESTORE). Atomic: a frozen Function may
+	// be called concurrently; concurrent first executions of a slot
+	// store equal values, so either store may win.
+	typecaches []atomic.Value
 }
 
 // A Module represents an evaluated Starlark module.

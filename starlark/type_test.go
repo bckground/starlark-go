@@ -285,11 +285,16 @@ def posonly(x, /, y):
 		t.Errorf("may_fail.CanReturnError() = false after roundtrip, want true")
 	}
 
+	// Called twice: the first call populates the annotation cache of
+	// the constant type expression in run's annotated assignment
+	// (NumTypeCaches must survive the round trip), the second hits it.
 	run := globals["run"].(*Function)
-	if v, err := Call(thread, run, nil, nil); err != nil {
-		t.Errorf("run(): %v", err)
-	} else if v != MakeInt(6) {
-		t.Errorf("run() = %v", v)
+	for i := range 2 {
+		if v, err := Call(thread, run, nil, nil); err != nil {
+			t.Errorf("run() #%d: %v", i+1, err)
+		} else if v != MakeInt(6) {
+			t.Errorf("run() #%d = %v", i+1, v)
+		}
 	}
 
 	// Positional-only markers survive the round trip.

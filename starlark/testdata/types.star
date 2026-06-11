@@ -324,3 +324,75 @@ def f():
     return int
 
 assert.eq(f(), "shadowed")
+
+---
+# annotated assignments in loops: constant type expressions are cached
+# per function value (TYPEFETCH/TYPESTORE); the behavior must be
+# indistinguishable from re-evaluation
+# option:types
+
+load("assert.star", "assert")
+
+def cached_ok():
+    r = []
+    for i in range(3):
+        x: int = i
+        xs: list[int] = [i]
+        u: int | None = i if i % 2 == 0 else None
+        t: tuple[int, str] = (i, "a")
+        r.append(x)
+    return r
+
+assert.eq(cached_ok(), [0, 1, 2])
+
+# repeated calls reuse the same function value (and its cache)
+def cached_call(v) -> int:
+    y: str | None = v
+    return 0
+
+assert.eq(cached_call("s"), 0)
+assert.eq(cached_call(None), 0)
+assert.fails(lambda: cached_call(1), "does not match the type annotation `str \\| None` for assignment `y`")
+
+# a mismatch on a later iteration is still detected
+def cached_fail():
+    for v in [1, 2, "boom"]:
+        x: int = v
+
+assert.fails(cached_fail, "Value `\"boom\"` of type `string` does not match the type annotation `int` for assignment `x`")
+
+# non-constant type expressions (here: a local alias) are re-evaluated
+# on every execution, so rebinding the alias takes effect
+def local_alias():
+    T = int
+    x: T = 1
+    T = str
+    x: T = "a"
+    return x
+
+assert.eq(local_alias(), "a")
+
+def local_alias_fail():
+    T = int
+    x: T = 1
+    T = str
+    x: T = 2  # T is now str
+
+assert.fails(local_alias_fail, "does not match the type annotation `str` for assignment `x`")
+
+# closures created in a loop each get their own cache
+def make_checkers():
+    fns = []
+    for i in range(2):
+        def check(v) -> bool:
+            y: int = v
+            return True
+        fns.append(check)
+    return fns
+
+def check_closures():
+    for f in make_checkers():
+        assert.true(f(1))
+        assert.fails(lambda: f("a"), "does not match the type annotation `int` for assignment `y`")
+
+check_closures()
