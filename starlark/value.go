@@ -858,6 +858,19 @@ func (fn *Function) FreeVar(i int) (Binding, Value) {
 	return Binding(fn.funcode.FreeVars[i]), fn.freevars[i].(*cell).v
 }
 
+// Exportable is implemented by values that are notified of the name
+// of the module-level variable to which they are assigned, like
+// starlark-rust's export_as mechanism. It allows otherwise anonymous
+// values such as record and enum types to take on meaningful names
+// for display and error messages.
+//
+// ExportAs is called each time the value is assigned to a module
+// global; implementations should typically honor only the first call.
+type Exportable interface {
+	Value
+	ExportAs(name string)
+}
+
 // A Builtin is a function implemented in Go.
 type Builtin struct {
 	name           string

@@ -869,7 +869,11 @@ loop:
 			sp--
 
 		case compile.SETGLOBAL:
-			fn.module.globals[arg] = stack[sp-1]
+			v := stack[sp-1]
+			if e, ok := v.(Exportable); ok {
+				e.ExportAs(f.Prog.Globals[arg].Name)
+			}
+			fn.module.globals[arg] = v
 			sp--
 
 		case compile.LOCAL:
