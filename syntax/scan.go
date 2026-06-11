@@ -79,6 +79,8 @@ const (
 	GTGT_EQ       // >>=
 	STARSTAR      // **
 	EXCLAIM       // !
+	ARROW         // ->
+	ELLIPSIS      // ...
 
 	// Keywords
 	AND
@@ -131,7 +133,7 @@ func (tok Token) String() string { return tokenNames[tok] }
 // GoString is like String but quotes punctuation tokens.
 // Use Sprintf("%#v", tok) when constructing error messages.
 func (tok Token) GoString() string {
-	if tok >= PLUS && tok <= STARSTAR {
+	if tok >= PLUS && tok <= STARSTAR || tok == ARROW || tok == ELLIPSIS {
 		return "'" + tokenNames[tok] + "'"
 	}
 	return tokenNames[tok]
@@ -189,6 +191,8 @@ var tokenNames = [...]string{
 	GTGT_EQ:       ">>=",
 	STARSTAR:      "**",
 	EXCLAIM:       "!",
+	ARROW:         "->",
+	ELLIPSIS:      "...",
 	AND:           "and",
 	BREAK:         "break",
 	CATCH:         "catch",
@@ -819,6 +823,10 @@ start:
 		case '+':
 			return PLUS
 		case '-':
+			if sc.peekRune() == '>' {
+				sc.readRune()
+				return ARROW
+			}
 			return MINUS
 		case '/':
 			if sc.peekRune() == '/' {
@@ -967,9 +975,18 @@ func (sc *scanner) scanNumber(val *tokenValue, c rune) Token {
 	fraction, exponent := false, false
 
 	if c == '.' {
-		// dot or start of fraction
+		// dot, ellipsis, or start of fraction
 		sc.readRune()
 		c = sc.peekRune()
+		if c == '.' {
+			sc.readRune()
+			if sc.peekRune() != '.' {
+				sc.error(start, "invalid token '..'")
+			}
+			sc.readRune()
+			sc.endToken(val)
+			return ELLIPSIS
+		}
 		if !isdigit(c) {
 			sc.endToken(val)
 			return DOT

@@ -6,11 +6,22 @@ File = {Statement | newline} eof .
 
 Statement = DefStmt | IfStmt | ForStmt | WhileStmt | SimpleStmt .
 
-DefStmt = 'def' identifier '(' [Parameters [',']] ')' ':' Suite .
+DefStmt = 'def' identifier '(' [Parameters [',']] ')' ['!'] ['->' TypeExpr] ':' Suite .
 
 Parameters = Parameter {',' Parameter}.
 
-Parameter = identifier | identifier '=' Test | '*' | '*' identifier | '**' identifier .
+Parameter = identifier [':' TypeExpr] ['=' Test]
+          | '*'
+          | '*' identifier [':' TypeExpr]
+          | '**' identifier [':' TypeExpr]
+          .
+# NOTE: type annotations (':' TypeExpr, '->' TypeExpr) require
+# FileOptions.Types and are not permitted in lambda parameters.
+
+# TypeExpr is syntactically a Test restricted to: identifier paths
+# (a.b.c), parameterization (path '[' ... ']'), tuples, unions
+# (TypeExpr '|' TypeExpr), '...', and (as an index argument) lists.
+TypeExpr = Test .
 
 IfStmt = 'if' Test ':' Suite {'elif' Test ':' Suite} ['else' ':' Suite] .
 
@@ -36,7 +47,8 @@ BreakStmt    = 'break' .
 ContinueStmt = 'continue' .
 PassStmt     = 'pass' .
 DeferStmt    = 'defer' CallExpr .
-AssignStmt   = Expression ('=' | '+=' | '-=' | '*=' | '/=' | '//=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=') Expression .
+AssignStmt   = Expression ('=' | '+=' | '-=' | '*=' | '/=' | '//=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=') Expression
+             | Expression ':' TypeExpr '=' Expression .
 ExprStmt     = Expression .
 
 LoadStmt = 'load' '(' string {',' [identifier '='] string} [','] ')' .

@@ -283,6 +283,17 @@ pass`, "pass newline pass EOF"}, // consecutive newlines are consolidated
 		{"0or", "foo.star:1:3: invalid octal literal"},
 		{"6in", "6 in EOF"},
 		{"6or", "6 or EOF"},
+		// type annotation tokens
+		{"->", "-> EOF"},
+		{"- >", "- > EOF"},
+		{"-> ->", "-> -> EOF"},
+		{"x -=1", "x -= 1 EOF"},
+		{"...", "... EOF"},
+		{"tuple[int, ...]", "tuple [ int , ... ] EOF"},
+		{"....", "... . EOF"},
+		{"..", "foo.star:1:1: invalid token '..'"},
+		{". .", ". . EOF"},
+		{"1...2", "foo.star:1:3: invalid token '..'"}, // float "1." followed by ".."
 	} {
 		got, err := scan(test.input)
 		if err != nil {

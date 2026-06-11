@@ -107,12 +107,15 @@ func (*ReturnStmt) stmt()   {}
 //	x = 0
 //	x, y = y, x
 //	x += 1
+//	x: int = 0
 type AssignStmt struct {
 	commentsRef
-	OpPos Position
-	Op    Token // = EQ | {PLUS,MINUS,STAR,PERCENT}_EQ
-	LHS   Expr
-	RHS   Expr
+	OpPos   Position
+	Op      Token // = EQ | {PLUS,MINUS,STAR,PERCENT}_EQ
+	LHS     Expr
+	TypePos Position // position of ':' if annotated (Op==EQ only)
+	Type    Expr     // optional type annotation; nil if absent
+	RHS     Expr
 }
 
 func (x *AssignStmt) Span() (start, end Position) {
@@ -127,9 +130,11 @@ type DefStmt struct {
 	Def     Position
 	Name    *Ident
 	Lparen  Position
-	Params  []Expr // param = ident | ident=expr | * | *ident | **ident
+	Params  []Expr // param = ident | ident=expr | * | *ident | **ident | TypedParam
 	Rparen  Position
 	Exclaim Position // position of '!' if function can return errors (invalid if not error-returning)
+	Arrow   Position // position of '->' if Return != nil
+	Return  Expr     // optional return type annotation
 	Body    []Stmt
 
 	Function any // a *resolve.Function, set by resolver
@@ -272,6 +277,7 @@ func (*CondExpr) expr()      {}
 func (*DictEntry) expr()     {}
 func (*DictExpr) expr()      {}
 func (*DotExpr) expr()       {}
+func (*EllipsisExpr) expr()  {}
 func (*Ident) expr()         {}
 func (*IndexExpr) expr()     {}
 func (*LambdaExpr) expr()    {}
@@ -281,6 +287,7 @@ func (*ParenExpr) expr()     {}
 func (*SliceExpr) expr()     {}
 func (*TryExpr) expr()       {}
 func (*TupleExpr) expr()     {}
+func (*TypedParam) expr()    {}
 func (*UnaryExpr) expr()     {}
 
 // An Ident represents an identifier.
@@ -522,6 +529,45 @@ func (x *UnaryExpr) Span() (start, end Position) {
 		end = x.OpPos.add("*")
 	}
 	return x.OpPos, end
+}
+
+// A TypedParam is a function parameter with a type annotation:
+//
+//	x: T   |   x: T = default   |   *args: T   |   **kwargs: T
+//
+// It appears only within DefStmt.Params, and only when
+// FileOptions.Types is not TypesDisabled. X is an *Ident or a
+// *UnaryExpr with Op STAR or STARSTAR. For *args, Type is the
+// element type of the tuple; for **kwargs, the value type of the
+// dict. Default is non-nil only when X is an *Ident.
+type TypedParam struct {
+	commentsRef
+	X       Expr // *Ident or *UnaryExpr{Op: STAR|STARSTAR}
+	Colon   Position
+	Type    Expr     // type annotation (restricted grammar, validated by parser)
+	EqPos   Position // position of '=' if Default != nil
+	Default Expr     // optional default value
+}
+
+func (x *TypedParam) Span() (start, end Position) {
+	start, _ = x.X.Span()
+	if x.Default != nil {
+		_, end = x.Default.Span()
+	} else {
+		_, end = x.Type.Span()
+	}
+	return start, end
+}
+
+// An EllipsisExpr represents the token `...`, permitted only within
+// type expressions (e.g. tuple[int, ...]).
+type EllipsisExpr struct {
+	commentsRef
+	Ellipsis Position
+}
+
+func (x *EllipsisExpr) Span() (start, end Position) {
+	return x.Ellipsis, x.Ellipsis.add("...")
 }
 
 // A TryExpr represents try <expr> which propagates errors up.
