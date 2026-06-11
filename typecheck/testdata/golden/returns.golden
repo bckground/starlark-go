@@ -1,0 +1,4 @@
+returns.star:4:12: Expected type `str` but got `int`
+returns.star:7:5: Expected type `int` but got `None`
+returns.star:9:16: Expected type `int` but got `str`
+returns.star:10:14: Expected type `str` but got `int`

@@ -1,0 +1,2 @@
+callables.star:16:11: Expected type `typing.Callable` but got `def bad_param`
+callables.star:17:11: Expected type `typing.Callable` but got `def bad_result`

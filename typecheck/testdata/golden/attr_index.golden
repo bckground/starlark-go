@@ -1,0 +1,4 @@
+attr_index.star:4:7: Object of type `list[int]` has no attribute `frobnicate`
+attr_index.star:6:6: Type `dict[str, int]` does not have [] operator on `int`
+attr_index.star:7:6: Type `int` does not have [] operator on `int`
+attr_index.star:8:14: Type `int` is not iterable
