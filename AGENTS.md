@@ -117,6 +117,45 @@ Optional interfaces add capabilities: `Callable`, `Iterable`, `Indexable`, `Mapp
 1. Collect all bindings and uses
 2. Match uses to bindings, compute closures
 
+## Type Annotations Extension
+
+This implementation includes optional static typing, a port of starlark-rust's
+type annotation system (see TYPES.md for the full description):
+
+- **Syntax**: `def f(x: int, *args: str, **kwargs: int)! -> list[int]:`,
+  `x: int = 5`. With this fork's `!` error marker, `!` comes first, then `->`;
+  the return annotation describes the success value (error returns skip the
+  check). Lambdas cannot be annotated. Type expressions are a restricted
+  grammar (paths, `T[...]`, unions with `|`, tuples, `...`); string literals
+  are banned.
+- **Gating**: `syntax.FileOptions.Types` is one of `TypesDisabled` (default,
+  parse error), `TypesParseOnly`, `TypesEnabled`. Tests: `# option:types` /
+  `# option:typesparseonly`. CLI: `starlark -types=on`, `-typecheck`.
+- **Runtime semantics**: annotations are ordinary expressions evaluated at
+  `def` time in the enclosing scope (like defaults, carried in the MAKEFUNC
+  tuple), converted via `starlark.TypeOf` into `*starlark.Type` matchers.
+  Arguments are checked after `setArgs`, returns in the RETURN opcode,
+  annotated assignments via the TYPECHECK opcode. Mismatches are uncatchable
+  failures (like `fail()`), not recoverable errors. Container matching is
+  deep. `list[int]`, `int | None` are first-class type values; `isinstance`
+  and `eval_type` are universal builtins; `lib/typing` provides
+  `typing.Any/Never/Callable/Iterable`.
+- **Extensibility**: Go types implement `starlark.TypeMatcher` or
+  `starlark.TypeName` to act as annotations; `starlark.Exportable` values
+  learn the name of the global they're first assigned to.
+- **record/enum**: opt-in packages `starlarkrecord` (record/field) and
+  `starlarkenum` (enum), per starlark-rust's library extensions.
+- **Static typechecker**: optional `typecheck` package
+  (`typecheck.Check(file, env, loads)`) performs fixpoint inference over the
+  resolved AST with intersection-based compatibility, deliberately lenient
+  (unknowns become Any plus an Approximation). Its annotation interpretation
+  must agree with the runtime's (`TestAnnotationAgreement` pins this); the
+  universe signature table in `typecheck/universe.go` must be kept in sync
+  with `starlark/library.go`.
+- **Tests**: `starlark/testdata/types.star`, `types_parseonly.star`,
+  parser/resolver/serialization tests, `typecheck` package tests (including a
+  no-crash corpus sweep over all testdata).
+
 ## Zig-Style Error Handling Extension
 
 This implementation includes a Zig-inspired error handling system that extends standard Starlark with explicit error propagation and handling constructs.
