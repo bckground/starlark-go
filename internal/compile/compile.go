@@ -46,7 +46,7 @@ var Disassemble = false
 const debug = false // make code generation verbose, for debugging the compiler
 
 // Increment this to force recompilation of saved bytecode files.
-const Version = 14
+const Version = 15
 
 type Opcode uint8
 
@@ -152,9 +152,10 @@ const (
 	ERRDEFER    // fn positional named                ERRDEFER<n>    -           [deferred call on error only]
 	CATCH_CHECK //                 - CATCH_CHECK<addr> -          [if pendingErrorValue, jump to handler]
 	RECOVER     //             value RECOVER<addr>     -          [clear pendingErrorValue, set result, jump to done]
+	TYPECHECK   //        value type TYPECHECK<name>   value      [fail unless value matches type; name is the target, for error messages]
 
 	OpcodeArgMin = JMP
-	OpcodeMax    = RECOVER
+	OpcodeMax    = TYPECHECK
 )
 
 // TODO(adonovan): add dynamic checks for missing opcodes in the tables below.
@@ -230,6 +231,7 @@ var opcodeNames = [...]string{
 	CATCH_CHECK:  "catch_check",
 	LOAD_ERROR:   "load_error",
 	RECOVER:      "recover",
+	TYPECHECK:    "typecheck",
 	UMINUS:       "uminus",
 	UNIVERSAL:    "universal",
 	UNPACK:       "unpack",
@@ -310,6 +312,7 @@ var stackEffect = [...]int8{
 	LOAD_ERROR:        +1,
 	CATCH_BLOCK_ERROR: 0,
 	RECOVER:           0,
+	TYPECHECK:         -1,
 	UMINUS:            0,
 	UNIVERSAL:         +1,
 	UNPACK:            variableStackEffect,
@@ -332,7 +335,7 @@ func (op Opcode) String() string {
 type Program struct {
 	Loads     []Binding // name (really, string) and position of each load stmt
 	Names     []string  // names of attributes and predeclared variables
-	Constants []any     // = string | int64 | float64 | *big.Int | Bytes
+	Constants []any     // = string | int64 | float64 | *big.Int | Bytes | EllipsisConst
 	Functions []*Funcode
 	Globals   []Binding // for error messages and tracing
 	Toplevel  *Funcode  // module initialization function
@@ -341,6 +344,10 @@ type Program struct {
 
 // The type of a bytes literal value, to distinguish from text string.
 type Bytes string
+
+// EllipsisConst is the constant denoted by the token `...`,
+// which may appear only within type expressions.
+type EllipsisConst struct{}
 
 // A Funcode is the code of a compiled Starlark function.
 //
@@ -360,7 +367,9 @@ type Funcode struct {
 	NumParams             int
 	NumKwonlyParams       int
 	HasVarargs, HasKwargs bool
-	CanReturnError        bool // true if function is marked with !
+	CanReturnError        bool  // true if function is marked with !
+	TypeParams            []int // local indices of parameters with type annotations, in MAKEFUNC tuple order
+	HasReturnType         bool  // function has a return type annotation
 
 	// -- transient state --
 
@@ -386,6 +395,8 @@ type pcomp struct {
 	names     map[string]uint32
 	constants map[any]uint32
 	functions map[*Funcode]uint32
+
+	typesEnabled bool // runtime type checking is enabled (FileOptions.Types == TypesEnabled)
 }
 
 // An fcomp holds the compiler state for a Funcode.
@@ -528,9 +539,10 @@ func File(opts *syntax.FileOptions, stmts []syntax.Stmt, pos syntax.Position, na
 			Globals:   bindings(globals),
 			Recursion: opts.Recursion,
 		},
-		names:     make(map[string]uint32),
-		constants: make(map[any]uint32),
-		functions: make(map[*Funcode]uint32),
+		names:        make(map[string]uint32),
+		constants:    make(map[any]uint32),
+		functions:    make(map[*Funcode]uint32),
+		typesEnabled: opts.Types == syntax.TypesEnabled,
 	}
 	pcomp.prog.Toplevel = pcomp.function(name, pos, stmts, locals, nil, false)
 
@@ -915,7 +927,7 @@ func PrintOp(fn *Funcode, pc uint32, op Opcode, arg uint32) {
 		comment = fn.Locals[arg].Name
 	case SETGLOBAL, GLOBAL:
 		comment = fn.Prog.Globals[arg].Name
-	case ATTR, SETFIELD, PREDECLARED, UNIVERSAL:
+	case ATTR, SETFIELD, PREDECLARED, UNIVERSAL, TYPECHECK:
 		comment = fn.Prog.Names[arg]
 	case FREE:
 		comment = fn.FreeVars[arg].Name
@@ -1124,8 +1136,16 @@ func (fcomp *fcomp) stmt(stmt syntax.Stmt) {
 	case *syntax.AssignStmt:
 		switch stmt.Op {
 		case syntax.EQ:
-			// simple assignment: x = y
+			// simple assignment: x = y, possibly annotated: x: T = y
 			fcomp.expr(stmt.RHS)
+			if stmt.Type != nil && fcomp.pcomp.typesEnabled {
+				// Evaluate the type and check the value against it.
+				// The type expression is evaluated each time the
+				// statement executes, like in starlark-rust.
+				fcomp.expr(stmt.Type)
+				fcomp.setPos(stmt.TypePos)
+				fcomp.emit1(TYPECHECK, fcomp.pcomp.nameIndex(targetName(stmt.LHS)))
+			}
 			fcomp.assign(stmt.OpPos, stmt.LHS)
 
 		case syntax.PLUS_EQ,
@@ -1368,6 +1388,9 @@ func (fcomp *fcomp) expr(e syntax.Expr) {
 			v = Bytes(v.(string))
 		}
 		fcomp.emit1(CONSTANT, fcomp.pcomp.constantIndex(v))
+
+	case *syntax.EllipsisExpr:
+		fcomp.emit1(CONSTANT, fcomp.pcomp.constantIndex(EllipsisConst{}))
 
 	case *syntax.ListExpr:
 		for _, x := range e.List {
@@ -1963,12 +1986,44 @@ func (fcomp *fcomp) comprehension(comp *syntax.Comprehension, clauseIndex int) {
 	log.Panicf("%s: unexpected comprehension clause %T", start, clause)
 }
 
+// targetName renders an assignment target expression as a short name
+// for use in TYPECHECK error messages, e.g. "x", "x.f", "x[...]".
+func targetName(e syntax.Expr) string {
+	switch e := e.(type) {
+	case *syntax.Ident:
+		return e.Name
+	case *syntax.ParenExpr:
+		return targetName(e.X)
+	case *syntax.DotExpr:
+		return targetName(e.X) + "." + e.Name.Name
+	case *syntax.IndexExpr:
+		return targetName(e.X) + "[...]"
+	}
+	return "?"
+}
+
+// unwrapParam reduces a parameter to its legacy shape: inner is an
+// *syntax.Ident (ordinary parameter) or *syntax.UnaryExpr (* | *args |
+// **kwargs), dflt is the default value (nil if none), and typ is the
+// type annotation (nil if none).
+func unwrapParam(param syntax.Expr) (inner syntax.Expr, dflt, typ syntax.Expr) {
+	switch param := param.(type) {
+	case *syntax.Ident, *syntax.UnaryExpr:
+		return param, nil, nil
+	case *syntax.BinaryExpr:
+		return param.X, param.Y, nil
+	case *syntax.TypedParam:
+		return param.X, param.Default, param.Type
+	}
+	panic(param)
+}
+
 func (fcomp *fcomp) function(f *resolve.Function) {
 	// Evaluation of the defaults may fail, so record the position.
 	fcomp.setPos(f.Pos)
 
 	// To reduce allocation, we emit a combined tuple
-	// for the defaults and the freevars.
+	// for the defaults, the type annotations, and the freevars.
 	// The function knows where to split it at run time.
 
 	// Generate tuple of parameter defaults. For:
@@ -1978,18 +2033,74 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 	ndefaults := 0
 	seenStar := false
 	for _, param := range f.Params {
-		switch param := param.(type) {
-		case *syntax.BinaryExpr:
-			fcomp.expr(param.Y)
-			ndefaults++
+		inner, dflt, _ := unwrapParam(param)
+		switch inner.(type) {
 		case *syntax.UnaryExpr:
 			seenStar = true // * or *args (also **kwargs)
 		case *syntax.Ident:
-			if seenStar {
+			if dflt != nil {
+				fcomp.expr(dflt)
+				ndefaults++
+			} else if seenStar {
 				fcomp.emit(MANDATORY)
 				ndefaults++
 			}
 		}
+	}
+
+	// def f(a, *, b=1) has only 2 parameters.
+	numParams := len(f.Params)
+	if f.NumKwonlyParams > 0 && !f.HasVarargs {
+		numParams--
+	}
+
+	// Generate type annotation values, in source order, followed by
+	// the return type. Like defaults, annotations are evaluated in
+	// the enclosing environment when the def statement executes.
+	// typeParams records the local slot of each emitted annotation:
+	// ordinary parameters occupy slots 0..n in source order, with
+	// *args and **kwargs bound last (see resolver).
+	var typeParams []int
+	if f.HasTypes {
+		nOrdinary := numParams
+		if f.HasVarargs {
+			nOrdinary--
+		}
+		if f.HasKwargs {
+			nOrdinary--
+		}
+		ordinal := 0 // next ordinary parameter slot
+		for _, param := range f.Params {
+			typed, ok := param.(*syntax.TypedParam)
+			if !ok {
+				inner, _, _ := unwrapParam(param)
+				if _, ok := inner.(*syntax.Ident); ok {
+					ordinal++
+				}
+				continue
+			}
+			var slot int
+			switch x := typed.X.(type) {
+			case *syntax.Ident:
+				slot = ordinal
+				ordinal++
+			case *syntax.UnaryExpr:
+				if x.Op == syntax.STAR {
+					slot = nOrdinary // *args follows ordinary params
+				} else {
+					slot = numParams - 1 // **kwargs is always last
+				}
+			}
+			fcomp.expr(typed.Type)
+			typeParams = append(typeParams, slot)
+		}
+		if f.ReturnType != nil {
+			fcomp.expr(f.ReturnType)
+		}
+	}
+	ntypes := len(typeParams)
+	if f.HasTypes && f.ReturnType != nil {
+		ntypes++
 	}
 
 	// Capture the cells of the function's
@@ -2005,7 +2116,7 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 		}
 	}
 
-	fcomp.emit1(MAKETUPLE, uint32(ndefaults+len(f.FreeVars)))
+	fcomp.emit1(MAKETUPLE, uint32(ndefaults+ntypes+len(f.FreeVars)))
 
 	funcode := fcomp.pcomp.function(f.Name, f.Pos, f.Body, f.Locals, f.FreeVars, f.CanReturnError)
 
@@ -2016,16 +2127,12 @@ func (fcomp *fcomp) function(f *resolve.Function) {
 		fmt.Fprintf(os.Stderr, "resuming %s @ %s\n", fcomp.fn.Name, fcomp.pos)
 	}
 
-	// def f(a, *, b=1) has only 2 parameters.
-	numParams := len(f.Params)
-	if f.NumKwonlyParams > 0 && !f.HasVarargs {
-		numParams--
-	}
-
 	funcode.NumParams = numParams
 	funcode.NumKwonlyParams = f.NumKwonlyParams
 	funcode.HasVarargs = f.HasVarargs
 	funcode.HasKwargs = f.HasKwargs
+	funcode.TypeParams = typeParams
+	funcode.HasReturnType = f.HasTypes && f.ReturnType != nil
 	fcomp.emit1(MAKEFUNC, fcomp.pcomp.functionIndex(funcode))
 }
 

@@ -45,6 +45,10 @@ package compile
 //	numkwonlyparams	varint
 //	hasvarargs	varint (0 or 1)
 //	haskwargs	varint (0 or 1)
+//	canreturnerror	varint (0 or 1)
+//	numtypeparams	varint
+//	typeparams	[]varint
+//	hasreturntype	varint (0 or 1)
 //
 // Ident:
 //	filename	string
@@ -56,6 +60,7 @@ package compile
 //                                      # 2=int     varint
 //                                      # 3=float   varint (bits as uint64)
 //                                      # 4=bigint  string (decimal ASCII text)
+//                                      # 5=ellipsis (no data)
 //
 // The encoding starts with a four-byte magic number.
 // The next four bytes are a little-endian uint32
@@ -123,6 +128,8 @@ func (prog *Program) Encode() []byte {
 		case *big.Int:
 			e.int(4)
 			e.string(c.Text(10))
+		case EllipsisConst:
+			e.int(5)
 		}
 	}
 	e.bindings(prog.Globals)
@@ -201,6 +208,12 @@ func (e *encoder) function(fn *Funcode) {
 	e.int(fn.NumKwonlyParams)
 	e.int(b2i(fn.HasVarargs))
 	e.int(b2i(fn.HasKwargs))
+	e.int(b2i(fn.CanReturnError))
+	e.int(len(fn.TypeParams))
+	for _, index := range fn.TypeParams {
+		e.int(index)
+	}
+	e.int(b2i(fn.HasReturnType))
 }
 
 func b2i(b bool) int {
@@ -262,6 +275,8 @@ func DecodeProgram(data []byte) (_ *Program, err error) {
 			c = math.Float64frombits(d.uint64())
 		case 4:
 			c, _ = new(big.Int).SetString(d.string(), 10)
+		case 5:
+			c = EllipsisConst{}
 		}
 		constants[i] = c
 	}
@@ -380,6 +395,12 @@ func (d *decoder) function() *Funcode {
 	numKwonlyParams := d.int()
 	hasVarargs := d.int() != 0
 	hasKwargs := d.int() != 0
+	canReturnError := d.int() != 0
+	typeParams := d.ints()
+	hasReturnType := d.int() != 0
+	if len(typeParams) == 0 {
+		typeParams = nil
+	}
 	return &Funcode{
 		// Prog is filled in later.
 		Pos:             id.Pos,
@@ -395,5 +416,8 @@ func (d *decoder) function() *Funcode {
 		NumKwonlyParams: numKwonlyParams,
 		HasVarargs:      hasVarargs,
 		HasKwargs:       hasKwargs,
+		CanReturnError:  canReturnError,
+		TypeParams:      typeParams,
+		HasReturnType:   hasReturnType,
 	}
 }
