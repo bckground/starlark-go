@@ -1,79 +1,78 @@
 # Type Annotations: Possible Follow-ups
 
-Known improvement opportunities deferred from the initial implementation
-of the type annotation system (see TYPES.md). None affect correctness;
-they are performance, precision, or fidelity refinements.
+Known improvement opportunities deferred from the type annotation
+system (see TYPES.md). None affect correctness; they are precision or
+fidelity refinements. Completed items are removed; what remains is the
+work with real design prerequisites, plus deferred items.
 
-## Runtime
+(Done in earlier rounds: per-load typechecking in `cmd/starlark`,
+golden-file test harness, pointless-comparison lint, deep-matching
+cost documentation, argument-aware universe signatures, annotated-
+assignment matcher caching, callable parameter-spec intersection.)
 
-- **Cache annotated-assignment matchers.** `x: T = e` re-evaluates the
-  type expression `T` and re-converts it via `TypeOf` on every
-  execution of the statement (spec-faithful, but slower than
-  starlark-rust, which compiles a `TypeCompiled` once). A pc-keyed
-  matcher cache on the TYPECHECK opcode would make repeated executions
-  (e.g. in loops) near-free. Only safe when the type expression is
-  side-effect-free, which the restricted grammar already guarantees.
+## Ongoing
 
-- **Deep container matching cost.** Checking every element of large
-  lists/dicts on each annotated call is O(n) per parameter (rust pays
-  the same). Consider documenting a depth or size limit, or a
-  per-Thread opt-out, if profiles show hot annotated call paths.
-
-## Static typechecker (`typecheck` package)
-
-- **Broaden the universe signature table.** `typecheck/universe.go`
-  covers the universal builtins and string/list/dict/set methods, but
-  precision can grow indefinitely (e.g. `min`/`max` element types,
-  `sorted` propagating its argument's element type, `zip` arity-aware
-  tuples). Anything missing types as `Any`, so additions are
+- **Broaden the universe signature table.**
+  *Importance: high. Effort: incremental, never "done".*
+  `typecheck/universe.go` covers the universal builtins and
+  string/list/dict/set methods, with argument-aware results for
+  `sorted`, `min`/`max`, `zip`, `enumerate`, `list`/`set`/`tuple`/
+  `dict`, `abs`, `reversed`, and `dict.get`/`pop`/`setdefault`.
+  Precision can still grow (e.g. `int()` result narrowing, `str.format`
+  argument checking). Anything missing types as `Any`, so additions are
   precision-only. Keep the sync test with `starlark/library.go` green.
 
-- **Callable parameter-spec intersection.** Two callables currently
-  always intersect; rust's `params_intersect` compares signatures.
-  Needed only for checking higher-order annotations like
-  `typing.Callable[[int], str]` against actual function signatures.
+## Big rocks (high value, real design work; do in this order)
 
-- **Lambda bodies.** Lambdas type as `AnyCallable` and are not
-  descended into (rust parity). Inferring lambda parameter/result types
-  from context would catch more errors.
+- **Module-level partial evaluation.**
+  *Importance: high — the keystone of this tier. Effort: high.*
+  Alias detection (`IntList = list[int]`) is name-based and
+  module-level only. rust's `fill_types_for_lint` partially evaluates
+  module globals, supporting e.g. aliases under conditionals and typed
+  `record(...)` constructors as annotation values. Related: aliases
+  defined inside functions are not visible to annotations in nested
+  defs. Prerequisite for the two items below. Constraint: degrade to
+  `Any` when unsure — never reject a program that runs.
 
-- **Module-level partial evaluation.** Alias detection
-  (`IntList = list[int]`) is name-based and module-level only. rust's
-  `fill_types_for_lint` partially evaluates module globals, supporting
-  e.g. aliases under conditionals and typed `record(...)` constructors
-  as annotation values. Related: aliases defined inside functions are
-  not visible to annotations in nested defs.
+- **record/enum awareness.**
+  *Importance: high. Effort: high (blocked on partial evaluation +
+  a `CustomTy` API decision).*
+  The static checker types `record(...)` and `enum(...)` results as
+  `Any`. A `CustomTy`-style extension (mirroring rust's `TyUser`) would
+  let record fields and enum elements typecheck statically, and could
+  also cover `starlarkstruct`, `lib/time`, and `lib/json` values.
+  Clean shape: `typecheck` defines the interface;
+  `starlarkrecord`/`starlarkenum` implement it; the module-level pass
+  recognizes the constructors.
 
-- **record/enum awareness.** The static checker types `record(...)` and
-  `enum(...)` results as `Any`. A `CustomTy`-style extension (mirroring
-  rust's `TyUser`) would let record fields and enum elements typecheck
-  statically, and could also cover `starlarkstruct`, `lib/time`, and
-  `lib/json` values.
+- **Error-value typing.**
+  *Importance: medium. Effort: low once the above exists.*
+  The fork's `error` values type as an opaque prim with `Any`
+  attributes. Modeling `error_tags(...)` results as a struct-like type
+  with known tag members would catch typos like `errors.NotFonud`
+  statically. Falls out of the same `CustomTy` + partial-evaluation
+  machinery as record/enum.
 
-- **Golden-file test harness.** The current tests are table-driven in
-  Go. A `testdata/golden/*.golden` harness with an `-update` flag
-  (mirroring rust's `typing/tests/golden`) would make transliterating
-  more of rust's golden corpus cheaper and diffs reviewable.
+## Deferred
 
-- **Pointless-comparison lint.** `x == y` on certainly-disjoint types
-  currently passes (returns `bool`); rust reports it. Low-risk lint to
-  add in `binaryType` for EQL/NEQ.
+- **REPL support for `-typecheck`.**
+  *Importance: low. Effort: medium.*
+  The flag only applies to file execution; the REPL path runs without
+  static checking. Mechanically easy, but checking line-by-line means
+  threading accumulated global types across REPL inputs — an
+  incremental-Check entry point the checker wasn't designed for.
 
-- **Error-value typing.** The fork's `error` values type as an opaque
-  prim with `Any` attributes. Modeling `error_tags(...)` results as a
-  struct-like type with known tag members would catch typos like
-  `errors.NotFonud` statically.
+- **Lambda bodies.**
+  *Importance: low. Effort: high.*
+  Lambdas type as `AnyCallable` and are not descended into (rust
+  parity). Inferring lambda parameter/result types from context would
+  catch more errors, but rust deliberately doesn't do this — there is
+  no spec to port, and contextual typing carries real false-positive
+  risk. Revisit if/when rust does it.
 
-## Tooling
-
-- **REPL support for `-typecheck`.** The flag only applies to file
-  execution; the REPL path runs without static checking.
-
-- **Per-load typechecking in `cmd/starlark`.** `-typecheck` passes
-  `loads: nil`, so symbols from `load()` type as `Any`. Wiring the
-  load callback to recursively `Check` dependencies and feed their
-  `Interface`s would extend checking across modules.
-
-- **LSP/editor integration.** `Result.Types.Lookup(ident)` exposes
-  per-binding inferred types; a language-server hover/diagnostics
-  integration is a natural consumer.
+- **LSP/editor integration.**
+  *Importance: high long-term. Effort: very high — a separate project.*
+  `Result.Types.Lookup(ident)` exposes per-binding inferred types; a
+  language-server hover/diagnostics integration is a natural consumer.
+  Everything needed (positions, per-ident types) already exists; the
+  work is the server itself, which doesn't belong in this repo.

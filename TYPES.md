@@ -16,8 +16,11 @@ starlark-rust's `DialectTypes`:
 | `syntax.TypesEnabled` | annotations parse, are validated, and are checked at runtime |
 
 The `starlark` command exposes this as `-types=off|parse|on`, plus
-`-typecheck` to run the static checker before execution. Test files
-use `# option:types` / `# option:typesparseonly`.
+`-typecheck` to run the static checker before execution. `-typecheck`
+follows `load()` statements, checking each dependency once and feeding
+its inferred module interface to its dependents, so cross-module calls
+are checked precisely. Test files use `# option:types` /
+`# option:typesparseonly`.
 
 ## Syntax
 
@@ -72,6 +75,17 @@ defaults), then compiled into matchers stored on the function value.
 In this fork, type mismatches are **failures** (like `fail()`), not
 recoverable errors: `try`/`catch` cannot intercept them. They indicate
 programmer errors.
+
+**Performance.** Container matching is deep, so checking an annotated
+parameter costs O(n) in the size of the container passed to it, on
+every call — the same cost starlark-rust pays. There is deliberately
+no depth or size limit (that would diverge from the spec); if profiles
+show hot annotated call paths, remove the annotation or widen it to
+`list` / `typing.Any`. Annotated assignments whose type expression
+names only universal or predeclared values (e.g. `x: list[int] = e`,
+but not a locally-defined alias) evaluate the annotation once per
+function value and cache the matcher, so re-execution in loops is
+cheap.
 
 ## Types as values
 
@@ -138,6 +152,14 @@ annotated assignments. It is deliberately lenient: anything it cannot
 model becomes `typing.Any` plus a recorded `Approximation` — it aims
 never to reject a program that would run. Compatibility is by type
 *intersection*, not subtyping, exactly like starlark-rust.
+
+Like starlark-rust, it reports `==`/`!=` between certainly-disjoint
+types ("pointless comparisons"), and checks function values passed to
+`typing.Callable[[...], R]` annotations against their actual
+signatures (parameter-spec intersection). Builtin results are
+argument-aware where it matters: `sorted(xs)`, `min`/`max`, `zip`,
+`enumerate`, `dict.get` and friends propagate their arguments' element
+types.
 
 Fork-specific constructs are understood: `try e` has the type of `e`;
 `e catch v` is the union of both; a block-form catch unions in its
