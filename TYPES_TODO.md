@@ -14,12 +14,6 @@ they are performance, precision, or fidelity refinements.
   (e.g. in loops) near-free. Only safe when the type expression is
   side-effect-free, which the restricted grammar already guarantees.
 
-- **`float` accepting `int` (numeric coercion).** starlark-rust's
-  runtime `float` matcher accepts ints. This port is strict: an `int`
-  does not match a `float` annotation (one-line change in
-  `starlark/type.go` `nameType.matches`, plus the corresponding rule in
-  `typecheck/oracle.go` `intersects`, if rust parity is preferred).
-
 - **Deep container matching cost.** Checking every element of large
   lists/dicts on each annotated call is O(n) per parameter (rust pays
   the same). Consider documenting a depth or size limit, or a

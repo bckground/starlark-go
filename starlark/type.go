@@ -132,7 +132,7 @@ func (typeType) matches(v Value) bool {
 	return err == nil
 }
 
-// a type matched by name: int, bool, str, float, bytes, range, ...
+// a type matched by name: int, bool, str, bytes, range, ...
 // display is the name used in type expressions (e.g. "str");
 // runtime is the corresponding Value.Type() string (e.g. "string").
 type nameType struct {
@@ -142,6 +142,19 @@ type nameType struct {
 
 func (t nameType) str() string          { return t.display }
 func (t nameType) matches(v Value) bool { return v.Type() == t.runtime }
+
+// float: like starlark-rust, a float annotation also accepts ints
+// (numeric coercion).
+type floatType struct{}
+
+func (floatType) str() string { return "float" }
+func (floatType) matches(v Value) bool {
+	switch v.(type) {
+	case Float, Int:
+		return true
+	}
+	return false
+}
 
 // list or list[T]
 type listType struct {
@@ -408,7 +421,7 @@ func typeOfKind(kind typeKind) *Type {
 	case kindDict:
 		return &Type{dictType{}}
 	case kindFloat:
-		return &Type{nameType{"float", "float"}}
+		return &Type{floatType{}}
 	case kindInt:
 		return &Type{nameType{"int", "int"}}
 	case kindList:

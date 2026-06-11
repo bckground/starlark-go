@@ -59,7 +59,16 @@ func basicIntersect(x, y Basic) bool {
 	switch x := x.(type) {
 	case primBasic:
 		y, ok := y.(primBasic)
-		return ok && x.name == y.name
+		if !ok {
+			return false
+		}
+		if x.name == y.name {
+			return true
+		}
+		// Numeric coercion: a float annotation accepts ints at
+		// runtime (starlark-rust parity), so int and float intersect.
+		isNum := func(name string) bool { return name == "int" || name == "float" }
+		return isNum(x.name) && isNum(y.name)
 	case listBasic:
 		y, ok := y.(listBasic)
 		return ok && intersects(x.elem, y.elem)

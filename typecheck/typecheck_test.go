@@ -101,6 +101,19 @@ def f() -> float:
 			nil,
 		},
 		{
+			"float_accepts_int",
+			`
+def f(x: float) -> float:
+    return x
+
+def g():
+    f(1)
+    f(1.5)
+    f("a")
+`,
+			[]string{"Expected type `float` but got `str`"},
+		},
+		{
 			"attr_missing",
 			`
 def f(x: list[int]):

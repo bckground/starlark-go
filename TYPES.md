@@ -59,6 +59,8 @@ defaults), then compiled into matchers stored on the function value.
   flows through the error channel instead.
 - `x: T = e` checks `e` each time the statement executes.
 - Container matches are deep: `isinstance([1, "a"], list[int])` is False.
+- A `float` annotation also accepts ints (numeric coercion, like
+  starlark-rust); the reverse does not hold.
 
 In this fork, type mismatches are **failures** (like `fail()`), not
 recoverable errors: `try`/`catch` cannot intercept them. They indicate

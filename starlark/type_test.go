@@ -186,7 +186,9 @@ func TestTypeMatches(t *testing.T) {
 		{mustTypeOf(t, Universe["int"]), String("x"), false},
 		{mustTypeOf(t, Universe["str"]), String("x"), true},
 		{mustTypeOf(t, Universe["float"]), Float(1.5), true},
-		{mustTypeOf(t, Universe["float"]), MakeInt(1), false}, // strict: int is not float
+		{mustTypeOf(t, Universe["float"]), MakeInt(1), true}, // numeric coercion (rust parity)
+		{mustTypeOf(t, Universe["float"]), String("1.5"), false},
+		{mustTypeOf(t, Universe["int"]), Float(1.0), false}, // coercion is one-way
 		{mustTypeOf(t, None), None, true},
 		{mustTypeOf(t, None), MakeInt(0), false},
 		{TypingAny, String("anything"), true},

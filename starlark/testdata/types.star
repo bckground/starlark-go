@@ -18,6 +18,18 @@ def greet(name: str) -> str:
 assert.eq(greet("world"), "hello world")
 assert.fails(lambda: greet(42), "does not match the type annotation `str` for argument `name`")
 
+# a float annotation also accepts ints (numeric coercion, rust parity);
+# the reverse does not hold
+def halve(x: float) -> float:
+    return x / 2
+
+assert.eq(halve(3.0), 1.5)
+assert.eq(halve(3), 1.5)
+assert.fails(lambda: halve("3"), "does not match the type annotation `float` for argument `x`")
+assert.true(isinstance(1, float))
+assert.true(not isinstance(1.0, int))
+assert.true(isinstance([1, 2.5], list[float]))
+
 # defaults flow through the checks; annotated defaults are checked when bound
 def pad(s: str, n: int = 4) -> str:
     return s + " " * n
