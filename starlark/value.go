@@ -1921,8 +1921,11 @@ func (e *Error) Message() string {
 
 func (e *Error) Extra() Value { return e.extra }
 
-// FailError is the error returned by the fail() builtin when called with
-// a Starlark Error value. Go callers can use errors.As to extract it.
+// FailError is the error produced by a deliberate, fail-style abort: the
+// fail() builtin returns one, and a Go builtin may return one to raise the
+// equivalent of a fail(...) call. StarlarkError holds the Starlark error
+// value the failure carries, if any (fail(e) and module-level try set it).
+// Go callers can use errors.As to extract it from an EvalError's chain.
 type FailError struct {
 	Msg           string
 	StarlarkError *Error
