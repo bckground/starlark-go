@@ -416,22 +416,7 @@ func fail(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error)
 	if err := UnpackArgs("fail", nil, kwargs, "sep?", &sep); err != nil {
 		return nil, err
 	}
-	buf := new(strings.Builder)
-	var starlarkErr *Error
-	for i, v := range args {
-		if i > 0 {
-			buf.WriteString(sep)
-		}
-		if e, ok := v.(*Error); ok {
-			starlarkErr = e
-		}
-		if s, ok := AsString(v); ok {
-			buf.WriteString(s)
-		} else {
-			writeValue(buf, v, nil)
-		}
-	}
-	return nil, &FailError{Msg: buf.String(), StarlarkError: starlarkErr}
+	return nil, NewFailError(sep, args...)
 }
 
 func float(thread *Thread, b *Builtin, args Tuple, kwargs []Tuple) (Value, error) {

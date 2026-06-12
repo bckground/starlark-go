@@ -1115,15 +1115,110 @@ config = try load_config()
 		}
 	})
 
+	t.Run("NewFailError mirrors fail", func(t *testing.T) {
+		// A Go builtin using NewFailError must produce exactly what the
+		// fail builtin produces for the same arguments, in both modes.
+		tag := starlark.NewErrorTag("Boom")
+		errVal := starlark.NewError(tag, nil, nil, nil)
+
+		// Message mode: strings bare, other values quoted, joined by sep.
+		msgArgs := starlark.Tuple{starlark.String("got"), starlark.NewList([]starlark.Value{starlark.MakeInt(2)})}
+		kwargs := []starlark.Tuple{{starlark.String("sep"), starlark.String("/")}}
+		_, err := starlark.Call(&starlark.Thread{}, starlark.Universe["fail"], msgArgs, kwargs)
+		var fromFail *starlark.FailError
+		if !errors.As(err, &fromFail) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		fromGo := starlark.NewFailError("/", msgArgs...)
+		if fromGo.Msg != fromFail.Msg {
+			t.Errorf("NewFailError Msg = %q, fail() Msg = %q", fromGo.Msg, fromFail.Msg)
+		}
+		if got, want := fromGo.Msg, `got/[2]`; got != want {
+			t.Errorf("Msg = %q, want %q (strings bare, other values quoted)", got, want)
+		}
+		if fromGo.StarlarkError != nil || fromFail.StarlarkError != nil {
+			t.Errorf("message mode must carry no payload; NewFailError = %v, fail() = %v", fromGo.StarlarkError, fromFail.StarlarkError)
+		}
+
+		// Payload mode: the sole argument is the payload.
+		_, err = starlark.Call(&starlark.Thread{}, starlark.Universe["fail"], starlark.Tuple{errVal}, nil)
+		if !errors.As(err, &fromFail) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		fromGo = starlark.NewFailError(" ", errVal)
+		if fromGo.Msg != fromFail.Msg || fromGo.Error() != "fail: Boom" {
+			t.Errorf("payload mode: NewFailError Msg = %q, fail() Msg = %q, Error() = %q, want Error() %q", fromGo.Msg, fromFail.Msg, fromGo.Error(), "fail: Boom")
+		}
+		if fromGo.StarlarkError != errVal || fromFail.StarlarkError != errVal {
+			t.Errorf("StarlarkError: NewFailError = %v, fail() = %v, want the error value", fromGo.StarlarkError, fromFail.StarlarkError)
+		}
+	})
+
+	t.Run("fail with an error tag wraps it", func(t *testing.T) {
+		const src = `
+errors = error_tags("Boom")
+fail(errors.Boom)
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "tag.star", src, nil)
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		if failErr.StarlarkError == nil {
+			t.Fatal("StarlarkError = nil, want the tag wrapped in an error value")
+		}
+		if got := failErr.StarlarkError.Tag().Name(); got != "Boom" {
+			t.Errorf("tag = %q, want Boom", got)
+		}
+		if got, want := failErr.Error(), "fail: Boom"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("mixing an error with other arguments is rejected", func(t *testing.T) {
+		const src = `
+errors = error_tags("Boom")
+fail("context:", errors.Boom(message = "m"))
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "mixed.star", src, nil)
+		if err == nil || !strings.Contains(err.Error(), "must be the sole argument") {
+			t.Fatalf("err = %v, want the sole-argument rejection", err)
+		}
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want the misuse to surface as a *FailError", err)
+		}
+		if failErr.StarlarkError != nil {
+			t.Errorf("StarlarkError = %v, want nil: a misuse carries no payload", failErr.StarlarkError)
+		}
+	})
+
+	t.Run("NewFailError describes a mixed call", func(t *testing.T) {
+		tag := starlark.NewErrorTag("Boom")
+		errVal := starlark.NewError(tag, nil, nil, nil)
+		fe := starlark.NewFailError(" ", starlark.String("context:"), errVal)
+		if got, want := fe.Error(), "fail: an error or error tag must be the sole argument to fail()"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+		if fe.StarlarkError != nil {
+			t.Errorf("StarlarkError = %v, want nil: a misuse carries no payload", fe.StarlarkError)
+		}
+	})
+
 	t.Run("FailError message composition", func(t *testing.T) {
-		// Error() adds the "fail: " prefix; with no Msg it falls back to
-		// the error value's representation (its tag name).
+		// Error() renders every FailError with the "fail: " prefix,
+		// however it was constructed: Msg is the message content, and an
+		// empty Msg falls back to the error value's representation (its
+		// tag name).
 		tag := starlark.NewErrorTag("Boom")
 		e := starlark.NewError(tag, nil, nil, nil)
 		for _, test := range []struct {
 			fe   *starlark.FailError
 			want string
 		}{
+			{starlark.NewFailError(" ", starlark.String("boom")), "fail: boom"},
+			{starlark.NewFailError(" "), "fail: "},
+			{starlark.NewFailError(" ", e), "fail: Boom"},
 			{&starlark.FailError{Msg: "boom"}, "fail: boom"},
 			{&starlark.FailError{}, "fail: "},
 			{&starlark.FailError{StarlarkError: e}, "fail: Boom"},

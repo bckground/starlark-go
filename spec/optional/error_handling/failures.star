@@ -43,9 +43,9 @@ def catches_try():
 
 assert.fails(catches_try, "fail: boom")
 
-# fail accepts an error value like any other value, turning a caught
-# error into a failure; the abort message uses the tag's name. (This
-# is the handling that a module-level try is specified to perform.)
+# fail with a single error value turns a caught error into a failure
+# carrying it; the abort message uses the tag's name. (This is the
+# handling that a module-level try is specified to perform.)
 def errors_softly()!:
     return errs.E(message="ignored by fail")
 
@@ -55,3 +55,18 @@ def fail_with_error():
     fail(e)
 
 assert.fails(fail_with_error, "fail: E")
+
+# A bare error tag is wrapped, as in a ! function's return.
+assert.fails(lambda: fail(errs.E), "fail: E")
+
+# An error or error tag must be the sole argument: mixing it with
+# message arguments, or passing several, is itself a failure.
+def mixed():
+    e = errors_softly() catch err:
+        recover err
+    fail("context:", e)
+
+assert.fails(mixed, "an error or error tag must be the sole argument")
+assert.fails(lambda: fail(errs.E, errs.E), "an error or error tag must be the sole argument")
+assert.fails(lambda: fail("context:", errs.E), "an error or error tag must be the sole argument")
+assert.fails(lambda: fail(errs.E, "trailing context"), "an error or error tag must be the sole argument")

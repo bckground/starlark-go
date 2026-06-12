@@ -25,6 +25,13 @@ The unit distinguishes two failure channels:
 Rule of thumb: a failure means "this should never happen"; an error
 means "this can happen, and the caller should decide".
 
+This unit refines the contract of the core `fail` built-in: called
+with a single error value or error tag (a bare tag is wrapped in an
+error value, as in a `!` function's return), the failure carries that
+error; the message is its tag's name. Mixing an error or error tag
+with other arguments, or passing more than one, is itself a failure.
+Calls without error values keep the core behavior.
+
 ## Error tags
 
 `error_tags(*names)` returns an *error tag set* (type `"error_tags"`)

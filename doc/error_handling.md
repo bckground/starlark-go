@@ -303,6 +303,33 @@ e.tag                       # NotFound
 e.message                   # "user 42 not found"
 ```
 
+### fail
+
+This extension refines the contract of the core `fail` built-in,
+giving it two modes:
+
+- **Message mode** (core behavior): no argument is an error value or
+  error tag; the arguments are formatted into the failure message.
+- **Payload mode**: the sole argument is an error value or an error
+  tag (a bare tag is wrapped in an error value, as in a `!`
+  function's return). The failure carries the error value to the
+  embedder (see [The Go boundary](#the-go-boundary)), and the message
+  is the error's tag name. This is the form a module-level `try`
+  compiles to.
+
+Mixing an error or error tag with other arguments, or passing more
+than one, has no coherent meaning and is itself a failure:
+
+```python
+errors = error_tags("IOError")
+e = errors.IOError(message="disk full")
+
+fail("unrecoverable:", "disk full")   # message mode
+fail(e)                               # payload mode: carries e
+fail(errors.IOError)                  # payload mode: wraps the tag
+fail("context:", e)                   # failure: error must be the sole argument
+```
+
 ## Static validation
 
 The following rules are enforced at compile time (during name resolution):
@@ -444,15 +471,18 @@ its two return values can express every outcome of the error model:
 - **Deliberate failure**, mimicking a call to `fail(...)`: return a
   `*starlark.FailError` as the Go error. The abort is uncatchable like
   any failure, and embedders recognize it as fail-style via
-  `errors.As`; set `StarlarkError` to carry an error value through it,
-  exactly as `fail(e)` does:
+  `errors.As`. `starlark.NewFailError(sep, args...)` builds one exactly
+  as `fail(*args, sep=sep)` would, in either of fail's two modes
+  (message or payload; a mixed call yields a failure describing the
+  misuse) — or construct one directly for full control over the
+  message:
 
   ```go
   func mustSync(thread *starlark.Thread, b *starlark.Builtin,
       args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
       if corrupted() {
           return nil, &starlark.FailError{
-              Msg:           "cache corrupted", // Error() prefixes "fail: "
+              Msg:           "cache corrupted", // Error() renders "fail: cache corrupted"
               StarlarkError: e, // optional: the error value the failure carries
           }
       }
