@@ -31,8 +31,17 @@ assert.fails(lambda: d4.pop("a"), "pop: missing key")
 # popitem removes and returns the first item.
 d5 = {"a": 1, "b": 2}
 assert.eq(d5.popitem(), ("a", 1))
-assert.eq(d5, {"b": 2})
-assert.fails(lambda: {}.popitem(), "empty dict")
+assert.eq(d5.popitem(), ("b", 2))
+assert.fails(lambda: d5.popitem(), "empty dict")
+
+# On a frozen dict, mutating methods fail -- except setdefault of an
+# existing key, which inserts nothing.
+fr = freeze({"a": 1})
+assert.eq(fr.setdefault("a", 99), 1)
+assert.fails(lambda: fr.setdefault("b", 2), "cannot insert into frozen hash table")
+assert.fails(lambda: fr.pop("a"), "cannot delete from frozen hash table")
+assert.fails(lambda: fr.clear(), "cannot clear frozen hash table")
+assert.fails(lambda: fr.update({"z": 9}), "cannot insert into frozen hash table")
 
 # update inserts from pairs and keyword arguments.
 d6 = {"a": 1}

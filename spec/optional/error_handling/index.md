@@ -7,7 +7,7 @@
 | #error-values | error_values.star |
 | #error-returning-functions | error_functions.star |
 | #try | try.star, toplevel_errors.star |
-| #catch | catch.star, catch_scope.star |
+| #catch | catch.star, catch_scope.star, unpacking.star |
 | #recover | recover.star |
 | #errdefer | errdefer.star, errdefer_errors.star |
 | #failures | failures.star |

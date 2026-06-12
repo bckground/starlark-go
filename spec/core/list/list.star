@@ -46,9 +46,31 @@ assert.eq(list({"a": 1}), ["a"])
 frozen = freeze([1, 2])
 assert.fails(lambda: frozen.append(3), "cannot append to frozen list")
 
-# A list cannot be mutated while being iterated.
+# A list cannot be mutated while being iterated: not by append,
+# remove, extend, or element assignment.
 def mutate_during_iteration():
     seq = [1, 2, 3]
     return [seq.append(x) for x in seq]
 
 assert.fails(mutate_during_iteration, "cannot append to list during iteration")
+
+def assign_during_iteration():
+    seq = [0, 1, 2]
+    for x in seq:
+        seq[x] = 2 * x
+
+assert.fails(assign_during_iteration, "assign to element.*during iteration")
+
+def remove_during_iteration():
+    seq = [0, 1, 2]
+    for x in seq:
+        seq.remove(x)
+
+assert.fails(remove_during_iteration, "remove.*during iteration")
+
+def extend_during_iteration():
+    seq = [0, 1, 2]
+    for x in seq:
+        seq.extend([3, 4])
+
+assert.fails(extend_during_iteration, "extend.*during iteration")

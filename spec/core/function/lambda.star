@@ -20,3 +20,18 @@ assert.eq(make_adder(3)(4), 7)
 
 # A lambda may be used where any expression is expected.
 assert.eq(sorted([3, 1, 2], key=lambda x: -x), [3, 2, 1])
+
+# A conditional after the body belongs to the body; parentheses make
+# the lambda itself an operand.
+f = lambda x: 1 if x else 0
+assert.eq(f(True), 1)
+assert.eq(f(False), 0)
+
+cond = True
+g = (lambda x: 1) if cond else 0
+assert.eq(g(123), 1)
+
+# A comma after the body ends the lambda: this is a 2-tuple.
+tf = lambda: True, lambda: False
+assert.true(tf[0]())
+assert.true(not tf[1]())

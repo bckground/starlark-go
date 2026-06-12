@@ -46,12 +46,33 @@ assert.fails(lambda: {} < {}, "dict < dict not implemented")
 # Dicts are unhashable.
 assert.fails(lambda: {{}: 1}, "unhashable type: dict")
 
+# Duplicate keys are not permitted in a dict literal.
+assert.fails(lambda: {"aa": 1, "bb": 2, "bb": 4}, 'duplicate key: "bb"')
+
+# An unparenthesized tuple may be a key in element assignment.
+pairs = {}
+pairs[1, 2] = 3
+assert.eq(pairs.keys()[0], (1, 2))
+
+# A re-inserted key keeps its original position but takes the new
+# value, even as the dict grows past rehashing.
+grown = dict([("a", 0), ("b", 1), ("c", 2), ("b", 3)])
+assert.eq(grown.keys(), ["a", "b", "c"])
+assert.eq(grown["b"], 3)
+grown.update([("d", 4), ("e", 5), ("f", 6), ("g", 7), ("h", 8), ("i", 9), ("j", 10), ("k", 11)])
+assert.eq(grown.keys(), ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"])
+
 # dict() constructs a dictionary from keyword arguments or an
 # iterable of key/value pairs.
 assert.eq(dict(), {})
 assert.eq(dict(a=1, b=2), {"a": 1, "b": 2})
 assert.eq(dict([("a", 1), ("b", 2)]), {"a": 1, "b": 2})
 assert.eq(dict([("a", 1)], a=2), {"a": 2})
+assert.eq(dict((["a", 2], ["a", 3]), a=4), {"a": 4})
+
+# A keyword may collide with a positional-argument key, but not with
+# another keyword.
+assert.fails(lambda: dict({"b": 3}, a=4, **dict(a=5)), 'duplicate keyword arg: "a"')
 
 # A frozen dict cannot be mutated.
 frozen = freeze({"a": 1})

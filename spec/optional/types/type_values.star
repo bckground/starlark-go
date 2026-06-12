@@ -46,3 +46,30 @@ def nested(m: dict[str, list[int]]) -> int:
 
 assert.eq(nested({"a": [1]}), 1)
 assert.fails(lambda: nested({"a": ["s"]}), "does not match the type annotation")
+
+# tuple[T, ...] matches any length of T.
+def sum_all(xs: tuple[int, ...]) -> int:
+    n = 0
+    for x in xs:
+        n += x
+    return n
+
+assert.eq(sum_all((1, 2, 3)), 6)
+assert.eq(sum_all(()), 0)
+assert.fails(lambda: sum_all((1, "a")), "does not match the type annotation `tuple\\[int, ...\\]`")
+
+# The legacy list syntax [T1, T2] denotes a union.
+def either(x: [int, str]) -> int:
+    return 1
+
+assert.eq(either(1), 1)
+assert.eq(either("a"), 1)
+assert.fails(lambda: either(None), "does not match the type annotation `int | str`")
+
+# Type values compare by the type they denote, and display
+# canonically.
+assert.eq(eval_type(int), eval_type(int))
+assert.ne(eval_type(int), eval_type(str))
+assert.eq(str(eval_type(int)), "int")
+assert.eq(str(dict[str, int]), "dict[str, int]")
+assert.eq(str(tuple[int, ...]), "tuple[int, ...]")

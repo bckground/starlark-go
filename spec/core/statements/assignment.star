@@ -14,6 +14,22 @@ assert.eq((d, e), (3, 4))
 (f, (g, h)) = (1, (2, 3))
 assert.eq((f, g, h), (1, 2, 3))
 
+# List and tuple targets are interchangeable, and nest either way.
+[i, j, (k, l)] = (1, 2, [3, 4])
+assert.eq((i, j, k, l), (1, 2, 3, 4))
+(m, [n, o]) = [1, (2, 3)]
+assert.eq((m, n, o), (1, 2, 3))
+
+# A bare tuple on the right matches a list target.
+[p, q] = 1, 2
+assert.eq((p, q), (1, 2))
+
+# Singleton and parenthesized targets.
+(single,) = [1]
+assert.eq(single, 1)
+(paren) = 1
+assert.eq(paren, 1)
+
 # The number of elements must match.
 def mismatch():
     x, y = 1, 2, 3

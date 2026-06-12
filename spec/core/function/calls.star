@@ -27,3 +27,14 @@ assert.fails(lambda: g(1), "accepts no arguments \\(1 given\\)")
 # Only callable values may be called.
 assert.fails(lambda: (1)(), "invalid call of non-function \\(int\\)")
 assert.fails(lambda: "f"(), "invalid call of non-function \\(string\\)")
+
+# Any expression yielding a callable may be called: element lookups,
+# call results, and chained suffixes.
+assert.eq({"f": len}["f"]("abc"), 3)
+assert.eq([len][0]("ab"), 2)
+
+def make():
+    return lambda: 1
+
+assert.eq(make()(), 1)
+assert.eq(["abc"][0][0].upper(), "A")

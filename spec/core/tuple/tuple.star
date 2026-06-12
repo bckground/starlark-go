@@ -38,6 +38,12 @@ assert.eq((1, (2, 3)), (1, (2, 3)))
 d = {(1, 2): "x"}
 assert.eq(d[(1, 2)], "x")
 
+# A tuple containing an unhashable element is unhashable.
+def unhashable_tuple_key():
+    {}[(1, "abc", {})] = 1
+
+assert.fails(unhashable_tuple_key, "unhashable type: dict")
+
 # Unpacking.
 a, b = (1, 2)
 assert.eq((b, a), (2, 1))

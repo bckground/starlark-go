@@ -27,6 +27,24 @@ def items(d):
 
 assert.eq(items({"a": 1, "b": 2}), ["a1", "b2"])
 
+# Destructuring nests, and any assignable target may appear,
+# including an element of a collection.
+def nested():
+    res = []
+    for (x, y), z in [(["a", "b"], 3), (["c", "d"], 4)]:
+        res.append((x, y, z))
+    return res
+
+assert.eq(nested(), [("a", "b", 3), ("c", "d", 4)])
+
+def element_target():
+    a = {}
+    for i, a[i] in [("one", 1), ("two", 2)]:
+        pass
+    return a
+
+assert.eq(element_target(), {"one": 1, "two": 2})
+
 # break exits the nearest enclosing loop; continue skips to the next
 # iteration.
 def search(haystack, needle):

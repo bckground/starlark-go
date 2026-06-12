@@ -42,3 +42,41 @@ assert.eq(nan, nan)
 assert.lt(inf, nan)
 assert.lt(1e308, inf)
 assert.lt(-inf, 0)
+
+# Floored division and remainder follow the sign rules of their int
+# counterparts: // rounds toward negative infinity, % takes the sign
+# of the divisor.
+assert.eq(100.0 // 8.0, 12.0)
+assert.eq(100.0 // -8.0, -13.0)
+assert.eq(-100.0 // 8.0, -13.0)
+assert.eq(-100.0 // -8.0, 12.0)
+assert.eq(100.0 % 8.0, 4.0)
+assert.eq(100.0 % -8.0, -4.0)
+assert.eq(-100.0 % 8.0, 4.0)
+assert.eq(-100.0 % -8.0, -4.0)
+assert.eq(98.0 % -8.0, -6.0)
+assert.eq(-98.0 % 8.0, 6.0)
+
+# If either operand is a float the result is a float; / yields a
+# float even for two ints.
+ops = {
+    "+": lambda x, y: x + y,
+    "-": lambda x, y: x - y,
+    "*": lambda x, y: x * y,
+    "/": lambda x, y: x / y,
+    "//": lambda x, y: x // y,
+    "%": lambda x, y: x % y,
+}
+
+def check_result_types():
+    for name in ops:
+        for x in (1, 1.0):
+            for y in (1, 1.0):
+                if name == "/" or type(x) == "float" or type(y) == "float":
+                    want = "float"
+                else:
+                    want = "int"
+                got = type(ops[name](x, y))
+                assert.true(got == want, "%s %s %s yields %s, want %s" % (type(x), name, type(y), got, want))
+
+check_result_types()
