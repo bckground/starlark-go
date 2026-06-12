@@ -1,0 +1,10 @@
+# Known-failures overlay for the go.starlark.net spec suite runner
+# (see spec/harness.md, "Runner obligations").
+#
+# One spec file per line, as a slash-separated path relative to the
+# suite root, e.g.:
+#
+#   core/int/floored_division.star
+#
+# A listed file that fails is reported as a skip; a listed file that
+# passes is a test error, so stale entries cannot accumulate.
