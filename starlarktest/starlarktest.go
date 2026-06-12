@@ -77,6 +77,23 @@ func LoadAssertModule() (starlark.StringDict, error) {
 	return assert, assertErr
 }
 
+// SpecPredeclared returns the predeclared environment that the spec
+// suite's harness contract (spec/harness.md) requires a runner to
+// provide: the assert module plus the free functions trap, matches,
+// and freeze.
+func SpecPredeclared() (starlark.StringDict, error) {
+	assert, err := LoadAssertModule()
+	if err != nil {
+		return nil, err
+	}
+	return starlark.StringDict{
+		"assert":  assert["assert"],
+		"trap":    starlark.NewBuiltin("trap", trap),
+		"matches": starlark.NewBuiltin("matches", matches),
+		"freeze":  assert["freeze"],
+	}, nil
+}
+
 // trap(f) evaluates f() and returns its evaluation error message
 // if it failed or None if it succeeded.
 func trap(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
