@@ -1926,12 +1926,22 @@ func (e *Error) Extra() Value { return e.extra }
 // equivalent of a fail(...) call. StarlarkError holds the Starlark error
 // value the failure carries, if any (fail(e) and module-level try set it).
 // Go callers can use errors.As to extract it from an EvalError's chain.
+//
+// Msg is the failure message without the "fail: " prefix, which Error
+// adds; if Msg is empty and StarlarkError is set, Error prints the error
+// value instead.
 type FailError struct {
 	Msg           string
 	StarlarkError *Error
 }
 
-func (e *FailError) Error() string { return e.Msg }
+func (e *FailError) Error() string {
+	msg := e.Msg
+	if msg == "" && e.StarlarkError != nil {
+		msg = e.StarlarkError.String()
+	}
+	return "fail: " + msg
+}
 
 // ReturnedError is the error returned by [Call] when an error-returning (!)
 // function, invoked directly from Go, explicitly returns an error value that no

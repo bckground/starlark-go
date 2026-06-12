@@ -452,7 +452,7 @@ its two return values can express every outcome of the error model:
       args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
       if corrupted() {
           return nil, &starlark.FailError{
-              Msg:           "fail: cache corrupted",
+              Msg:           "cache corrupted", // Error() prefixes "fail: "
               StarlarkError: e, // optional: the error value the failure carries
           }
       }

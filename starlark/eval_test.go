@@ -1093,7 +1093,7 @@ config = try load_config()
 		msg := "cache corrupted"
 		mustSync := starlark.NewBuiltin("must_sync", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 			return nil, &starlark.FailError{
-				Msg:           "fail: cache corrupted",
+				Msg:           "cache corrupted",
 				StarlarkError: starlark.NewError(tag, &msg, nil, nil),
 			}
 		})
@@ -1109,6 +1109,29 @@ config = try load_config()
 		}
 		if failErr.StarlarkError == nil || failErr.StarlarkError.Tag() != tag {
 			t.Errorf("StarlarkError = %v, want the error with tag Corrupt", failErr.StarlarkError)
+		}
+		if got, want := failErr.Error(), "fail: cache corrupted"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("FailError message composition", func(t *testing.T) {
+		// Error() adds the "fail: " prefix; with no Msg it falls back to
+		// the error value's representation (its tag name).
+		tag := starlark.NewErrorTag("Boom")
+		e := starlark.NewError(tag, nil, nil, nil)
+		for _, test := range []struct {
+			fe   *starlark.FailError
+			want string
+		}{
+			{&starlark.FailError{Msg: "boom"}, "fail: boom"},
+			{&starlark.FailError{}, "fail: "},
+			{&starlark.FailError{StarlarkError: e}, "fail: Boom"},
+			{&starlark.FailError{Msg: "custom", StarlarkError: e}, "fail: custom"},
+		} {
+			if got := test.fe.Error(); got != test.want {
+				t.Errorf("Error() = %q, want %q", got, test.want)
+			}
 		}
 	})
 
