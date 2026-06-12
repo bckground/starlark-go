@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Copyright 2021 The Bazel Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style
@@ -16,8 +16,11 @@ diff -w go.sum.orig go.sum || { echo "go.sum is not tidy"; exit 1; }
 rm go.mod.orig go.sum.orig
 
 # Run tests
-if [ -z "${CI}" ]; then
-    go test ./...
+if [ -z "${CI:-}" ]; then
+    go test $(go list ./... | grep -v '/spectest$')
+    # go test caches results even when only spec/*.star files change,
+    # as they are not tracked as test inputs; run the spec suite uncached.
+    go test -count=1 ./spectest
 else
     gotestsum --junitfile=junitreport.xml -- -count=1 -race -timeout=10m ./...
 fi
