@@ -26,7 +26,7 @@ type checker struct {
 	env   Env
 	loads map[string]*Interface
 
-	aliasesByName map[string]Ty // module-level type aliases
+	peval map[any]*pevalEntry // static values of bindings (see peval.go)
 
 	declared map[any]Ty
 	exprs    map[any][]bindExpr
@@ -51,16 +51,16 @@ type checkTypeItem struct {
 
 func newChecker(file *syntax.File, env Env, loads map[string]*Interface) *checker {
 	return &checker{
-		o:             &oracle{typeMap: &TypeMap{m: make(map[any]bindingInfo)}},
-		file:          file,
-		env:           env,
-		loads:         loads,
-		aliasesByName: make(map[string]Ty),
-		declared:      make(map[any]Ty),
-		exprs:         make(map[any][]bindExpr),
-		infos:         make(map[any]bindingInfo),
-		types:         make(map[any]Ty),
-		catchTypes:    make(map[*syntax.CatchExpr][]syntax.Expr),
+		o:          &oracle{typeMap: &TypeMap{m: make(map[any]bindingInfo)}},
+		file:       file,
+		env:        env,
+		loads:      loads,
+		peval:      make(map[any]*pevalEntry),
+		declared:   make(map[any]Ty),
+		exprs:      make(map[any][]bindExpr),
+		infos:      make(map[any]bindingInfo),
+		types:      make(map[any]Ty),
+		catchTypes: make(map[*syntax.CatchExpr][]syntax.Expr),
 	}
 }
 
@@ -213,75 +213,11 @@ func (c *checker) bind(id *syntax.Ident, be bindExpr) {
 	}
 }
 
-// collectAliases records module-level type aliases (IntList = list[int])
-// so that later annotations can refer to them by name.
-func (c *checker) collectAliases() {
-	for _, stmt := range c.file.Stmts {
-		assign, ok := stmt.(*syntax.AssignStmt)
-		if !ok || assign.Op != syntax.EQ {
-			continue
-		}
-		id, ok := assign.LHS.(*syntax.Ident)
-		if !ok {
-			continue
-		}
-		if ty, ok := c.aliasTy(assign.RHS); ok {
-			c.aliasesByName[id.Name] = ty
-		}
-	}
-}
-
-// aliasTy interprets e as a type expression, failing (rather than
-// approximating) on anything unknown. Used only for alias detection.
-func (c *checker) aliasTy(e syntax.Expr) (Ty, bool) {
-	switch e := e.(type) {
-	case *syntax.Ident:
-		if t, ok := builtinTypeName(e.Name); ok {
-			return t, true
-		}
-		if t, ok := c.aliasesByName[e.Name]; ok {
-			return t, true
-		}
-	case *syntax.ParenExpr:
-		return c.aliasTy(e.X)
-	case *syntax.DotExpr:
-		if x, ok := e.X.(*syntax.Ident); ok && x.Name == "typing" {
-			switch e.Name.Name {
-			case "Any":
-				return Any(), true
-			case "Never":
-				return Never(), true
-			case "Callable":
-				return AnyCallable(), true
-			case "Iterable":
-				return Iter(Any()), true
-			}
-		}
-	case *syntax.BinaryExpr:
-		if e.Op == syntax.PIPE {
-			x, okx := c.aliasTy(e.X)
-			y, oky := c.aliasTy(e.Y)
-			if okx && oky {
-				return Union(x, y), true
-			}
-		}
-	case *syntax.IndexExpr:
-		// Reuse the lenient interpreter, but require that no
-		// approximations were generated.
-		before := len(c.o.approx)
-		ty := c.o.tyFromIndexExpr(e, c.lookupAnnot)
-		if len(c.o.approx) == before {
-			return ty, true
-		}
-		c.o.approx = c.o.approx[:before]
-	}
-	return Never(), false
-}
-
-// lookupAnnot resolves a non-builtin name in annotation position.
-func (c *checker) lookupAnnot(name string) (Ty, bool) {
-	if t, ok := c.aliasesByName[name]; ok {
-		return t, true
+// lookupAnnot resolves a non-builtin name in annotation position to
+// the type it denotes, as established by the partial evaluator.
+func (c *checker) lookupAnnot(id *syntax.Ident) (Ty, bool) {
+	if v, ok := c.pevalLookup(id); ok {
+		return v.DenotesType()
 	}
 	return Never(), false
 }
@@ -307,6 +243,16 @@ func (c *checker) collectStmt(stmt syntax.Stmt) {
 				c.checkTypes = append(c.checkTypes, checkTypeItem{exprPos(stmt.RHS), stmt.RHS, want})
 				if id, ok := unparen(stmt.LHS).(*syntax.Ident); ok {
 					c.declare(id, want)
+					return
+				}
+			}
+			if id, ok := unparen(stmt.LHS).(*syntax.Ident); ok {
+				if v, ok := c.pevalLookup(id); ok && v.bind != nil {
+					// Factory-minted value (record, enum, error_tags):
+					// the partial evaluator knows the precise type; the
+					// builtin's declared result would widen it to Any.
+					c.declare(id, *v.bind)
+					c.checks = append(c.checks, stmt.RHS)
 					return
 				}
 			}
@@ -581,7 +527,14 @@ func (c *checker) collectDef(stmt *syntax.DefStmt) {
 	var declaredRet *Ty
 	if fn.ReturnType != nil {
 		result = c.annotTy(fn.ReturnType)
-		declaredRet = &result
+		if fn.CanReturnError {
+			// The return annotation of a `!` function describes the
+			// success value; error returns skip the runtime check.
+			relaxed := Union(result, Prim("error"), Prim("error_tag"))
+			declaredRet = &relaxed
+		} else {
+			declaredRet = &result
+		}
 	}
 	c.declare(stmt.Name, Function(stmt.Name.Name, &ParamSpec{Params: params}, result))
 

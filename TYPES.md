@@ -129,6 +129,10 @@ def serve(r: Rec, c: Color):  # both work as annotations,
 ```
 
 Add them via `starlarkrecord.Predeclared` / `starlarkenum.Predeclared`.
+The `typed` subpackages of each (`starlarkrecord/typed`,
+`starlarkenum/typed`) contribute matching static types to a
+`typecheck.Env`, so the static checker understands them too (see
+below).
 
 ## Static typechecker
 
@@ -163,4 +167,60 @@ types.
 
 Fork-specific constructs are understood: `try e` has the type of `e`;
 `e catch v` is the union of both; a block-form catch unions in its
-`recover` values, and the error variable types as `error`.
+`recover` values, and the error variable types as `error`. In a `!`
+function, the return annotation describes the success value, so
+returns also accept `error` and `error_tag` values (the runtime skips
+the check for error returns).
+
+### Module-level partial evaluation
+
+The checker distinguishes the *type of a binding* (`IntList: type`)
+from the *type value it denotes* (`list[int]`). A pre-pass — the
+analogue of starlark-rust's `fill_types_for_lint` — maps each binding
+to the static value its assignments compute, so annotations can refer
+to computed values:
+
+```python
+T = int if legacy else int    # branches agree: T denotes int
+load("lib.star", "IntList")   # aliases flow across load()
+
+def f():
+    Row = list[int]           # aliases inside functions
+    def g(r: Row): ...
+```
+
+Evaluation is flow-insensitive with agree-or-unknown merging: if all
+assignments to a binding compute the same static value, the binding
+has it; any disagreement (or a rebinding form the evaluator does not
+model) degrades it to unknown — `typing.Any` plus an `Approximation`,
+never a guess. `Interface.Denoted` exposes the denoted types of a
+module's globals, which is how aliases (and record/enum types) work
+across `load()` with the per-module CLI flow.
+
+### Custom types: record, enum, error_tags
+
+A `typecheck.CustomTy` (the analogue of starlark-rust's `TyUser`) is
+an externally defined static type: a display name plus an attribute
+table, with optional callability, indexing, and iteration. Identity
+is nominal, mirroring the runtime's pointer-identity matchers: two
+structurally identical record types do not intersect.
+
+Custom types are minted by a `typecheck.TypeFactory` attached to an
+environment entry (`typecheck.WithFactory`): when a module-level
+assignment calls such a builtin with statically evaluated arguments,
+the partial evaluator asks the factory for the binding's static
+value. Three factories exist today:
+
+- `error_tags("NotFound", ...)` (built into `UniverseEnv`): the tag
+  set's attribute table is exactly the tags, so `errors.NotFonud` is
+  a static error.
+- `record(host=str, port=field(int, 80))`
+  (`starlarkrecord/typed.AddTypes`): unknown fields, constructor
+  argument errors, and `x: Rec` annotation precision.
+- `enum("red", "green")` (`starlarkenum/typed.AddTypes`): unknown
+  elements (`Color.bleu`), constructor and element typing.
+
+`TestRecordEnumAgreement` pins that the runtime `TypeMatcher` of a
+record or enum type and its static `CustomTy` accept the same values
+and display the same way, as `TestAnnotationAgreement` does for
+annotations.

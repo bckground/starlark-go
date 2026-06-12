@@ -92,7 +92,8 @@ func (tm *TypeMap) String() string {
 // An Interface describes the types of a module's exported globals,
 // for use as the loads argument when checking dependent files.
 type Interface struct {
-	types map[string]Ty
+	types   map[string]Ty
+	denoted map[string]Ty // type values denoted by members (see Denoted)
 }
 
 // NewInterface returns an Interface with the given member types.
@@ -108,6 +109,19 @@ func (i *Interface) Get(name string) (Ty, bool) {
 		return Never(), false
 	}
 	ty, ok := i.types[name]
+	return ty, ok
+}
+
+// Denoted returns the type value the named module member denotes in
+// annotation position, if the member is a type alias or a minted type
+// (a record or enum). This is distinct from the member's own type,
+// which Get reports: for IntList = list[int], Get yields type and
+// Denoted yields list[int].
+func (i *Interface) Denoted(name string) (Ty, bool) {
+	if i == nil {
+		return Never(), false
+	}
+	ty, ok := i.denoted[name]
 	return ty, ok
 }
 
@@ -148,7 +162,7 @@ func Check(file *syntax.File, env Env, loads map[string]*Interface) (*Result, er
 	}
 
 	c := newChecker(file, env, loads)
-	c.collectAliases()
+	c.pevalModule()
 	c.collectStmts(file.Stmts)
 	c.solve()
 	c.check()
@@ -156,12 +170,18 @@ func Check(file *syntax.File, env Env, loads map[string]*Interface) (*Result, er
 	// Build the Interface from the module's globals.
 	module := file.Module.(*resolve.Module)
 	ifaceTypes := make(map[string]Ty, len(module.Globals))
+	ifaceDenoted := make(map[string]Ty)
 	for _, g := range module.Globals {
 		name := "?"
 		if g.First != nil {
 			name = g.First.Name
 		}
 		ifaceTypes[name] = c.typeOfBinding(g)
+		if ent := c.peval[bindKeyOf(g)]; ent != nil && !ent.conflict {
+			if t, ok := ent.v.DenotesType(); ok {
+				ifaceDenoted[name] = t
+			}
+		}
 	}
 
 	// Sort errors by position for deterministic output.
@@ -173,10 +193,13 @@ func Check(file *syntax.File, env Env, loads map[string]*Interface) (*Result, er
 		return ei.Col < ej.Col
 	})
 
+	iface := NewInterface(ifaceTypes)
+	iface.denoted = ifaceDenoted
+
 	return &Result{
 		Errors:         c.o.errors,
 		Types:          c.typeMap(),
-		Interface:      NewInterface(ifaceTypes),
+		Interface:      iface,
 		Approximations: c.o.approx,
 	}, nil
 }

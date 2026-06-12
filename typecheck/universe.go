@@ -255,9 +255,44 @@ var universeTypes = func() map[string]Ty {
 		"eval_type":  fn("eval_type", TypeType(), posOnly(Any())),
 
 		// fork-specific error handling
-		"error_tags": fn("error_tags", Any(), varArgs(str)),
+		"error_tags": WithFactory(fn("error_tags", Any(), varArgs(str)), errorTagsFactory),
 	}
 }()
+
+// errorTagSetTy is the custom type of a tag set minted by a
+// module-level error_tags call: its attribute table is exactly the
+// tag set, so misspelled tags (errors.NotFonud) are caught
+// statically. The display name matches the runtime type string.
+type errorTagSetTy struct {
+	tags map[string]bool
+}
+
+func (t *errorTagSetTy) TyName() string { return "error_tags" }
+
+func (t *errorTagSetTy) Attr(name string) (Ty, bool) {
+	if t.tags[name] {
+		return Prim("error_tag"), true
+	}
+	return Never(), false
+}
+
+// errorTagsFactory interprets errors = error_tags("NotFound", ...).
+// It needs every argument to be a string literal; anything else
+// degrades the binding to unknown.
+func errorTagsFactory(call *FactoryCall) (StaticValue, bool) {
+	if len(call.Named) > 0 {
+		return StaticValue{}, false
+	}
+	tags := make(map[string]bool, len(call.Positional))
+	for _, arg := range call.Positional {
+		s, ok := arg.Str()
+		if !ok {
+			return StaticValue{}, false
+		}
+		tags[s] = true
+	}
+	return ValueOf(Custom(&errorTagSetTy{tags: tags})), true
+}
 
 // UniverseEnv returns an Env describing the universal environment.
 func UniverseEnv() Env {

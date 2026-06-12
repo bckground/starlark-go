@@ -326,6 +326,11 @@ type callableBasic struct {
 	// not participate in identity (basicSortKey): two callables that
 	// agree on name, params, and result are interchangeable.
 	specialFn specialFunc
+	// factory, if non-nil, lets the partial evaluator interpret
+	// module-level calls of this builtin as minting a new type
+	// (record, enum, error_tags). Like specialFn, it does not
+	// participate in identity.
+	factory TypeFactory
 }
 
 // A specialFunc computes a builtin call's result type from its

@@ -150,8 +150,14 @@ type annotation system (see TYPES.md for the full description):
 - **Static typechecker**: optional `typecheck` package
   (`typecheck.Check(file, env, loads)`) performs fixpoint inference over the
   resolved AST with intersection-based compatibility, deliberately lenient
-  (unknowns become Any plus an Approximation). Its annotation interpretation
-  must agree with the runtime's (`TestAnnotationAgreement` pins this); the
+  (unknowns become Any plus an Approximation). A module-level partial
+  evaluation pre-pass (`peval.go`) tracks the type values bindings *denote*
+  (aliases under conditionals, inside functions, across loads via
+  `Interface.Denoted`) and lets `TypeFactory` env hooks mint nominal
+  `CustomTy` types for `record`/`enum` (adapters in `starlarkrecord/typed`,
+  `starlarkenum/typed`) and `error_tags` (built into `UniverseEnv`). Its
+  annotation interpretation must agree with the runtime's
+  (`TestAnnotationAgreement` and `TestRecordEnumAgreement` pin this); the
   universe signature table in `typecheck/universe.go` must be kept in sync
   with `starlark/library.go`.
 - **Tests**: `starlark/testdata/types.star`, `types_parseonly.star`,

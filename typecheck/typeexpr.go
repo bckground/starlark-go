@@ -12,9 +12,10 @@ import (
 	"go.starlark.net/syntax"
 )
 
-// tyLookup resolves a name used in a type-annotation expression to a
-// type. The bool result reports whether the name was recognized.
-type tyLookup func(name string) (Ty, bool)
+// tyLookup resolves a non-builtin identifier used in a type-annotation
+// expression to the type it denotes. The bool result reports whether
+// the identifier was recognized.
+type tyLookup func(id *syntax.Ident) (Ty, bool)
 
 // builtinTypeName returns the type denoted by a canonical type
 // constructor name in annotation position.
@@ -54,7 +55,7 @@ func (o *oracle) tyFromTypeExpr(e syntax.Expr, lookup tyLookup) Ty {
 			return t
 		}
 		if lookup != nil {
-			if t, ok := lookup(e.Name); ok {
+			if t, ok := lookup(e); ok {
 				return t
 			}
 		}

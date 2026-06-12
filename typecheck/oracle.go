@@ -90,6 +90,11 @@ func basicIntersect(x, y Basic) bool {
 	case moduleBasic:
 		_, ok := y.(moduleBasic)
 		return ok
+	case customBasic:
+		// Nominal identity: only the same minted type intersects
+		// (like the runtime's pointer-identity TypeMatcher).
+		y, ok := y.(customBasic)
+		return ok && x.serial == y.serial
 	}
 	return false
 }
@@ -236,6 +241,10 @@ func iterItemBasic(b Basic) (Ty, bool) {
 		case "bytes":
 			return Prim("int"), true
 		}
+	case customBasic:
+		if it, ok := b.c.(CustomIterable); ok {
+			return it.IterItem(), true
+		}
 	}
 	return Never(), false
 }
@@ -336,6 +345,8 @@ func basicAttr(b Basic, name string) (Ty, bool) {
 		}
 		// Unknown module member: lenient.
 		return Any(), true
+	case customBasic:
+		return b.c.Attr(name)
 	case callableBasic, tupleBasic, iterBasic, typeBasic:
 		// no attributes
 	}
@@ -400,6 +411,15 @@ func (o *oracle) binop(pos syntax.Position, op syntax.Token, l, r Ty) Ty {
 }
 
 func basicBinop(op syntax.Token, x, y Basic) (Ty, bool) {
+	// Custom types may define binary operators the checker cannot
+	// see (e.g. error tag sets merge with |): lenient.
+	if _, ok := x.(customBasic); ok {
+		return Any(), true
+	}
+	if _, ok := y.(customBasic); ok {
+		return Any(), true
+	}
+
 	xp, xIsPrim := x.(primBasic)
 	yp, yIsPrim := y.(primBasic)
 
@@ -613,6 +633,12 @@ func (o *oracle) index(pos syntax.Position, ty, index Ty) Ty {
 			if isTypeConstructorName(alt.name) {
 				results = append(results, TypeType())
 			}
+		case customBasic:
+			if ix, ok := alt.c.(CustomIndexable); ok {
+				if t, ok := ix.IndexResult(index); ok {
+					results = append(results, t)
+				}
+			}
 		}
 	}
 	if results == nil {
@@ -720,6 +746,24 @@ func (o *oracle) call(pos syntax.Position, fnTy Ty, args callArgs) Ty {
 		case typeBasic:
 			// calling a type value constructs an instance: unknown
 			results = append(results, Any())
+		case primBasic:
+			if alt.name == "error_tag" {
+				// Error tags are callable, constructing an error:
+				// NotFound(message="...").
+				results = append(results, Prim("error"))
+			}
+		case customBasic:
+			if cc, ok := alt.c.(CustomCallable); ok {
+				params, result := cc.CallSignature()
+				t, callErr := o.validateCall(pos, callableBasic{name: alt.c.TyName(), params: params, result: result}, args)
+				if callErr != nil {
+					if firstErr == nil {
+						firstErr = callErr
+					}
+					continue
+				}
+				results = append(results, t)
+			}
 		}
 	}
 	if results == nil {

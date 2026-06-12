@@ -11,11 +11,18 @@ package typecheck_test
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 
 	"go.starlark.net/lib/typing"
+	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkenum"
+	enumtyped "go.starlark.net/starlarkenum/typed"
+	"go.starlark.net/starlarkrecord"
+	recordtyped "go.starlark.net/starlarkrecord/typed"
 	"go.starlark.net/syntax"
+	"go.starlark.net/typecheck"
 )
 
 func TestAnnotationAgreement(t *testing.T) {
@@ -95,6 +102,82 @@ func TestAnnotationAgreement(t *testing.T) {
 				t.Errorf("static %q != expected %q (runtime %q)", staticTy, expected, runtimeTy)
 			}
 		})
+	}
+}
+
+// TestRecordEnumAgreement pins the agreement between the runtime
+// TypeMatcher of record and enum types and their static CustomTy:
+// both must accept the same values and display the same way.
+func TestRecordEnumAgreement(t *testing.T) {
+	const src = `
+Rec = record(host=str, port=field(int, 80))
+Other = record(host=str, port=field(int, 80))
+Color = enum("red", "green", "blue")
+r = Rec(host="localhost")
+o = Other(host="elsewhere")
+c = Color("red")
+n = 42
+s = "hello"
+`
+	predeclared := make(starlark.StringDict)
+	maps.Copy(predeclared, starlarkrecord.Predeclared)
+	maps.Copy(predeclared, starlarkenum.Predeclared)
+
+	// Runtime interpretation.
+	opts := &syntax.FileOptions{Types: syntax.TypesEnabled}
+	thread := new(starlark.Thread)
+	globals, err := starlark.ExecFileOptions(opts, thread, "agree.star", src, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Static interpretation.
+	uni := typecheck.UniverseEnv()
+	env := typecheck.UniverseEnv()
+	recordtyped.AddTypes(env)
+	enumtyped.AddTypes(env)
+	f, err := opts.Parse("agree.star", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isUniversal := func(name string) bool { _, ok := uni[name]; return ok }
+	isPredeclared := func(name string) bool { _, ok := predeclared[name]; return ok }
+	if err := resolve.File(f, isPredeclared, isUniversal); err != nil {
+		t.Fatal(err)
+	}
+	res, err := typecheck.Check(f, env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) > 0 {
+		t.Fatalf("static checker rejected program: %v", res.Errors)
+	}
+
+	values := []string{"r", "o", "c", "n", "s"}
+	for _, tname := range []string{"Rec", "Other", "Color"} {
+		runtimeTy, err := starlark.TypeOf(globals[tname])
+		if err != nil {
+			t.Fatalf("%s: runtime TypeOf: %v", tname, err)
+		}
+		staticTy, ok := res.Interface.Denoted(tname)
+		if !ok {
+			t.Fatalf("%s: no static denoted type", tname)
+		}
+		if got, want := staticTy.String(), runtimeTy.String(); got != want {
+			t.Errorf("%s: static display %q != runtime display %q", tname, got, want)
+		}
+		for _, vname := range values {
+			runtimeMatch := runtimeTy.Matches(globals[vname])
+			valTy, ok := res.Interface.Get(vname)
+			if !ok {
+				t.Fatalf("no static type for %s", vname)
+			}
+			staticMatch := typecheck.Intersects(valTy, staticTy)
+			if runtimeMatch != staticMatch {
+				t.Errorf("%s vs %s (static type %s): runtime match %v, static intersects %v",
+					tname, vname, valTy, runtimeMatch, staticMatch)
+			}
+		}
 	}
 }
 

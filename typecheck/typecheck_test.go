@@ -595,6 +595,280 @@ func TestPreciseBuiltinResults(t *testing.T) {
 	}
 }
 
+// TestPartialEval exercises the module-level partial evaluator:
+// type aliases under conditionals, defined inside functions, or
+// reassigned, beyond the literal Name = <type-expression> shape.
+func TestPartialEval(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		src  string
+		want []string // expected error substrings, in order; empty => no errors
+	}{
+		{
+			"cond_alias_agree",
+			`
+FLAG = True
+T = int if FLAG else int
+
+def f(x: T) -> int:
+    return x
+
+f("a")
+`,
+			[]string{"Expected type `int` but got `str`"},
+		},
+		{
+			"cond_alias_disagree",
+			`
+FLAG = True
+T = int if FLAG else float
+
+def f(x: T) -> int:
+    return 0
+
+f("a")
+`,
+			nil, // T is unknown: typing.Any
+		},
+		{
+			"if_else_alias_agree",
+			`
+def h() -> int:
+    if True:
+        T = int
+    else:
+        T = int
+    def g(x: T) -> int:
+        return x
+    return g("a")
+`,
+			[]string{"Expected type `int` but got `str`"},
+		},
+		{
+			"if_else_alias_disagree",
+			`
+def h() -> int:
+    if True:
+        T = int
+    else:
+        T = str
+    def g(x: T) -> int:
+        return 0
+    return g(3.5)
+`,
+			nil, // branches disagree: T is unknown
+		},
+		{
+			"function_scope_alias",
+			`
+def outer() -> int:
+    IntList = list[int]
+    def inner(xs: IntList) -> int:
+        return len(xs)
+    return inner("nope")
+`,
+			[]string{"Expected type `list[int]` but got `str`"},
+		},
+		{
+			"alias_chain",
+			`
+Row = list[int]
+Matrix = list[Row]
+
+def f(m: Matrix) -> int:
+    return len(m)
+
+f([["a"]])
+`,
+			[]string{"Expected type `list[list[int]]` but got `list[list[str]]`"},
+		},
+		{
+			"alias_reassigned_conflict",
+			`
+def f() -> int:
+    T = int
+    T = "x"
+    def g(y: T) -> int:
+        return 0
+    return g(3.5)
+`,
+			nil, // reassignment disagrees: T is unknown
+		},
+		{
+			"alias_shadowed_by_loop_var",
+			`
+def f() -> int:
+    T = int
+    for T in ["a"]:
+        pass
+    def g(y: T) -> int:
+        return 0
+    return g(3.5)
+`,
+			nil, // loop variable rebinding: T is unknown
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			res := check(t, test.src, nil)
+			var got []string
+			for _, e := range res.Errors {
+				got = append(got, e.Error())
+			}
+			if len(got) != len(test.want) {
+				t.Fatalf("got %d errors, want %d:\ngot:\n%s\nwant substrings:\n%s",
+					len(got), len(test.want), strings.Join(got, "\n"), strings.Join(test.want, "\n"))
+			}
+			for i, want := range test.want {
+				if !strings.Contains(got[i], want) {
+					t.Errorf("error %d = %q, want substring %q", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
+// TestErrorTagTyping exercises the static typing of error tag sets:
+// the binding's type carries the exact tag set as its attribute
+// table, so misspelled tags are caught.
+func TestErrorTagTyping(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			"tag_typo",
+			`
+errors = error_tags("NotFound", "Timeout")
+
+def f()! -> int:
+    return errors.NotFonud
+`,
+			[]string{"Object of type `error_tags` has no attribute `NotFonud`"},
+		},
+		{
+			"tag_ok",
+			`
+errors = error_tags("NotFound", "Timeout")
+
+def f(x: int)! -> int:
+    if x < 0:
+        return errors.NotFound
+    return x
+
+def g() -> int:
+    return f(1) catch 0
+`,
+			nil,
+		},
+		{
+			"tag_call_constructs_error",
+			`
+errors = error_tags("Boom")
+
+def f()! -> int:
+    return errors.Boom(message="exploded")
+`,
+			nil,
+		},
+		{
+			"tag_set_merge",
+			`
+a = error_tags("A")
+b = error_tags("B")
+c = a | b
+
+def f()! -> int:
+    return c.A
+`,
+			nil, // merged sets degrade to Any: lenient
+		},
+		{
+			"success_return_still_checked",
+			`
+errors = error_tags("Boom")
+
+def f()! -> int:
+    return "not an int"
+`,
+			[]string{"Expected type `error | error_tag | int` but got `str`"},
+		},
+		{
+			"tag_set_via_variable",
+			`
+errors = error_tags("NotFound")
+errs2 = errors
+
+def f()! -> int:
+    return errs2.NotFonud
+`,
+			[]string{"has no attribute `NotFonud`"},
+		},
+		{
+			"non_literal_tags_unknown",
+			`
+NAME = "NotFound"
+
+def name() -> str:
+    return "x"
+
+errors = error_tags(name())
+
+def f()! -> int:
+    return errors.Whatever
+`,
+			nil, // non-literal arguments: tag set is unknown
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			res := check(t, test.src, nil)
+			var got []string
+			for _, e := range res.Errors {
+				got = append(got, e.Error())
+			}
+			if len(got) != len(test.want) {
+				t.Fatalf("got %d errors, want %d:\ngot:\n%s\nwant substrings:\n%s",
+					len(got), len(test.want), strings.Join(got, "\n"), strings.Join(test.want, "\n"))
+			}
+			for i, want := range test.want {
+				if !strings.Contains(got[i], want) {
+					t.Errorf("error %d = %q, want substring %q", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
+// TestDenotedAcrossLoads checks that type aliases flow across load()
+// through the Interface's denoted-type channel.
+func TestDenotedAcrossLoads(t *testing.T) {
+	lib := check(t, `
+IntList = list[int]
+`, nil)
+	if len(lib.Errors) > 0 {
+		t.Fatalf("lib errors: %v", lib.Errors)
+	}
+	if ty, ok := lib.Interface.Denoted("IntList"); !ok || ty.String() != "list[int]" {
+		t.Fatalf("IntList denotes %s (ok=%v), want list[int]", ty, ok)
+	}
+
+	main := check(t, `
+load("lib.star", "IntList")
+
+def f(xs: IntList) -> int:
+    return len(xs)
+
+f("nope")
+`, map[string]*typecheck.Interface{"lib.star": lib.Interface})
+	var got []string
+	for _, e := range main.Errors {
+		got = append(got, e.Msg)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "Expected type `list[int]` but got `str`") {
+		t.Errorf("errors = %q", got)
+	}
+}
+
 func TestInterfaceAndLoads(t *testing.T) {
 	// Check a library module, then a dependent module using its Interface.
 	lib := check(t, `
