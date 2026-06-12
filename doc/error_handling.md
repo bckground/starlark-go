@@ -355,7 +355,7 @@ Starlark error:
 ```go
 var failErr *starlark.FailError
 if errors.As(err, &failErr) {
-    fmt.Println(failErr.Value.Tag)  // the error tag
+    fmt.Println(failErr.StarlarkError.Tag())  // the error tag
 }
 ```
 

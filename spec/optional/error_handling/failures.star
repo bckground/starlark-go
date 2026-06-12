@@ -42,3 +42,16 @@ def catches_try():
     return tries() catch "fallback"
 
 assert.fails(catches_try, "fail: boom")
+
+# fail accepts an error value like any other value, turning a caught
+# error into a failure; the abort message uses the tag's name. (This
+# is the handling that a module-level try is specified to perform.)
+def errors_softly()!:
+    return errs.E(message="ignored by fail")
+
+def fail_with_error():
+    e = errors_softly() catch err:
+        recover err
+    fail(e)
+
+assert.fails(fail_with_error, "fail: E")
