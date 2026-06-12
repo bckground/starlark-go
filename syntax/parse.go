@@ -930,10 +930,8 @@ func (p *parser) parseCatchSuffix(x Expr) Expr {
 	catchpos := p.nextToken() // consume CATCH
 
 	// Check if this is block form (catch e: ...) or value form (catch expr)
-	// Block form has an identifier followed by a colon
+	// Block form has an identifier immediately followed by a colon
 	if p.tok == IDENT {
-		// Peek ahead to see if there's a colon
-		checkpoint := p.in
 		errorVar := p.parseIdent()
 
 		if p.tok == COLON {
@@ -953,10 +951,14 @@ func (p *parser) parseCatchSuffix(x Expr) Expr {
 			}
 		}
 
-		// Not block form - restore position and parse as value form
-		// The identifier we just parsed is actually the start of the fallback expression
-		p.in = checkpoint
-		p.nextToken() // re-read the token
+		// Value form whose fallback expression begins with the
+		// identifier just consumed: continue parsing from it.
+		fallback := p.parseBinopExprFrom(p.parseSuffixes(errorVar), 0)
+		return &CatchExpr{
+			X:            x,
+			Catch:        catchpos,
+			FallbackExpr: fallback,
+		}
 	}
 
 	// Value form: catch <expr>
@@ -1014,7 +1016,12 @@ func (p *parser) parseTestPrec(prec int) Expr {
 // expr = test (OP test)*
 // Uses precedence climbing; see http://www.engr.mun.ca/~theo/Misc/exp_parsing.htm#climbing.
 func (p *parser) parseBinopExpr(prec int) Expr {
-	x := p.parseTestPrec(prec + 1)
+	return p.parseBinopExprFrom(p.parseTestPrec(prec+1), prec)
+}
+
+// parseBinopExprFrom continues precedence climbing with x as the
+// already-parsed left operand.
+func (p *parser) parseBinopExprFrom(x Expr, prec int) Expr {
 	for first := true; ; first = false {
 		if p.tok == NOT {
 			p.nextToken() // consume NOT
@@ -1083,7 +1090,12 @@ func init() {
 //	| primary slice_suffix
 //	| primary call_suffix
 func (p *parser) parsePrimaryWithSuffix() Expr {
-	x := p.parsePrimary()
+	return p.parseSuffixes(p.parsePrimary())
+}
+
+// parseSuffixes applies any dot, slice/index, and call suffixes to
+// the already-parsed primary expression x.
+func (p *parser) parseSuffixes(x Expr) Expr {
 	for {
 		switch p.tok {
 		case DOT:
