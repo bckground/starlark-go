@@ -2,8 +2,8 @@
 #
 # error(msg): report an error in Go's test framework without halting execution.
 #  This is distinct from the built-in fail function, which halts execution.
-# catch_error(f): evaluate f() and returns its evaluation error message, if any
-# matches(str, pattern): report whether str matches regular expression pattern.
+# trap(f): evaluate f() and returns its evaluation error message, if any
+# matches(pattern, str): report whether str matches regular expression pattern.
 # module(**kwargs): a constructor for a module.
 # _freeze(x): freeze the value x and everything reachable from it.
 # _floateq(x, y): reports floating point equality (within 1 ULP).
@@ -39,7 +39,7 @@ def _contains(x, y):
 
 def _fails(f, pattern):
     "assert_fails asserts that evaluation of f() fails with the specified error."
-    msg = catch_error(f)
+    msg = trap(f)
     if msg == None:
         error("evaluation succeeded unexpectedly (want error matching %r)" % pattern)
     elif not matches(pattern, msg):
