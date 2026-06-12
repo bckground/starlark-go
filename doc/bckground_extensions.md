@@ -297,9 +297,11 @@ It is a static error to use `catch` on a call to a function that is
 not marked with `!`.
 
 **Scoping.**
-Catch blocks do not create a new lexical scope; they behave like `if`
-statement bodies. Variables assigned in a catch block, including the
-error variable, are visible in the enclosing scope.
+A catch block introduces a new lexical scope. The error variable and
+any variables assigned inside the block are local to it, shadowing
+enclosing bindings of the same names and leaving them unchanged. The
+block may read and mutate values from enclosing scopes; results
+escape the block through `recover`'s operand, `return`, or mutation.
 
 ### Statements
 

@@ -247,9 +247,9 @@ dispatch. Treat it as a lint that covers the common case, not a soundness proof.
 
 **Catch Block Scoping:**
 
-- Catch blocks do NOT create new lexical scopes (like if statements)
-- Variables assigned in catch blocks are visible outside the block
-- The error variable (e.g., `e`) shadows any existing variable in the current scope
+- Catch blocks introduce a new lexical scope
+- The error variable and variables assigned in the block are local to it, shadowing enclosing bindings of the same names without overwriting them
+- Enclosing values can still be read and mutated from inside the block
 - Catch blocks MUST end with either `return` or `recover` (runtime error otherwise)
 
 **Error Propagation Model:**
