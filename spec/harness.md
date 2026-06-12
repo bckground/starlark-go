@@ -16,7 +16,7 @@ for `go.starlark.net` lives outside this directory — nothing under
 ```
 spec/
   harness.md            this document
-  core/                 the core language (doc/spec-original.md)
+  core/                 the core language (doc/spec_original.md)
   optional/<unit>/      one directory per optional unit
   interactions/<a>+<b>/ behavior requiring two or more units
 ```
