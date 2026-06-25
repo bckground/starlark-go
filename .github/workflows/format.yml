@@ -46,9 +46,10 @@ jobs:
 
       - uses: "bckground/actions/setup-mise@main"
         with:
-          mise_envs: "ci"
-          cache_name: "starlark-go"
-          s3_credentials: "${{ env.S3_CREDENTIALS }}"
+          mise-envs: "ci"
+          cache-name: "starlark-go"
+          cache-backend: "github"
+          s3-credentials: "${{ env.S3_CREDENTIALS }}"
 
       - name: "Run prettier"
         run: |
