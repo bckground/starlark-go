@@ -366,6 +366,53 @@ Test files demonstrating all features are in `starlark/testdata/`:
 - `errdefer.star` - Conditional deferred cleanup
 - `recover.star` - Resuming execution after errors
 
+## Spec Suite
+
+`spec/` holds an executable, implementation-independent specification
+of Starlark and this fork's extensions, in the style of ruby/spec.
+It is written in Starlark only — no Go may live under or be imported
+from `spec/`. The contract between the suite and any implementation
+that runs it is `spec/harness.md`; read it before adding spec files.
+
+**Layout.** `spec/core/` covers the core language (its normative
+document is `doc/spec_original.md`); `spec/optional/<unit>/` holds
+one directory per independently adoptable *unit* — dialect options
+(`set`, `while`, `recursion`, `toplevelcontrol`, `globalreassign`,
+`positionalonly`) and extensions (`defer`, `error_handling`,
+`types`) — each with a normative `spec.md` and a coverage `index.md`;
+`spec/interactions/<a>+<b>/` (alphabetical, `+`-joined) holds
+behavior defined only when several units combine.
+
+**File conventions.** A spec file is one Starlark program with a
+`# spec: spec.md#anchor` header naming the heading it exercises, and
+optionally `# requires: unit, ...` for units beyond those implied by
+its location. Files named `*_errors.star` (and only those) are
+chunked: `---` separates independent programs, and `### "regex"`
+(a Go-quoted string) on a line declares that the chunk fails at that
+line. The runner predeclares `assert`, `trap`, `matches`, and
+`freeze`; assertion failures are reported, not raised. Remember that
+core files run with *default* dialect options: no top-level
+control flow, no global reassignment, no `set`.
+
+**Runner.** `spectest/` is this implementation's runner
+(`go test ./spectest`); one subtest per file, gated on
+`spectest.Supported`, executed in a fresh module per program.
+`spectest/known_failures.txt` lists files expected to fail (reported
+as skips; a listed file that passes is an error). Go's test cache
+*is* `.star`-aware — it content-hashes the files the test opens and
+the directory listings it walks (see `go help test`), so edits and
+added/removed spec files invalidate it and a `(cached)` result is
+trustworthy; `-count=1` is not needed.
+
+**Discipline.** Spec files assert *normative* behavior, not whatever
+the implementation happens to do — testdata can encode bugs (bytes
+indexing did). Error-message regexes pin this implementation's
+wording but are advisory for other implementations; *that* an error
+occurs is the normative part. Implementation-specific behavior
+(embedder modules, machine-int boundaries, resource limits) belongs
+in package testdata, not in `spec/`; embedding-boundary obligations
+go in prose in the unit's `spec.md`.
+
 ## Integration Entry Points
 
 ### Execute a Starlark file from Go

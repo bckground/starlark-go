@@ -1921,14 +1921,73 @@ func (e *Error) Message() string {
 
 func (e *Error) Extra() Value { return e.extra }
 
-// FailError is the error returned by the fail() builtin when called with
-// a Starlark Error value. Go callers can use errors.As to extract it.
+// FailError is the error produced by a deliberate, fail-style abort: the
+// fail() builtin returns one, and a Go builtin may return one to raise the
+// equivalent of a fail(...) call. StarlarkError holds the Starlark error
+// value the failure carries, if any (fail(e) and module-level try set it).
+// Go callers can use errors.As to extract it from an EvalError's chain.
+//
+// Msg is the failure message content, without the "fail: " prefix: Error
+// renders every FailError with the prefix, however it was constructed --
+// the prefix marks the failure as fail-style, like the type itself. When
+// Msg is empty and StarlarkError is set, Error falls back to the error
+// value's representation (its tag name).
 type FailError struct {
 	Msg           string
 	StarlarkError *Error
 }
 
-func (e *FailError) Error() string { return e.Msg }
+func (e *FailError) Error() string {
+	msg := e.Msg
+	if msg == "" && e.StarlarkError != nil {
+		msg = e.StarlarkError.String()
+	}
+	return "fail: " + msg
+}
+
+// NewFailError returns the *FailError that a call to the fail builtin with
+// these arguments would produce, in one of two modes. In message mode, no
+// argument is an error value or error tag: arguments are rendered like str
+// (strings bare, other values in quoted form), joined by sep, and prefixed
+// with "fail: ". In payload mode, the sole argument is an error value or an
+// error tag (wrapped in an error value, like a !-function returning a bare
+// tag): it becomes StarlarkError, the payload the failure carries to the
+// embedder, and the message is its tag name.
+//
+// An error or error tag mixed with other arguments, or more than one of
+// them, has no coherent meaning: NewFailError returns a *FailError that
+// describes the misuse instead (with no payload), so the failure still
+// aborts with a useful message even when the arguments are forwarded from
+// untrusted script values.
+func NewFailError(sep string, args ...Value) *FailError {
+	var payload *Error
+	for _, v := range args {
+		switch v := v.(type) {
+		case *Error:
+			payload = v
+		case *ErrorTag:
+			payload = NewError(v, nil, nil, nil)
+		}
+	}
+	if payload != nil {
+		if len(args) != 1 {
+			return &FailError{Msg: "an error or error tag must be the sole argument to fail()"}
+		}
+		return &FailError{StarlarkError: payload}
+	}
+	buf := new(strings.Builder)
+	for i, v := range args {
+		if i > 0 {
+			buf.WriteString(sep)
+		}
+		if s, ok := AsString(v); ok {
+			buf.WriteString(s)
+		} else {
+			writeValue(buf, v, nil)
+		}
+	}
+	return &FailError{Msg: buf.String()}
+}
 
 // ReturnedError is the error returned by [Call] when an error-returning (!)
 // function, invoked directly from Go, explicitly returns an error value that no

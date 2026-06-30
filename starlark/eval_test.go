@@ -1025,6 +1025,228 @@ def fails()!:
 	})
 }
 
+// TestFailError verifies the fail-style half of the Go-boundary taxonomy
+// (doc/error_handling.md, "The Go boundary"): a fail() call surfaces to Go as
+// an *EvalError wrapping a *FailError — carrying the Starlark error value when
+// fail was given one — and a Go builtin returning a *FailError raises the
+// equivalent failure. Incidental builtin errors must not match *FailError.
+func TestFailError(t *testing.T) {
+	t.Run("fail with an error value", func(t *testing.T) {
+		const src = `
+errors = error_tags("Boom")
+def explode()!:
+    return errors.Boom(message = "kaboom", extra = 7)
+e = explode() catch err:
+    recover err
+fail(e)
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "failerr.star", src, nil)
+		var evalErr *starlark.EvalError
+		if !errors.As(err, &evalErr) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		if failErr.StarlarkError == nil {
+			t.Fatal("StarlarkError = nil, want the error value passed to fail")
+		}
+		if got := failErr.StarlarkError.Tag().Name(); got != "Boom" {
+			t.Errorf("tag = %q, want Boom", got)
+		}
+		if got := failErr.StarlarkError.Message(); got != "kaboom" {
+			t.Errorf("message = %q, want kaboom", got)
+		}
+	})
+
+	t.Run("fail without an error value", func(t *testing.T) {
+		_, err := starlark.ExecFile(&starlark.Thread{}, "fail.star", `fail("plain")`, nil)
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		if failErr.StarlarkError != nil {
+			t.Errorf("StarlarkError = %v, want nil for fail with no error value", failErr.StarlarkError)
+		}
+	})
+
+	t.Run("module-level try surfaces a FailError", func(t *testing.T) {
+		const src = `
+errors = error_tags("Cfg")
+def load_config()!:
+    return errors.Cfg(message = "config missing")
+config = try load_config()
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "topltry.star", src, nil)
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		if failErr.StarlarkError == nil || failErr.StarlarkError.Message() != "config missing" {
+			t.Errorf("StarlarkError = %v, want the error with message %q", failErr.StarlarkError, "config missing")
+		}
+	})
+
+	t.Run("builtin returning FailError mimics fail", func(t *testing.T) {
+		tag := starlark.NewErrorTag("Corrupt")
+		msg := "cache corrupted"
+		mustSync := starlark.NewBuiltin("must_sync", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return nil, &starlark.FailError{
+				Msg:           "cache corrupted",
+				StarlarkError: starlark.NewError(tag, &msg, nil, nil),
+			}
+		})
+		predeclared := starlark.StringDict{"must_sync": mustSync}
+		_, err := starlark.ExecFile(&starlark.Thread{}, "builtin.star", `must_sync()`, predeclared)
+		var evalErr *starlark.EvalError
+		if !errors.As(err, &evalErr) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		if failErr.StarlarkError == nil || failErr.StarlarkError.Tag() != tag {
+			t.Errorf("StarlarkError = %v, want the error with tag Corrupt", failErr.StarlarkError)
+		}
+		if got, want := failErr.Error(), "fail: cache corrupted"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("NewFailError mirrors fail", func(t *testing.T) {
+		// A Go builtin using NewFailError must produce exactly what the
+		// fail builtin produces for the same arguments, in both modes.
+		tag := starlark.NewErrorTag("Boom")
+		errVal := starlark.NewError(tag, nil, nil, nil)
+
+		// Message mode: strings bare, other values quoted, joined by sep.
+		msgArgs := starlark.Tuple{starlark.String("got"), starlark.NewList([]starlark.Value{starlark.MakeInt(2)})}
+		kwargs := []starlark.Tuple{{starlark.String("sep"), starlark.String("/")}}
+		_, err := starlark.Call(&starlark.Thread{}, starlark.Universe["fail"], msgArgs, kwargs)
+		var fromFail *starlark.FailError
+		if !errors.As(err, &fromFail) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		fromGo := starlark.NewFailError("/", msgArgs...)
+		if fromGo.Msg != fromFail.Msg {
+			t.Errorf("NewFailError Msg = %q, fail() Msg = %q", fromGo.Msg, fromFail.Msg)
+		}
+		if got, want := fromGo.Msg, `got/[2]`; got != want {
+			t.Errorf("Msg = %q, want %q (strings bare, other values quoted)", got, want)
+		}
+		if fromGo.StarlarkError != nil || fromFail.StarlarkError != nil {
+			t.Errorf("message mode must carry no payload; NewFailError = %v, fail() = %v", fromGo.StarlarkError, fromFail.StarlarkError)
+		}
+
+		// Payload mode: the sole argument is the payload.
+		_, err = starlark.Call(&starlark.Thread{}, starlark.Universe["fail"], starlark.Tuple{errVal}, nil)
+		if !errors.As(err, &fromFail) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		fromGo = starlark.NewFailError(" ", errVal)
+		if fromGo.Msg != fromFail.Msg || fromGo.Error() != "fail: Boom" {
+			t.Errorf("payload mode: NewFailError Msg = %q, fail() Msg = %q, Error() = %q, want Error() %q", fromGo.Msg, fromFail.Msg, fromGo.Error(), "fail: Boom")
+		}
+		if fromGo.StarlarkError != errVal || fromFail.StarlarkError != errVal {
+			t.Errorf("StarlarkError: NewFailError = %v, fail() = %v, want the error value", fromGo.StarlarkError, fromFail.StarlarkError)
+		}
+	})
+
+	t.Run("fail with an error tag wraps it", func(t *testing.T) {
+		const src = `
+errors = error_tags("Boom")
+fail(errors.Boom)
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "tag.star", src, nil)
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want it to wrap *starlark.FailError", err)
+		}
+		if failErr.StarlarkError == nil {
+			t.Fatal("StarlarkError = nil, want the tag wrapped in an error value")
+		}
+		if got := failErr.StarlarkError.Tag().Name(); got != "Boom" {
+			t.Errorf("tag = %q, want Boom", got)
+		}
+		if got, want := failErr.Error(), "fail: Boom"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("mixing an error with other arguments is rejected", func(t *testing.T) {
+		const src = `
+errors = error_tags("Boom")
+fail("context:", errors.Boom(message = "m"))
+`
+		_, err := starlark.ExecFile(&starlark.Thread{}, "mixed.star", src, nil)
+		if err == nil || !strings.Contains(err.Error(), "must be the sole argument") {
+			t.Fatalf("err = %v, want the sole-argument rejection", err)
+		}
+		var failErr *starlark.FailError
+		if !errors.As(err, &failErr) {
+			t.Fatalf("err = %v, want the misuse to surface as a *FailError", err)
+		}
+		if failErr.StarlarkError != nil {
+			t.Errorf("StarlarkError = %v, want nil: a misuse carries no payload", failErr.StarlarkError)
+		}
+	})
+
+	t.Run("NewFailError describes a mixed call", func(t *testing.T) {
+		tag := starlark.NewErrorTag("Boom")
+		errVal := starlark.NewError(tag, nil, nil, nil)
+		fe := starlark.NewFailError(" ", starlark.String("context:"), errVal)
+		if got, want := fe.Error(), "fail: an error or error tag must be the sole argument to fail()"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+		if fe.StarlarkError != nil {
+			t.Errorf("StarlarkError = %v, want nil: a misuse carries no payload", fe.StarlarkError)
+		}
+	})
+
+	t.Run("FailError message composition", func(t *testing.T) {
+		// Error() renders every FailError with the "fail: " prefix,
+		// however it was constructed: Msg is the message content, and an
+		// empty Msg falls back to the error value's representation (its
+		// tag name).
+		tag := starlark.NewErrorTag("Boom")
+		e := starlark.NewError(tag, nil, nil, nil)
+		for _, test := range []struct {
+			fe   *starlark.FailError
+			want string
+		}{
+			{starlark.NewFailError(" ", starlark.String("boom")), "fail: boom"},
+			{starlark.NewFailError(" "), "fail: "},
+			{starlark.NewFailError(" ", e), "fail: Boom"},
+			{&starlark.FailError{Msg: "boom"}, "fail: boom"},
+			{&starlark.FailError{}, "fail: "},
+			{&starlark.FailError{StarlarkError: e}, "fail: Boom"},
+			{&starlark.FailError{Msg: "custom", StarlarkError: e}, "fail: custom"},
+		} {
+			if got := test.fe.Error(); got != test.want {
+				t.Errorf("Error() = %q, want %q", got, test.want)
+			}
+		}
+	})
+
+	t.Run("incidental builtin error is not a FailError", func(t *testing.T) {
+		faulty := starlark.NewBuiltin("faulty", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return nil, fmt.Errorf("disk on fire")
+		})
+		predeclared := starlark.StringDict{"faulty": faulty}
+		_, err := starlark.ExecFile(&starlark.Thread{}, "faulty.star", `faulty()`, predeclared)
+		var evalErr *starlark.EvalError
+		if !errors.As(err, &evalErr) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		var failErr *starlark.FailError
+		if errors.As(err, &failErr) {
+			t.Errorf("incidental builtin error incorrectly matched *FailError: %v", err)
+		}
+	})
+}
+
 // TestPlainCallFromBuiltinSurfacesReturnedError checks that when a Go builtin
 // invokes a !-function via plain Call, an uncaught error comes back to the
 // builtin on the error channel as a ReturnedError, rather than being deposited

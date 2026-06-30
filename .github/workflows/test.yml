@@ -64,9 +64,14 @@ jobs:
         run: |
           go mod download
 
+      - name: "Confirm that go.mod and go.sum are tidy"
+        run: |
+          go mod tidy -diff
+
       - name: "Run all tests"
         shell: bash
-        run: "internal/test.sh"
+        run: |
+          gotestsum --junitfile=junitreport.xml -- -count=1 -race ./...
 
       - name: "Publish test report"
         uses: "mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386" # v6.4.0
