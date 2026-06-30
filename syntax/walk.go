@@ -35,6 +35,9 @@ func Walk(n Node, f func(Node) bool) {
 
 	case *AssignStmt:
 		Walk(n.LHS, f)
+		if n.Type != nil {
+			Walk(n.Type, f)
+		}
 		Walk(n.RHS, f)
 
 	case *DefStmt:
@@ -42,7 +45,19 @@ func Walk(n Node, f func(Node) bool) {
 		for _, param := range n.Params {
 			Walk(param, f)
 		}
+		if n.Return != nil {
+			Walk(n.Return, f)
+		}
 		walkStmts(n.Body, f)
+
+	case *DeferStmt:
+		Walk(n.Call, f)
+
+	case *ErrDeferStmt:
+		Walk(n.Call, f)
+
+	case *RecoverStmt:
+		Walk(n.Result, f)
 
 	case *ForStmt:
 		Walk(n.Vars, f)
@@ -67,8 +82,28 @@ func Walk(n Node, f func(Node) bool) {
 			Walk(to, f)
 		}
 
-	case *Ident, *Literal:
+	case *Ident, *Literal, *EllipsisExpr:
 		// no-op
+
+	case *TypedParam:
+		Walk(n.X, f)
+		Walk(n.Type, f)
+		if n.Default != nil {
+			Walk(n.Default, f)
+		}
+
+	case *TryExpr:
+		Walk(n.X, f)
+
+	case *CatchExpr:
+		Walk(n.X, f)
+		if n.ErrorVar != nil {
+			Walk(n.ErrorVar, f)
+		}
+		if n.FallbackExpr != nil {
+			Walk(n.FallbackExpr, f)
+		}
+		walkStmts(n.FallbackBlock, f)
 
 	case *ListExpr:
 		for _, x := range n.List {

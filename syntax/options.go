@@ -30,10 +30,27 @@ type FileOptions struct {
 
 	// parser
 	LoadModuleBinding bool // allow load("foo.star") as shorthand for load("foo.star", "foo")
+	PositionalOnly    bool // allow positional-only parameters: def f(x, /)
+
+	// parser, resolver, compiler
+	Types TypesMode // support for type annotations (def f(x: int) -> str, x: int = ...)
 
 	// compiler
 	Recursion bool // disable recursion check for functions in this file
 }
+
+// TypesMode controls support for type annotations, mirroring the three
+// modes of starlark-rust's DialectTypes.
+type TypesMode int
+
+const (
+	// TypesDisabled makes type annotation syntax a parse error (default).
+	TypesDisabled TypesMode = iota
+	// TypesParseOnly parses and validates annotations but ignores them at runtime.
+	TypesParseOnly
+	// TypesEnabled parses, validates, and checks annotations at runtime.
+	TypesEnabled
+)
 
 // TODO(adonovan): provide a canonical flag parser for FileOptions.
 // (And use it in the testdata "options:" strings.)

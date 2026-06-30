@@ -71,6 +71,26 @@ func init() {
 		"tuple":      NewBuiltin("tuple", tuple),
 		"type":       NewBuiltin("type", type_),
 		"zip":        NewBuiltin("zip", zip),
+		"isinstance": NewBuiltin("isinstance", isinstance),
+		"eval_type":  NewBuiltin("eval_type", evalType),
+	}
+
+	// Register the canonical type constructors so that they may be
+	// used as type annotations (see type.go).
+	for name, kind := range map[string]typeKind{
+		"bool":  kindBool,
+		"bytes": kindBytes,
+		"dict":  kindDict,
+		"float": kindFloat,
+		"int":   kindInt,
+		"list":  kindList,
+		"range": kindRange,
+		"set":   kindSet,
+		"str":   kindStr,
+		"tuple": kindTuple,
+		"type":  kindType,
+	} {
+		typeConstructors[Universe[name].(*Builtin)] = kind
 	}
 }
 

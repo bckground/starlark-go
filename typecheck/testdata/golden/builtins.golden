@@ -1,0 +1,4 @@
+builtins.star:4:11: Binary operator `+` is not available on the types `int` and `str`
+builtins.star:7:26: Expected type `tuple[str, int]` but got `tuple[int, str]`
+builtins.star:10:19: Binary operator `+` is not available on the types `int` and `list[typing.Never]`
+builtins.star:13:7: Binary operator `+` is not available on the types `int` and `str`

@@ -78,6 +78,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"go.starlark.net/internal/compile"
@@ -733,6 +734,15 @@ type Function struct {
 	module   *Module
 	defaults Tuple
 	freevars Tuple
+	ptypes   []*Type // parameter types indexed by local slot; nil if no annotations
+	rtype    *Type   // return type, or nil
+
+	// typecaches holds the values of constant annotated-assignment
+	// type expressions, each evaluated once per Function on first
+	// execution (TYPEFETCH/TYPESTORE). Atomic: a frozen Function may
+	// be called concurrently; concurrent first executions of a slot
+	// store equal values, so either store may win.
+	typecaches []atomic.Value
 }
 
 // A Module represents an evaluated Starlark module.
@@ -787,6 +797,10 @@ func (fn *Function) Position() syntax.Position { return fn.funcode.Pos }
 func (fn *Function) NumParams() int            { return fn.funcode.NumParams }
 func (fn *Function) NumKwonlyParams() int      { return fn.funcode.NumKwonlyParams }
 
+// NumPositionalOnly returns the number of parameters that may be
+// filled only positionally (those before a / marker).
+func (fn *Function) NumPositionalOnly() int { return fn.funcode.NumPositionalOnly }
+
 // Param returns the name and position of the ith parameter,
 // where 0 <= i < NumParams().
 // The *args and **kwargs parameters are at the end
@@ -830,6 +844,23 @@ func (fn *Function) HasVarargs() bool     { return fn.funcode.HasVarargs }
 func (fn *Function) HasKwargs() bool      { return fn.funcode.HasKwargs }
 func (fn *Function) CanReturnError() bool { return fn.funcode.CanReturnError }
 
+// ParamType returns the type annotation of the specified parameter
+// (0 <= i < NumParams()), or nil if the parameter is unannotated or
+// runtime type checking is not enabled.
+func (fn *Function) ParamType(i int) *Type {
+	if i < 0 || i >= fn.NumParams() {
+		panic(i)
+	}
+	if fn.ptypes == nil {
+		return nil
+	}
+	return fn.ptypes[i]
+}
+
+// ReturnType returns the function's return type annotation, or nil if
+// absent or runtime type checking is not enabled.
+func (fn *Function) ReturnType() *Type { return fn.rtype }
+
 // NumFreeVars returns the number of free variables of this function.
 func (fn *Function) NumFreeVars() int { return len(fn.funcode.FreeVars) }
 
@@ -837,6 +868,19 @@ func (fn *Function) NumFreeVars() int { return len(fn.funcode.FreeVars) }
 // of the i'th free variable of function fn.
 func (fn *Function) FreeVar(i int) (Binding, Value) {
 	return Binding(fn.funcode.FreeVars[i]), fn.freevars[i].(*cell).v
+}
+
+// Exportable is implemented by values that are notified of the name
+// of the module-level variable to which they are assigned, like
+// starlark-rust's export_as mechanism. It allows otherwise anonymous
+// values such as record and enum types to take on meaningful names
+// for display and error messages.
+//
+// ExportAs is called each time the value is assigned to a module
+// global; implementations should typically honor only the first call.
+type Exportable interface {
+	Value
+	ExportAs(name string)
 }
 
 // A Builtin is a function implemented in Go.
@@ -1701,7 +1745,7 @@ func (b Bytes) Freeze()               {} // immutable
 func (b Bytes) Truth() Bool           { return len(b) > 0 }
 func (b Bytes) Hash() (uint32, error) { return String(b).Hash() }
 func (b Bytes) Len() int              { return len(b) }
-func (b Bytes) Index(i int) Value     { return b[i : i+1] }
+func (b Bytes) Index(i int) Value     { return MakeInt(int(b[i])) }
 
 func (b Bytes) Attr(name string) (Value, error) { return builtinAttr(b, name, bytesMethods) }
 func (b Bytes) AttrNames() []string             { return builtinAttrNames(bytesMethods) }

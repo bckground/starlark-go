@@ -673,3 +673,70 @@ def outer():
   def caller():
     x = normal() catch "default" ### "catch requires call to error-returning function"
   caller()
+
+---
+# option:types
+# undefined names in type annotations are resolved (TypesEnabled)
+
+def f(x: undefined_type): ### "undefined: undefined_type"
+  pass
+
+---
+# option:types
+# undefined name in return type annotation
+
+def f(x) -> undefined_type: ### "undefined: undefined_type"
+  pass
+
+---
+# option:types
+# undefined name in annotated assignment
+
+def f():
+  x: undefined_type = 1 ### "undefined: undefined_type"
+
+---
+# option:typesparseonly
+# in parse-only mode, names in annotations are ignored, not resolved
+
+def f(x: undefined_type) -> another_undefined:
+  y: third_undefined = 1
+  return y
+
+---
+# option:types
+# annotations referring to defined names are fine; annotated params
+# behave like ordinary parameters (duplicates, ordering)
+
+T = U
+
+def f(x: T, y: T = 1, *args: T, z: T, **kwargs: T) -> T:
+  return x
+
+def g(x: T, x: T): ### "duplicate parameter: x"
+  pass
+
+def h(x: T = 1, y: T): ### "required parameter may not follow optional"
+  pass
+
+---
+# option:positionalonly
+# positional-only parameter marker rules
+
+def ok(x, /, y, *args, z, **kwargs):
+  pass
+
+def ok2(x, y=1, /, z=2):
+  pass
+
+def first(/, x): ### "/ must follow at least one parameter"
+  pass
+
+def multiple(x, /, y, /): ### "multiple / parameters not allowed"
+  pass
+
+def afterstar(x, *args, /): ### "/ parameter may not follow"
+  pass
+
+def afterkwargs(x, **kwargs, /): ### "/ parameter may not follow"
+  pass

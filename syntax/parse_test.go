@@ -346,6 +346,151 @@ def h():
 	}
 }
 
+func TestTypeAnnotationParseTrees(t *testing.T) {
+	opts := &syntax.FileOptions{Types: syntax.TypesEnabled}
+	for _, test := range []struct {
+		input, want string
+	}{
+		{
+			`def f(x: int) -> str: pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=int)) Return=str Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: int = 3): pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=int Default=3)) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(*args: int, **kwargs: str): pass`,
+			`(DefStmt Name=f Params=((TypedParam X=(UnaryExpr Op=* X=args) Type=int) (TypedParam X=(UnaryExpr Op=** X=kwargs) Type=str)) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x)! -> int: pass`,
+			`(DefStmt Name=f Params=(x) Return=int Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: list[int] | None = None): pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=(BinaryExpr X=(IndexExpr X=list Y=int) Op=| Y=None) Default=None)) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: dict[str, int]): pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=(IndexExpr X=dict Y=(TupleExpr List=(str int))))) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: tuple[int, ...]): pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=(IndexExpr X=tuple Y=(TupleExpr List=(int (EllipsisExpr)))))) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: typing.Callable[[int], str]): pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=(IndexExpr X=(DotExpr X=typing Name=Callable) Y=(TupleExpr List=((ListExpr List=(int)) str))))) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`x: int = 5`,
+			`(AssignStmt Op== LHS=x Type=int RHS=5)`,
+		},
+		{
+			`x.f: int = 5`,
+			`(AssignStmt Op== LHS=(DotExpr X=x Name=f) Type=int RHS=5)`,
+		},
+		{
+			// lambda params never take annotations: colon ends the params
+			`f = lambda x: x`,
+			`(AssignStmt Op== LHS=f RHS=(LambdaExpr Params=(x) Body=x))`,
+		},
+	} {
+		f, err := opts.Parse("foo.star", test.input, 0)
+		if err != nil {
+			t.Errorf("parse `%s` failed: %v", test.input, stripPos(err))
+			continue
+		}
+		if got := treeString(f.Stmts[0]); test.want != got {
+			t.Errorf("parse `%s` = %s, want %s", test.input, got, test.want)
+		}
+	}
+}
+
+func TestPositionalOnlyParseTrees(t *testing.T) {
+	opts := &syntax.FileOptions{PositionalOnly: true, Types: syntax.TypesEnabled}
+	for _, test := range []struct {
+		input, want string
+	}{
+		{
+			`def f(x, /, y): pass`,
+			`(DefStmt Name=f Params=(x (UnaryExpr Op=/) y) Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`def f(x: int, /, y: str) -> int: pass`,
+			`(DefStmt Name=f Params=((TypedParam X=x Type=int) (UnaryExpr Op=/) (TypedParam X=y Type=str)) Return=int Body=((BranchStmt Token=pass)))`,
+		},
+		{
+			`f = lambda x, /, y: x`,
+			`(AssignStmt Op== LHS=f RHS=(LambdaExpr Params=(x (UnaryExpr Op=/) y) Body=x))`,
+		},
+	} {
+		f, err := opts.Parse("foo.star", test.input, 0)
+		if err != nil {
+			t.Errorf("parse `%s` failed: %v", test.input, stripPos(err))
+			continue
+		}
+		if got := treeString(f.Stmts[0]); test.want != got {
+			t.Errorf("parse `%s` = %s, want %s", test.input, got, test.want)
+		}
+	}
+}
+
+func TestTypeAnnotationErrors(t *testing.T) {
+	enabled := &syntax.FileOptions{Types: syntax.TypesEnabled}
+	parseonly := &syntax.FileOptions{Types: syntax.TypesParseOnly}
+	disabled := &syntax.FileOptions{}
+	for _, test := range []struct {
+		opts  *syntax.FileOptions
+		input string
+		want  string // prefix of error, or "" for success
+	}{
+		// dialect gating
+		{disabled, `def f(x: int): pass`, `foo.star:1:9: type annotations are not allowed in this dialect`},
+		{disabled, `def f(x) -> int: pass`, `foo.star:1:12: type annotations are not allowed in this dialect`},
+		{disabled, `x: int = 1`, `foo.star:1:3: type annotations are not allowed in this dialect`},
+		{parseonly, `def f(x: int) -> str: pass`, ``},
+		{parseonly, `x: int = 1`, ``},
+		// restricted type-expression grammar
+		{enabled, `x: "abc" = 1`, `foo.star:1:4: string literal expression is not allowed in type expression`},
+		{enabled, `x: 3 = 1`, `foo.star:1:4: int literal expression is not allowed in type expression`},
+		{enabled, `def f(x: g(1)): pass`, `foo.star:1:10: call expression is not allowed in type expression`},
+		{enabled, `def f(x: [int]): pass`, `foo.star:1:10: list of 1 element expression is not allowed in type expression`},
+		{enabled, `def f(x: []): pass`, `foo.star:1:10: empty list is not allowed in type expression`},
+		{enabled, `def f(x: int + str): pass`, `foo.star:1:10: binary operator (other than ` + "`|`" + `) expression is not allowed in type expression`},
+		{enabled, `def f(x: int if y else str): pass`, `foo.star:1:10: if expression is not allowed in type expression`},
+		{enabled, `def f(x: not int): pass`, `foo.star:1:10: not expression is not allowed in type expression`},
+		{enabled, `def f(x: lambda: 1): pass`, `foo.star:1:10: lambda expression is not allowed in type expression`},
+		{enabled, `def f(x: a[1:2]): pass`, `foo.star:1:10: slice expression is not allowed in type expression`},
+		{enabled, `def f(x: {1: 2}): pass`, `foo.star:1:10: dict expression is not allowed in type expression`},
+		{enabled, `def f(x: a.b.type): pass`, "foo.star:1:10: `a.b.type` is not allowed in type expression, use `a.b` instead"},
+		{enabled, `def f(x: a[0].b): pass`, `foo.star:1:10: only dot expressions of form ` + "`a.b.c`" + ` are allowed in type expression`},
+		// legacy union list syntax is accepted
+		{enabled, `def f(x: [int, str]): pass`, ``},
+		// misc placement errors
+		{enabled, `(x, y): int = foo`, `foo.star:1:8: type annotations not allowed on multiple assignments`},
+		{enabled, `x: int`, `foo.star:1:7: got end of file, want '=' after type annotation`},
+		{enabled, `def f(*: int): pass`, `foo.star:1:9: bare * parameter cannot have a type annotation`},
+		// positional-only parameters require their dialect option
+		{enabled, `def f(x, /): pass`, `foo.star:1:11: positional-only parameters are not allowed in this dialect`},
+		{disabled, `def f(x, /): pass`, `foo.star:1:11: positional-only parameters are not allowed in this dialect`},
+	} {
+		_, err := test.opts.Parse("foo.star", test.input, 0)
+		if test.want == "" {
+			if err != nil {
+				t.Errorf("parse `%s` failed: %v", test.input, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("parse `%s` succeeded, want error %q", test.input, test.want)
+		} else if !strings.HasPrefix(err.Error(), test.want) {
+			t.Errorf("parse `%s` = error %q, want prefix %q", test.input, err.Error(), test.want)
+		}
+	}
+}
+
 // TestFileParseTrees tests sequences of statements, and particularly
 // handling of indentation, newlines, line continuations, and blank lines.
 func TestFileParseTrees(t *testing.T) {

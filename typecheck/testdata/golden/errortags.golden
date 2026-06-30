@@ -1,0 +1,2 @@
+errortags.star:15:18: Object of type `error_tags` has no attribute `NotFonud`
+errortags.star:18:12: Expected type `error | error_tag | str` but got `int`

@@ -1,0 +1,6 @@
+operators.star:4:11: Binary operator `+` is not available on the types `int` and `str`
+operators.star:5:9: Unary operator `-` is not available on the type `str`
+operators.star:6:14: Expected type `int` but got `str`
+operators.star:7:11: Binary operator `<` is not available on the types `int` and `str`
+operators.star:8:11: Binary operator `in` is not available on the types `int` and `str`
+operators.star:10:16: Expected type `str` but got `None`
