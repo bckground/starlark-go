@@ -83,9 +83,9 @@ assert.eq(hash(b"a"), 0xe40c292c)
 assert.eq(hash(b"ab"), 0x4d2505ca)
 assert.eq(hash(b"abc"), 0x1a47e90b)
 
-# indexing
-assert.eq(goodbye[0], b"g")
-assert.eq(goodbye[-1], b"e")
+# indexing yields the byte's value as an int
+assert.eq(goodbye[0], 103)
+assert.eq(goodbye[-1], 101)
 assert.fails(lambda: goodbye[100], "out of range")
 
 # slicing

@@ -1,139 +1,9 @@
-# Starlark Extensions
+# Error handling
 
-This document describes the language extensions added to this Starlark
-implementation beyond the
-[standard specification](spec.md). These extensions are specific to
-the Go implementation at `go.starlark.net/starlark`.
-
-- [Defer statements](#defer-statements)
-- [Error handling](#error-handling)
-  - [Data types](#data-types)
-  - [Expressions](#expressions)
-  - [Statements](#statements)
-  - [Built-in functions](#built-in-functions)
-  - [Static validation](#static-validation)
-  - [Module-level try](#module-level-try)
-  - [Execution model](#execution-model)
-  - [Examples](#examples)
-
-## Defer statements
-
-A `defer` statement schedules a function call to be executed when the
-enclosing function returns.
-
-```grammar {.good}
-DeferStmt = 'defer' CallExpr .
-```
-
-The operand of `defer` must be a function call expression. The
-function and all its arguments are evaluated immediately when the
-`defer` statement is executed, but the call itself is not performed
-until the enclosing function returns.
-
-```python
-def process():
-    f = open("data.txt")
-    defer close(f)
-    return parse(f)    # close(f) runs after parse completes
-```
-
-A `defer` statement may appear only inside a function body. It is a
-static error to use `defer` at module level.
-
-### Multiple defers
-
-A function may contain multiple `defer` statements. Deferred calls
-execute in LIFO (last-in, first-out) order, like a stack: the most
-recently deferred call runs first.
-
-```python
-def f():
-    log = []
-    defer log.append("first")
-    defer log.append("second")
-    defer log.append("third")
-    log.append("body")
-    return log
-
-f()     # ["body", "third", "second", "first"]
-```
-
-### Argument evaluation
-
-Arguments to a deferred call are evaluated at the point of the `defer`
-statement, not at the point where the deferred call executes. This is
-important when variables are reassigned between the `defer` and the
-function's return.
-
-```python
-def f():
-    result = []
-    i = 0
-    defer result.append(i)   # captures i=0
-    i = 1
-    defer result.append(i)   # captures i=1
-    i = 2
-    result.append(i)         # appends 2 immediately
-    return result
-
-f()     # [2, 1, 0]
-```
-
-### Execution guarantees
-
-Deferred calls execute on all exit paths of the enclosing function:
-normal return, early return, and error propagation (see
-[Error handling](#error-handling) below). This makes `defer` suitable
-for cleanup operations that must always run.
-
-```python
-def process(flag):
-    result = []
-    defer result.append("cleanup")
-    if flag:
-        result.append("early")
-        return result       # cleanup runs here
-    result.append("normal")
-    return result           # cleanup runs here too
-```
-
-### Nested functions
-
-Each function has its own independent defer stack. Deferred calls in
-an inner function do not affect the outer function's defer stack, and
-vice versa.
-
-```python
-def outer():
-    result = []
-    defer result.append("outer-defer")
-    def inner():
-        defer result.append("inner-defer")
-        result.append("inner-body")
-    inner()
-    result.append("outer-body")
-    return result
-
-outer()     # ["inner-body", "inner-defer", "outer-body", "outer-defer"]
-```
-
-### Keyword arguments
-
-Deferred calls support the same argument-passing conventions as
-ordinary calls, including positional arguments, keyword arguments, and
-mixed forms.
-
-```python
-def f():
-    defer log(level="info", msg="done")
-    work()
-```
-
----
-
-## Error handling
-
-This section describes the error handling extension, inspired by Zig's
+This document describes the error handling extension added to this
+Starlark implementation beyond the
+[standard specification](spec.md). It is specific to the Go
+implementation at `go.starlark.net/starlark`, and is inspired by Zig's
 error return traces. It extends the language with explicit error
 values, error propagation, and structured error handling, giving
 programs a way to represent, propagate, and recover from expected
@@ -143,7 +13,17 @@ built-in.
 Standard Starlark provides no mechanism by which errors can be handled
 within the language (see [spec.md](spec.md#module-execution)).
 
-### Overview
+- [Overview](#overview)
+- [Data types](#data-types)
+- [Expressions](#expressions)
+- [Statements](#statements)
+- [Built-in functions](#built-in-functions)
+- [Static validation](#static-validation)
+- [Module-level try](#module-level-try)
+- [Execution model](#execution-model)
+- [Examples](#examples)
+
+## Overview
 
 The error handling system introduces the following constructs:
 
@@ -151,19 +31,20 @@ The error handling system introduces the following constructs:
 - **Error tag sets** (`error_tags(...)`) -- namespaces of error tag values.
 - **`try`** -- explicit error propagation from a `!` call to the enclosing `!` function.
 - **`catch`** -- interception and handling of errors from `!` calls.
-- **`errdefer`** -- deferred calls that execute only on error paths.
+- **`errdefer`** -- deferred calls that execute only on error paths
+  (see [Defer statements](defer.md)).
 - **`recover`** -- resumption of normal execution from within a `catch` block.
 
 The central design principle is that error flow is always visible in
 the source code: a call to an error-returning function must be wrapped
 in `try` or `catch`, and error propagation never happens silently.
 
-### Data types
+## Data types
 
-#### Error tags
+### Error tags
 
 An _error tag_ is an immutable, hashable value that identifies a class
-of error. Its [type](#type) is `"error_tag"`.
+of error. Its [type](spec.md#type) is `"error_tag"`.
 
 Error tags are created by the built-in function `error_tags`
 (see [Built-in functions](#error_tags)). They are compared by
@@ -179,10 +60,10 @@ errors.NotFound == errors.NotFound  # True
 errors.NotFound == errors.Timeout   # False
 ```
 
-#### Errors
+### Errors
 
 An _error_ is an immutable value that pairs an error tag with optional
-metadata. Its [type](#type) is `"error"`.
+metadata. Its [type](spec.md#type) is `"error"`.
 
 An error has the following attributes:
 
@@ -208,15 +89,15 @@ e.message   # "disk full"
 e.extra     # {"device": "sda1"}
 ```
 
-#### Error tag sets
+### Error tag sets
 
 An _error tag set_ is an immutable namespace whose attributes are error
-tags. Its [type](#type) is `"error_tags"`. Error tag sets are created by the
+tags. Its [type](spec.md#type) is `"error_tags"`. Error tag sets are created by the
 `error_tags` built-in function.
 
-### Expressions
+## Expressions
 
-#### Try expressions
+### Try expressions
 
 A `try` expression propagates an error from a call to an
 error-returning function.
@@ -255,7 +136,7 @@ def g()!:
     x = try normal()       # static error: try requires call to error-returning function
 ```
 
-#### Catch expressions
+### Catch expressions
 
 A `catch` expression intercepts an error from a call to an
 error-returning function. It has two forms: _value form_ and
@@ -289,6 +170,10 @@ config = read_config() catch e:
     recover default_config
 ```
 
+The two forms are distinguished after the `catch` keyword: an
+identifier immediately followed by `:` selects the block form;
+anything else is a value-form fallback expression.
+
 A catch expression may appear in any function (not only `!` functions)
 and at module level. It is the primary way for non-`!` code to call
 `!` functions.
@@ -297,13 +182,15 @@ It is a static error to use `catch` on a call to a function that is
 not marked with `!`.
 
 **Scoping.**
-Catch blocks do not create a new lexical scope; they behave like `if`
-statement bodies. Variables assigned in a catch block, including the
-error variable, are visible in the enclosing scope.
+A catch block introduces a new lexical scope. The error variable and
+any variables assigned inside the block are local to it, shadowing
+enclosing bindings of the same names and leaving them unchanged. The
+block may read and mutate values from enclosing scopes; results
+escape the block through `recover`'s operand, `return`, or mutation.
 
-### Statements
+## Statements
 
-#### Error-returning function definitions
+### Error-returning function definitions
 
 A function definition may include a `!` marker after the parameter
 list to indicate that the function can return error values.
@@ -334,7 +221,7 @@ expression or an `errdefer` statement.
 Every call to a `!` function must be wrapped in `try` or `catch`.
 It is a static error to call a `!` function without either.
 
-#### Errdefer statements
+### Errdefer statements
 
 An `errdefer` statement registers a deferred function call that
 executes only if the enclosing function exits with an error.
@@ -347,7 +234,7 @@ An `errdefer` statement may appear only inside an error-returning
 function. It is a static error to use `errdefer` in a non-`!`
 function.
 
-Like `defer`, arguments to the deferred call are evaluated
+Like [`defer`](defer.md), arguments to the deferred call are evaluated
 immediately, but the call itself is deferred. Multiple `errdefer`
 statements execute in LIFO (last-in, first-out) order, and they
 execute before any regular `defer` statements.
@@ -368,7 +255,7 @@ def process_file(path)!:
 # If transform succeeds: only close() runs.
 ```
 
-#### Recover statements
+### Recover statements
 
 A `recover` statement may appear only inside the block form of a
 `catch` expression. It ends execution of the catch block and provides
@@ -391,9 +278,9 @@ It is a static error to use `recover` outside of a catch block.
 A catch block that does not end with `recover` or `return` causes a
 dynamic error at runtime.
 
-### Built-in functions
+## Built-in functions
 
-#### error_tags
+### error_tags
 
 `error_tags(*names)` creates an error tag set containing one error tag for
 each of the given string arguments. The tags are accessible as
@@ -415,7 +302,7 @@ e.tag                       # NotFound
 e.message                   # "user 42 not found"
 ```
 
-### Static validation
+## Static validation
 
 The following rules are enforced at compile time (during name resolution):
 
@@ -447,7 +334,7 @@ The following rules are enforced at compile time (during name resolution):
    A `recover` statement may appear only inside the block form of a `catch`
    expression.
 
-### Module-level try
+## Module-level try
 
 At module level, `try` does not propagate errors (there is no caller
 to propagate to). Instead, it is compiled as a `catch` that calls the
@@ -472,9 +359,9 @@ if errors.As(err, &failErr) {
 }
 ```
 
-### Execution model
+## Execution model
 
-#### Error propagation
+### Error propagation
 
 When an error-returning function executes a `return` statement whose
 value is an error tag or error value, the following happens:
@@ -496,7 +383,7 @@ The caller then observes the pending error through `try` or `catch`:
 If neither `try` nor `catch` handles the error, static validation has
 already rejected the program.
 
-#### Deferred call ordering
+### Deferred call ordering
 
 When a function exits with an error, the execution order is:
 
@@ -508,21 +395,9 @@ When a function exits successfully:
 1. Errdeferred calls are discarded
 2. Regular deferred calls (LIFO order)
 
-### Examples
+## Examples
 
-#### Resource cleanup with defer
-
-```python
-def process_files(paths):
-    results = []
-    for path in paths:
-        f = open(path)
-        defer close(f)
-        results.append(parse(f))
-    return results
-```
-
-#### Basic error handling
+### Basic error handling
 
 ```python
 errors = error_tags("NotFound", "InvalidInput")
@@ -545,7 +420,7 @@ user = find_user(9999) catch e:
         recover "error: " + str(e)
 ```
 
-#### Error propagation chain
+### Error propagation chain
 
 ```python
 errors = error_tags("DBError", "ServiceError")
@@ -570,7 +445,7 @@ response = handle_request() catch e:
     recover "Error: " + str(e)
 ```
 
-#### Transaction pattern with errdefer
+### Transaction pattern with errdefer
 
 ```python
 errors = error_tags("CommitFailed")
@@ -589,7 +464,7 @@ result = transaction(db) catch e:
     recover "transaction failed: " + str(e)
 ```
 
-#### Nested error handling
+### Nested error handling
 
 ```python
 errors = error_tags("ParseError", "ValidationError")

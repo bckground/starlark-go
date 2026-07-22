@@ -64,12 +64,12 @@ var (
 func LoadAssertModule() (starlark.StringDict, error) {
 	once.Do(func() {
 		predeclared := starlark.StringDict{
-			"error":       starlark.NewBuiltin("error", error_),
-			"catch_error": starlark.NewBuiltin("catch_error", catch),
-			"matches":     starlark.NewBuiltin("matches", matches),
-			"module":      starlark.NewBuiltin("module", starlarkstruct.MakeModule),
-			"_freeze":     starlark.NewBuiltin("freeze", freeze),
-			"_floateq":    starlark.NewBuiltin("floateq", floateq),
+			"error":    starlark.NewBuiltin("error", error_),
+			"trap":     starlark.NewBuiltin("trap", trap),
+			"matches":  starlark.NewBuiltin("matches", matches),
+			"module":   starlark.NewBuiltin("module", starlarkstruct.MakeModule),
+			"_freeze":  starlark.NewBuiltin("freeze", freeze),
+			"_floateq": starlark.NewBuiltin("floateq", floateq),
 		}
 		thread := new(starlark.Thread)
 		assert, assertErr = starlark.ExecFile(thread, "assert.star", assertFileSrc, predeclared)
@@ -77,11 +77,28 @@ func LoadAssertModule() (starlark.StringDict, error) {
 	return assert, assertErr
 }
 
-// catch_error(f) evaluates f() and returns its evaluation error message
+// SpecPredeclared returns the predeclared environment that the spec
+// suite's harness contract (spec/harness.md) requires a runner to
+// provide: the assert module plus the free functions trap, matches,
+// and freeze.
+func SpecPredeclared() (starlark.StringDict, error) {
+	assert, err := LoadAssertModule()
+	if err != nil {
+		return nil, err
+	}
+	return starlark.StringDict{
+		"assert":  assert["assert"],
+		"trap":    starlark.NewBuiltin("trap", trap),
+		"matches": starlark.NewBuiltin("matches", matches),
+		"freeze":  assert["freeze"],
+	}, nil
+}
+
+// trap(f) evaluates f() and returns its evaluation error message
 // if it failed or None if it succeeded.
-func catch(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func trap(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var fn starlark.Callable
-	if err := starlark.UnpackArgs("catch_error", args, kwargs, "fn", &fn); err != nil {
+	if err := starlark.UnpackArgs("trap", args, kwargs, "fn", &fn); err != nil {
 		return nil, err
 	}
 	if _, err := starlark.Call(thread, fn, nil, nil); err != nil {

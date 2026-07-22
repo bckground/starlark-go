@@ -192,13 +192,24 @@ func (p *parser) parseDefStmt() Stmt {
 	defpos := p.nextToken() // consume DEF
 	id := p.parseIdent()
 	lparen := p.consume(LPAREN)
-	params := p.parseParams()
+	params := p.parseParams(true)
 	rparen := p.consume(RPAREN)
 
 	// Check for optional '!' to mark error-returning function
 	var exclaim Position
 	if p.tok == EXCLAIM {
 		exclaim = p.nextToken()
+	}
+
+	// Optional return type annotation: def f(...)! -> T:
+	var arrow Position
+	var ret Expr
+	if p.tok == ARROW {
+		if !p.typesAllowed() {
+			p.in.errorf(p.in.pos, "type annotations are not allowed in this dialect")
+		}
+		arrow = p.nextToken()
+		ret = p.parseTypeExpr()
 	}
 
 	p.consume(COLON)
@@ -213,8 +224,15 @@ func (p *parser) parseDefStmt() Stmt {
 		Params:  params,
 		Rparen:  rparen,
 		Exclaim: exclaim,
+		Arrow:   arrow,
+		Return:  ret,
 		Body:    body,
 	}
+}
+
+// typesAllowed reports whether the dialect permits type annotations.
+func (p *parser) typesAllowed() bool {
+	return p.options != nil && p.options.Types != TypesDisabled
 }
 
 func (p *parser) parseIfStmt() Stmt {
@@ -393,6 +411,38 @@ func (p *parser) parseSmallStmt() Stmt {
 
 	// Assignment
 	x := p.parseExpr(false)
+
+	// Type-annotated assignment: x: T = rhs
+	if p.tok == COLON {
+		if !p.typesAllowed() {
+			p.in.errorf(p.in.pos, "type annotations are not allowed in this dialect")
+		}
+		target := x
+		for {
+			paren, ok := target.(*ParenExpr)
+			if !ok {
+				break
+			}
+			target = paren.X
+		}
+		switch target.(type) {
+		case *Ident, *DotExpr, *IndexExpr:
+			// ok: single assignable target
+		case *TupleExpr, *ListExpr:
+			p.in.errorf(p.in.pos, "type annotations not allowed on multiple assignments")
+		default:
+			p.in.errorf(p.in.pos, "invalid target for type-annotated assignment")
+		}
+		typePos := p.nextToken() // consume ':'
+		ty := p.parseTypeExpr()
+		if p.tok != EQ {
+			p.in.errorf(p.in.pos, "got %#v, want '=' after type annotation", p.tok)
+		}
+		pos := p.nextToken() // consume '='
+		rhs := p.parseExpr(false)
+		return &AssignStmt{OpPos: pos, Op: EQ, LHS: x, TypePos: typePos, Type: ty, RHS: rhs}
+	}
+
 	switch p.tok {
 	case EQ, PLUS_EQ, MINUS_EQ, STAR_EQ, SLASH_EQ, SLASHSLASH_EQ, PERCENT_EQ, AMP_EQ, PIPE_EQ, CIRCUMFLEX_EQ, LTLT_EQ, GTGT_EQ:
 		op := p.tok
@@ -534,7 +584,13 @@ func (p *parser) consume(t Token) Position {
 //	*Unary{Op: STAR}                                *
 //	*Unary{Op: STAR, X: *Ident}                     *args
 //	*Unary{Op: STARSTAR, X: *Ident}                 **kwargs
-func (p *parser) parseParams() []Expr {
+//
+// parseParams parses a function parameter list.
+// In a def statement (inDef), parameters may carry type annotations
+// (x: T, x: T = default, *args: T, **kwargs: T) if the dialect allows
+// them. In a lambda, a colon always terminates the parameter list, so
+// annotations are never parsed there.
+func (p *parser) parseParams(inDef bool) []Expr {
 	var params []Expr
 	for p.tok != RPAREN && p.tok != COLON && p.tok != EOF {
 		if len(params) > 0 {
@@ -542,6 +598,19 @@ func (p *parser) parseParams() []Expr {
 		}
 		if p.tok == RPAREN {
 			break
+		}
+
+		// '/': positional-only marker
+		if p.tok == SLASH {
+			if p.options == nil || !p.options.PositionalOnly {
+				p.in.errorf(p.in.pos, "positional-only parameters are not allowed in this dialect")
+			}
+			pos := p.nextToken()
+			params = append(params, &UnaryExpr{
+				OpPos: pos,
+				Op:    SLASH,
+			})
+			continue
 		}
 
 		// * or *args or **kwargs
@@ -552,17 +621,53 @@ func (p *parser) parseParams() []Expr {
 			if op == STARSTAR || p.tok == IDENT {
 				x = p.parseIdent()
 			}
-			params = append(params, &UnaryExpr{
+			param := Expr(&UnaryExpr{
 				OpPos: pos,
 				Op:    op,
 				X:     x,
 			})
+			if inDef && p.tok == COLON {
+				// *args: T or **kwargs: T
+				if !p.typesAllowed() {
+					p.in.errorf(p.in.pos, "type annotations are not allowed in this dialect")
+				}
+				if x == nil {
+					p.in.errorf(p.in.pos, "bare * parameter cannot have a type annotation")
+				}
+				colon := p.nextToken()
+				ty := p.parseTypeExpr()
+				param = &TypedParam{X: param, Colon: colon, Type: ty}
+			}
+			params = append(params, param)
 			continue
 		}
 
 		// IDENT
 		// IDENT = test
+		// IDENT : type
+		// IDENT : type = test
 		id := p.parseIdent()
+		if inDef && p.tok == COLON { // type annotation
+			if !p.typesAllowed() {
+				p.in.errorf(p.in.pos, "type annotations are not allowed in this dialect")
+			}
+			colon := p.nextToken()
+			ty := p.parseTypeExpr()
+			var eq Position
+			var dflt Expr
+			if p.tok == EQ {
+				eq = p.nextToken()
+				dflt = p.parseTest()
+			}
+			params = append(params, &TypedParam{
+				X:       id,
+				Colon:   colon,
+				Type:    ty,
+				EqPos:   eq,
+				Default: dflt,
+			})
+			continue
+		}
 		if p.tok == EQ { // default value
 			eq := p.nextToken()
 			dflt := p.parseTest()
@@ -649,6 +754,165 @@ func (p *parser) parseTest() Expr {
 	return x
 }
 
+// parseTypeExpr parses a type expression. Syntactically it is an
+// ordinary 'test', but it is validated against the restricted
+// type-expression grammar (mirroring starlark-rust's TypeExprUnpackP):
+// identifier paths (a.b.c), parameterization (list[int], dict[str, int]),
+// tuples, unions (T1 | T2), and `...`.
+func (p *parser) parseTypeExpr() Expr {
+	e := p.parseTest()
+	p.validateTypeExpr(e, false)
+	return e
+}
+
+// validateTypeExpr rejects expression forms that are not allowed in a
+// type expression. insideIndex indicates that the expression appears
+// as an index argument (within T[...]), where a list literal denotes a
+// Callable parameter list (typing.Callable[[int], str]) rather than
+// the legacy union syntax.
+func (p *parser) validateTypeExpr(e Expr, insideIndex bool) {
+	errf := func(n Expr, kind string) {
+		start, _ := n.Span()
+		p.in.errorf(start, "%s expression is not allowed in type expression", kind)
+	}
+	switch e := e.(type) {
+	case *Ident:
+		// ok: type name
+	case *EllipsisExpr:
+		// ok: e.g. tuple[int, ...]
+	case *DotExpr:
+		p.validateTypePath(e)
+	case *IndexExpr:
+		// T[I] or T[I1, I2, ...]
+		switch x := e.X.(type) {
+		case *Ident:
+			// ok
+		case *DotExpr:
+			p.validateTypePath(x)
+		default:
+			start, _ := e.X.Span()
+			p.in.errorf(start, "expecting path like `a.b.c` in type expression")
+		}
+		if tuple, ok := e.Y.(*TupleExpr); ok {
+			for _, arg := range tuple.List {
+				p.validateTypeExpr(arg, true)
+			}
+		} else {
+			p.validateTypeExpr(e.Y, true)
+		}
+	case *TupleExpr:
+		for _, x := range e.List {
+			p.validateTypeExpr(x, false)
+		}
+	case *ParenExpr:
+		p.validateTypeExpr(e.X, insideIndex)
+	case *BinaryExpr:
+		if e.Op == PIPE {
+			p.validateTypeExpr(e.X, false)
+			p.validateTypeExpr(e.Y, false)
+		} else {
+			errf(e, "binary operator (other than `|`)")
+		}
+	case *ListExpr:
+		// As an index argument, a list literal is a Callable parameter
+		// list; elsewhere it is the legacy union syntax [T1, T2],
+		// which requires at least two elements.
+		if !insideIndex {
+			switch len(e.List) {
+			case 0:
+				start, _ := e.Span()
+				p.in.errorf(start, "empty list is not allowed in type expression")
+			case 1:
+				errf(e, "list of 1 element")
+			}
+		}
+		for _, x := range e.List {
+			p.validateTypeExpr(x, false)
+		}
+	case *Literal:
+		switch e.Token {
+		case STRING:
+			errf(e, "string literal")
+		case BYTES:
+			errf(e, "bytes literal")
+		case INT:
+			errf(e, "int literal")
+		case FLOAT:
+			errf(e, "float literal")
+		default:
+			errf(e, "literal")
+		}
+	case *CallExpr:
+		errf(e, "call")
+	case *SliceExpr:
+		errf(e, "slice")
+	case *LambdaExpr:
+		errf(e, "lambda")
+	case *CondExpr:
+		errf(e, "if")
+	case *DictExpr:
+		errf(e, "dict")
+	case *Comprehension:
+		if e.Curly {
+			errf(e, "dict comprehension")
+		} else {
+			errf(e, "list comprehension")
+		}
+	case *UnaryExpr:
+		switch e.Op {
+		case NOT:
+			errf(e, "not")
+		case MINUS:
+			errf(e, "minus")
+		case PLUS:
+			errf(e, "plus")
+		case TILDE:
+			errf(e, "bit not")
+		default:
+			errf(e, "unary")
+		}
+	case *TryExpr:
+		errf(e, "try")
+	case *CatchExpr:
+		errf(e, "catch")
+	default:
+		errf(e, "this")
+	}
+}
+
+// validateTypePath checks that a dot expression is a pure identifier
+// path like a.b.c, and rejects paths ending in `.type`.
+func (p *parser) validateTypePath(e *DotExpr) {
+	if e.Name.Name == "type" {
+		start, _ := e.Span()
+		p.in.errorf(start, "`%s` is not allowed in type expression, use `%s` instead",
+			typePathString(e), typePathString(e.X))
+	}
+	for x := e.X; ; {
+		switch xx := x.(type) {
+		case *Ident:
+			return
+		case *DotExpr:
+			x = xx.X
+		default:
+			start, _ := x.Span()
+			p.in.errorf(start, "only dot expressions of form `a.b.c` are allowed in type expression")
+			return
+		}
+	}
+}
+
+// typePathString renders an identifier path expression as a string.
+func typePathString(e Expr) string {
+	switch e := e.(type) {
+	case *Ident:
+		return e.Name
+	case *DotExpr:
+		return typePathString(e.X) + "." + e.Name.Name
+	}
+	return "?"
+}
+
 // parseTestNoCond parses a single-component expression without
 // consuming a trailing 'if expr else expr'.
 func (p *parser) parseTestNoCond() Expr {
@@ -666,10 +930,8 @@ func (p *parser) parseCatchSuffix(x Expr) Expr {
 	catchpos := p.nextToken() // consume CATCH
 
 	// Check if this is block form (catch e: ...) or value form (catch expr)
-	// Block form has an identifier followed by a colon
+	// Block form has an identifier immediately followed by a colon
 	if p.tok == IDENT {
-		// Peek ahead to see if there's a colon
-		checkpoint := p.in
 		errorVar := p.parseIdent()
 
 		if p.tok == COLON {
@@ -689,10 +951,14 @@ func (p *parser) parseCatchSuffix(x Expr) Expr {
 			}
 		}
 
-		// Not block form - restore position and parse as value form
-		// The identifier we just parsed is actually the start of the fallback expression
-		p.in = checkpoint
-		p.nextToken() // re-read the token
+		// Value form whose fallback expression begins with the
+		// identifier just consumed: continue parsing from it.
+		fallback := p.parseBinopExprFrom(p.parseSuffixes(errorVar), 0)
+		return &CatchExpr{
+			X:            x,
+			Catch:        catchpos,
+			FallbackExpr: fallback,
+		}
 	}
 
 	// Value form: catch <expr>
@@ -710,7 +976,7 @@ func (p *parser) parseLambda(allowCond bool) Expr {
 	lambda := p.nextToken()
 	var params []Expr
 	if p.tok != COLON {
-		params = p.parseParams()
+		params = p.parseParams(false)
 	}
 	p.consume(COLON)
 
@@ -750,7 +1016,12 @@ func (p *parser) parseTestPrec(prec int) Expr {
 // expr = test (OP test)*
 // Uses precedence climbing; see http://www.engr.mun.ca/~theo/Misc/exp_parsing.htm#climbing.
 func (p *parser) parseBinopExpr(prec int) Expr {
-	x := p.parseTestPrec(prec + 1)
+	return p.parseBinopExprFrom(p.parseTestPrec(prec+1), prec)
+}
+
+// parseBinopExprFrom continues precedence climbing with x as the
+// already-parsed left operand.
+func (p *parser) parseBinopExprFrom(x Expr, prec int) Expr {
 	for first := true; ; first = false {
 		if p.tok == NOT {
 			p.nextToken() // consume NOT
@@ -819,7 +1090,12 @@ func init() {
 //	| primary slice_suffix
 //	| primary call_suffix
 func (p *parser) parsePrimaryWithSuffix() Expr {
-	x := p.parsePrimary()
+	return p.parseSuffixes(p.parsePrimary())
+}
+
+// parseSuffixes applies any dot, slice/index, and call suffixes to
+// the already-parsed primary expression x.
+func (p *parser) parseSuffixes(x Expr) Expr {
 	for {
 		switch p.tok {
 		case DOT:
@@ -995,6 +1271,10 @@ func (p *parser) parsePrimary() Expr {
 			Op:    tok,
 			X:     x,
 		}
+
+	case ELLIPSIS:
+		pos := p.nextToken()
+		return &EllipsisExpr{Ellipsis: pos}
 	}
 
 	// Report start pos of final token as it may be a NEWLINE (#532).

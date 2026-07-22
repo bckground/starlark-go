@@ -1,0 +1,5 @@
+calls.star:6:1: Missing required parameter `y`
+calls.star:7:6: Expected type `str` but got `int`
+calls.star:8:6: Unexpected parameter named `z`
+calls.star:9:3: Expected type `int` but got `str`
+calls.star:10:6: Expected type `str` but got `int`
