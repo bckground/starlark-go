@@ -151,7 +151,7 @@ type annotation system (see TYPES.md for the full description):
   (`typecheck.Check(file, env, loads)`) performs fixpoint inference over the
   resolved AST with intersection-based compatibility, deliberately lenient
   (unknowns become Any plus an Approximation). A module-level partial
-  evaluation pre-pass (`peval.go`) tracks the type values bindings *denote*
+  evaluation pre-pass (`peval.go`) tracks the type values bindings _denote_
   (aliases under conditionals, inside functions, across loads via
   `Interface.Denoted`) and lets `TypeFactory` env hooks mint nominal
   `CustomTy` types for `record`/`enum` (adapters in `starlarkrecord/typed`,

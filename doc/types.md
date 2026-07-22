@@ -9,11 +9,11 @@ annotation system of [starlark-rust](https://github.com/facebook/starlark-rust/b
 Annotations are gated by `syntax.FileOptions.Types`, mirroring
 starlark-rust's `DialectTypes`:
 
-| Mode | Behavior |
-|---|---|
-| `syntax.TypesDisabled` (default) | annotation syntax is a parse error |
-| `syntax.TypesParseOnly` | annotations parse and are validated, but are ignored at runtime (names within them are not even resolved) |
-| `syntax.TypesEnabled` | annotations parse, are validated, and are checked at runtime |
+| Mode                             | Behavior                                                                                                  |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `syntax.TypesDisabled` (default) | annotation syntax is a parse error                                                                        |
+| `syntax.TypesParseOnly`          | annotations parse and are validated, but are ignored at runtime (names within them are not even resolved) |
+| `syntax.TypesEnabled`            | annotations parse, are validated, and are checked at runtime                                              |
 
 The `starlark` command exposes this as `-types=off|parse|on`, plus
 `-typecheck` to run the static checker before execution. `-typecheck`
@@ -155,7 +155,7 @@ the universe and string/list/dict/set methods), and checks returns and
 annotated assignments. It is deliberately lenient: anything it cannot
 model becomes `typing.Any` plus a recorded `Approximation` — it aims
 never to reject a program that would run. Compatibility is by type
-*intersection*, not subtyping, exactly like starlark-rust.
+_intersection_, not subtyping, exactly like starlark-rust.
 
 Like starlark-rust, it reports `==`/`!=` between certainly-disjoint
 types ("pointless comparisons"), and checks function values passed to
@@ -174,8 +174,8 @@ the check for error returns).
 
 ### Module-level partial evaluation
 
-The checker distinguishes the *type of a binding* (`IntList: type`)
-from the *type value it denotes* (`list[int]`). A pre-pass — the
+The checker distinguishes the _type of a binding_ (`IntList: type`)
+from the _type value it denotes_ (`list[int]`). A pre-pass — the
 analogue of starlark-rust's `fill_types_for_lint` — maps each binding
 to the static value its assignments compute, so annotations can refer
 to computed values:

@@ -6,10 +6,10 @@ Use `bazel run spec_md_gen` to regenerate it in place.
 # Starlark Language Specification
 
 Starlark is a dialect of Python intended for use as a configuration
-language.  A Starlark interpreter is typically embedded within a larger
+language. A Starlark interpreter is typically embedded within a larger
 application, and this application may define additional
 domain-specific functions and data types beyond those provided by the
-core language.  For example, Starlark is embedded within (and was
+core language. For example, Starlark is embedded within (and was
 originally developed for) the [Bazel build tool](https://bazel.build).
 
 This document was derived from the [description of the Go
@@ -20,7 +20,6 @@ Copyright 1990&ndash;2017, Python Software Foundation,
 and the Go specification, Copyright 2009&ndash;2017, The Go Authors. It is
 now maintained by the Bazel team.
 
-
 ## Overview
 
 Starlark is an untyped dynamic language with high-level data types,
@@ -29,7 +28,7 @@ management or _garbage collection_.
 
 Starlark is strongly influenced by Python, Starlark syntax is
 a strict subset of Python and Starlark semantics is almost a subset of
-that language.  In particular, its data types and syntax for
+that language. In particular, its data types and syntax for
 statements and expressions will be very familiar to any Python
 programmer.
 However, Starlark is intended not for writing applications but for
@@ -41,7 +40,7 @@ Starlark is intended to be simple. There are no user-defined types, no
 inheritance, no reflection, no exceptions, no explicit memory management.
 Execution is finite. The language does not allow recursion or unbounded loops.
 
-Starlark is suitable for use in highly parallel applications.  An application may
+Starlark is suitable for use in highly parallel applications. An application may
 invoke the Starlark interpreter concurrently from many threads, without the
 possibility of a data race, because shared data structures become immutable due
 to _freezing_.
@@ -50,161 +49,160 @@ The language is deterministic and hermetic. Executing the same file with the
 same interpreter leads to the same result. By default, user code cannot
 interact with the environment.
 
-
 ## Contents
 
-  * [Overview](#overview)
-  * [Contents](#contents)
-  * [Lexical elements](#lexical-elements)
-    * [String literals](#string-literals)
-    * [Bytes literals](#bytes-literals)
-    * [Special tokens](#special-tokens)
-  * [Data types](#data-types)
-    * [None](#none)
-    * [Booleans](#booleans)
-    * [Integers](#integers)
-    * [Floating-point numbers](#floating-point-numbers)
-    * [Strings](#strings)
-    * [Bytes](#bytes)
-    * [Lists](#lists)
-    * [Tuples](#tuples)
-    * [Dictionaries](#dictionaries)
-    * [Sets](#sets)
-    * [Functions](#functions)
-    * [Built-in functions](#built-in-functions)
-  * [Name binding and variables](#name-binding-and-variables)
-  * [Value concepts](#value-concepts)
-    * [Identity and mutation](#identity-and-mutation)
-    * [Freezing a value](#freezing-a-value)
-    * [Hashing](#hashing)
-    * [Collection types](#collection-types)
-    * [Iteration](#iteration)
-    * [Indexing](#indexing)
-  * [Expressions](#expressions)
-    * [Identifiers](#identifiers)
-    * [Literals](#literals)
-    * [Parenthesized expressions](#parenthesized-expressions)
-    * [Dictionary expressions](#dictionary-expressions)
-    * [List expressions](#list-expressions)
-    * [Unary operators](#unary-operators)
-    * [Binary operators](#binary-operators)
-    * [Conditional expressions](#conditional-expressions)
-    * [Comprehensions](#comprehensions)
-    * [Function and method calls](#function-and-method-calls)
-    * [Dot expressions](#dot-expressions)
-    * [Subscript expressions](#subscript-expressions)
-    * [Slice expressions](#slice-expressions)
-    * [Lambda expressions](#lambda-expressions)
-  * [Statements](#statements)
-    * [Pass statements](#pass-statements)
-    * [Assignments](#assignments)
-    * [Augmented assignments](#augmented-assignments)
-    * [Function definitions](#function-definitions)
-    * [Return statements](#return-statements)
-    * [Expression statements](#expression-statements)
-    * [If statements](#if-statements)
-    * [For statements](#for-statements)
-    * [Break and Continue](#break-and-continue)
-    * [Load statements](#load-statements)
-  * [Module execution](#module-execution)
-  * [Built-in constants and functions](#built-in-constants-and-functions)
-    * [None](#none)
-    * [True and False](#true-and-false)
-    * [abs](#abs)
-    * [any](#any)
-    * [all](#all)
-    * [bool](#bool)
-    * [bytes](#bytes)
-    * [dict](#dict)
-    * [dir](#dir)
-    * [enumerate](#enumerate)
-    * [fail](#fail)
-    * [float](#float)
-    * [getattr](#getattr)
-    * [hasattr](#hasattr)
-    * [hash](#hash)
-    * [int](#int)
-    * [len](#len)
-    * [list](#list)
-    * [max](#max)
-    * [min](#min)
-    * [print](#print)
-    * [range](#range)
-    * [repr](#repr)
-    * [reversed](#reversed)
-    * [set](#set)
-    * [sorted](#sorted)
-    * [str](#str)
-    * [tuple](#tuple)
-    * [type](#type)
-    * [zip](#zip)
-  * [Built-in methods](#built-in-methods)
-    * [bytes·elems](#bytes·elems)
-    * [dict·clear](#dict·clear)
-    * [dict·get](#dict·get)
-    * [dict·items](#dict·items)
-    * [dict·keys](#dict·keys)
-    * [dict·pop](#dict·pop)
-    * [dict·popitem](#dict·popitem)
-    * [dict·setdefault](#dict·setdefault)
-    * [dict·update](#dict·update)
-    * [dict·values](#dict·values)
-    * [list·append](#list·append)
-    * [list·clear](#list·clear)
-    * [list·extend](#list·extend)
-    * [list·index](#list·index)
-    * [list·insert](#list·insert)
-    * [list·pop](#list·pop)
-    * [list·remove](#list·remove)
-    * [set·add](#set·add)
-    * [set·clear](#set·clear)
-    * [set·difference](#set·difference)
-    * [set·difference\_update](#set·difference\_update)
-    * [set·discard](#set·discard)
-    * [set·intersection](#set·intersection)
-    * [set·intersection\_update](#set·intersection\_update)
-    * [set·isdisjoint](#set·isdisjoint)
-    * [set·issubset](#set·issubset)
-    * [set·issuperset](#set·issuperset)
-    * [set·pop](#set·pop)
-    * [set·remove](#set·remove)
-    * [set·symmetric\_difference](#set·symmetric\_difference)
-    * [set·symmetric\_difference\_update](#set·symmetric\_difference\_update)
-    * [set·union](#set·union)
-    * [set·update](#set·update)
-    * [string·capitalize](#string·capitalize)
-    * [string·count](#string·count)
-    * [string·elems](#string·elems)
-    * [string·endswith](#string·endswith)
-    * [string·find](#string·find)
-    * [string·format](#string·format)
-    * [string·index](#string·index)
-    * [string·isalnum](#string·isalnum)
-    * [string·isalpha](#string·isalpha)
-    * [string·isdigit](#string·isdigit)
-    * [string·islower](#string·islower)
-    * [string·isspace](#string·isspace)
-    * [string·istitle](#string·istitle)
-    * [string·isupper](#string·isupper)
-    * [string·join](#string·join)
-    * [string·lower](#string·lower)
-    * [string·lstrip](#string·lstrip)
-    * [string·partition](#string·partition)
-    * [string·removeprefix](#string·removeprefix)
-    * [string·removesuffix](#string·removesuffix)
-    * [string·replace](#string·replace)
-    * [string·rfind](#string·rfind)
-    * [string·rindex](#string·rindex)
-    * [string·rpartition](#string·rpartition)
-    * [string·rsplit](#string·rsplit)
-    * [string·rstrip](#string·rstrip)
-    * [string·split](#string·split)
-    * [string·splitlines](#string·splitlines)
-    * [string·startswith](#string·startswith)
-    * [string·strip](#string·strip)
-    * [string·title](#string·title)
-    * [string·upper](#string·upper)
-  * [Grammar reference](#grammar-reference)
+- [Overview](#overview)
+- [Contents](#contents)
+- [Lexical elements](#lexical-elements)
+  - [String literals](#string-literals)
+  - [Bytes literals](#bytes-literals)
+  - [Special tokens](#special-tokens)
+- [Data types](#data-types)
+  - [None](#none)
+  - [Booleans](#booleans)
+  - [Integers](#integers)
+  - [Floating-point numbers](#floating-point-numbers)
+  - [Strings](#strings)
+  - [Bytes](#bytes)
+  - [Lists](#lists)
+  - [Tuples](#tuples)
+  - [Dictionaries](#dictionaries)
+  - [Sets](#sets)
+  - [Functions](#functions)
+  - [Built-in functions](#built-in-functions)
+- [Name binding and variables](#name-binding-and-variables)
+- [Value concepts](#value-concepts)
+  - [Identity and mutation](#identity-and-mutation)
+  - [Freezing a value](#freezing-a-value)
+  - [Hashing](#hashing)
+  - [Collection types](#collection-types)
+  - [Iteration](#iteration)
+  - [Indexing](#indexing)
+- [Expressions](#expressions)
+  - [Identifiers](#identifiers)
+  - [Literals](#literals)
+  - [Parenthesized expressions](#parenthesized-expressions)
+  - [Dictionary expressions](#dictionary-expressions)
+  - [List expressions](#list-expressions)
+  - [Unary operators](#unary-operators)
+  - [Binary operators](#binary-operators)
+  - [Conditional expressions](#conditional-expressions)
+  - [Comprehensions](#comprehensions)
+  - [Function and method calls](#function-and-method-calls)
+  - [Dot expressions](#dot-expressions)
+  - [Subscript expressions](#subscript-expressions)
+  - [Slice expressions](#slice-expressions)
+  - [Lambda expressions](#lambda-expressions)
+- [Statements](#statements)
+  - [Pass statements](#pass-statements)
+  - [Assignments](#assignments)
+  - [Augmented assignments](#augmented-assignments)
+  - [Function definitions](#function-definitions)
+  - [Return statements](#return-statements)
+  - [Expression statements](#expression-statements)
+  - [If statements](#if-statements)
+  - [For statements](#for-statements)
+  - [Break and Continue](#break-and-continue)
+  - [Load statements](#load-statements)
+- [Module execution](#module-execution)
+- [Built-in constants and functions](#built-in-constants-and-functions)
+  - [None](#none)
+  - [True and False](#true-and-false)
+  - [abs](#abs)
+  - [any](#any)
+  - [all](#all)
+  - [bool](#bool)
+  - [bytes](#bytes)
+  - [dict](#dict)
+  - [dir](#dir)
+  - [enumerate](#enumerate)
+  - [fail](#fail)
+  - [float](#float)
+  - [getattr](#getattr)
+  - [hasattr](#hasattr)
+  - [hash](#hash)
+  - [int](#int)
+  - [len](#len)
+  - [list](#list)
+  - [max](#max)
+  - [min](#min)
+  - [print](#print)
+  - [range](#range)
+  - [repr](#repr)
+  - [reversed](#reversed)
+  - [set](#set)
+  - [sorted](#sorted)
+  - [str](#str)
+  - [tuple](#tuple)
+  - [type](#type)
+  - [zip](#zip)
+- [Built-in methods](#built-in-methods)
+  - [bytes·elems](#bytes·elems)
+  - [dict·clear](#dict·clear)
+  - [dict·get](#dict·get)
+  - [dict·items](#dict·items)
+  - [dict·keys](#dict·keys)
+  - [dict·pop](#dict·pop)
+  - [dict·popitem](#dict·popitem)
+  - [dict·setdefault](#dict·setdefault)
+  - [dict·update](#dict·update)
+  - [dict·values](#dict·values)
+  - [list·append](#list·append)
+  - [list·clear](#list·clear)
+  - [list·extend](#list·extend)
+  - [list·index](#list·index)
+  - [list·insert](#list·insert)
+  - [list·pop](#list·pop)
+  - [list·remove](#list·remove)
+  - [set·add](#set·add)
+  - [set·clear](#set·clear)
+  - [set·difference](#set·difference)
+  - [set·difference_update](#set·difference_update)
+  - [set·discard](#set·discard)
+  - [set·intersection](#set·intersection)
+  - [set·intersection_update](#set·intersection_update)
+  - [set·isdisjoint](#set·isdisjoint)
+  - [set·issubset](#set·issubset)
+  - [set·issuperset](#set·issuperset)
+  - [set·pop](#set·pop)
+  - [set·remove](#set·remove)
+  - [set·symmetric_difference](#set·symmetric_difference)
+  - [set·symmetric_difference_update](#set·symmetric_difference_update)
+  - [set·union](#set·union)
+  - [set·update](#set·update)
+  - [string·capitalize](#string·capitalize)
+  - [string·count](#string·count)
+  - [string·elems](#string·elems)
+  - [string·endswith](#string·endswith)
+  - [string·find](#string·find)
+  - [string·format](#string·format)
+  - [string·index](#string·index)
+  - [string·isalnum](#string·isalnum)
+  - [string·isalpha](#string·isalpha)
+  - [string·isdigit](#string·isdigit)
+  - [string·islower](#string·islower)
+  - [string·isspace](#string·isspace)
+  - [string·istitle](#string·istitle)
+  - [string·isupper](#string·isupper)
+  - [string·join](#string·join)
+  - [string·lower](#string·lower)
+  - [string·lstrip](#string·lstrip)
+  - [string·partition](#string·partition)
+  - [string·removeprefix](#string·removeprefix)
+  - [string·removesuffix](#string·removesuffix)
+  - [string·replace](#string·replace)
+  - [string·rfind](#string·rfind)
+  - [string·rindex](#string·rindex)
+  - [string·rpartition](#string·rpartition)
+  - [string·rsplit](#string·rsplit)
+  - [string·rstrip](#string·rstrip)
+  - [string·split](#string·split)
+  - [string·splitlines](#string·splitlines)
+  - [string·startswith](#string·startswith)
+  - [string·strip](#string·strip)
+  - [string·title](#string·title)
+  - [string·upper](#string·upper)
+- [Grammar reference](#grammar-reference)
 
 ## Lexical elements
 
@@ -239,17 +237,17 @@ would form a valid token of each kind.
 File = {Statement | newline} eof .
 ```
 
-*White space* consists of spaces (U+0020), tabs (U+0009), carriage
-returns (U+000D), and newlines (U+000A).  Within a line, white space
+_White space_ consists of spaces (U+0020), tabs (U+0009), carriage
+returns (U+000D), and newlines (U+000A). Within a line, white space
 has no effect other than to delimit the previous token, but newlines,
 and spaces at the start of a line, are significant tokens.
 
-*Comments*: A hash character (`#`) appearing outside of a string or bytes
+_Comments_: A hash character (`#`) appearing outside of a string or bytes
 literal marks the start of a comment; the comment extends to the end
 of the line, not including the newline character.
 Comments are treated like other white space.
 
-*Punctuation*: The following punctuation characters or sequences of
+_Punctuation_: The following punctuation characters or sequences of
 characters are tokens:
 
 ```text
@@ -262,7 +260,7 @@ characters are tokens:
 &=   |=   ^=   <<=  >>=
 ```
 
-*Keywords*: The following tokens are keywords and may not be used as
+_Keywords_: The following tokens are keywords and may not be used as
 identifiers:
 
 ```text
@@ -290,8 +288,8 @@ finally        with
 from           yield
 ```
 
-*Identifiers*: an identifier is a sequence of Unicode letters, decimal
- digits, and underscores (`_`), not starting with a digit.
+_Identifiers_: an identifier is a sequence of Unicode letters, decimal
+digits, and underscores (`_`), not starting with a digit.
 Identifiers are used as names for values.
 
 Examples:
@@ -301,7 +299,7 @@ None    True    len
 x       index   starts_with     arg0
 ```
 
-*Literals*: literals are tokens that denote specific values.  Starlark
+_Literals_: literals are tokens that denote specific values. Starlark
 has integer, floating-point, string, and bytes literals.
 
 ```text
@@ -375,7 +373,7 @@ Within a string literal, the backslash character `\` indicates the
 start of an _escape sequence_, a notation for expressing things that
 are impossible or awkward to write directly.
 
-The following *traditional escape sequences* represent the ASCII control
+The following _traditional escape sequences_ represent the ASCII control
 codes 7-13:
 
 ```
@@ -388,9 +386,9 @@ codes 7-13:
 \v   \x0B vertical tab
 ```
 
-A *literal backslash* is written using the escape `\\`.
+A _literal backslash_ is written using the escape `\\`.
 
-An *escaped newline*---that is, a backslash at the end of a line---is ignored,
+An _escaped newline_---that is, a backslash at the end of a line---is ignored,
 allowing a long string to be split across multiple lines of the source file.
 
 ```python
@@ -398,9 +396,9 @@ allowing a long string to be split across multiple lines of the source file.
 def"			# "abcdef"
 ```
 
-An *octal escape* encodes a single string element using its octal value.
+An _octal escape_ encodes a single string element using its octal value.
 It consists of a backslash followed by one, two, or three octal digits [0-7].
-Simiarly, a *hexadecimal escape* encodes a single string element using its hexadecimal value.
+Simiarly, a _hexadecimal escape_ encodes a single string element using its hexadecimal value.
 It consists of `\x` followed by two hexadecimal digits [0-9a-fA-F].
 It is an error if the value of an octal or hexadecimal escape is greater than decimal 127.
 
@@ -415,7 +413,7 @@ It is an error if the value of an octal or hexadecimal escape is greater than de
 "\x41-\x5A"             # "A-Z"
 ```
 
-A *Unicode escape* denotes the UTF-K encoding of a single, valid Unicode code point,
+A _Unicode escape_ denotes the UTF-K encoding of a single, valid Unicode code point,
 where K is the implementation-defined number of bits in each string element
 (see [strings](#strings)).
 The `\uXXXX` form, with exactly four hexadecimal digits,
@@ -442,7 +440,7 @@ len("😀")               # 4 (UTF-8) or 2 (UTF-16)
 ```
 
 Although string values may be capable of representing any sequence of elements,
-string  _literals_ can denote only sequences of UTF-K code
+string _literals_ can denote only sequences of UTF-K code
 units that are valid encodings of text.
 (Any literal syntax capable of representing arbitrary element sequences
 would inherently be non-portable across implementations.)
@@ -450,7 +448,7 @@ Consequently, when the `repr` function is applied to a string
 containing an invalid encoding, its result is not a valid string literal.
 
 An ordinary string literal may not contain an unescaped newline,
-but a *multiline string literal* may spread over multiple source lines.
+but a _multiline string literal_ may spread over multiple source lines.
 It is denoted using three quotation marks at start and end.
 Within it, unescaped newlines and quotation marks (or even pairs of
 quotation marks) have their literal meaning, but three quotation marks
@@ -470,7 +468,7 @@ example, a linefeed (\n) on UNIX, or a carriage return followed by a
 linefeed (\r\n) on Microsoft Windows---an unescaped line ending in a
 multiline string literal always denotes a line feed (\n).
 
-Starlark also supports *raw string literals*, which look like an
+Starlark also supports _raw string literals_, which look like an
 ordinary single- or double-quotation preceded by `r`. Within a raw
 string literal, there is no special processing of backslash escapes,
 other than an escaped quotation mark (which denotes a literal
@@ -491,7 +489,6 @@ b"		# "a\\\nb"
 
 It is an error for a backslash to appear within a string literal other
 than as part of one of the escapes described above.
-
 
 ### Bytes literals
 
@@ -564,29 +561,28 @@ value, while others, like integer indexing `a[i]`, apply only to certain types.
 The [_value concepts_](#value-concepts) section explains the groupings of types
 by the operators they support.
 
-
 ### None
 
 `None` is a distinguished value used to indicate the absence of any other value.
 For example, the result of a call to a function that contains no return statement is `None`.
 
-`None` is equal only to itself.  Its [type](#type) is `"NoneType"`.
+`None` is equal only to itself. Its [type](#type) is `"NoneType"`.
 The truth value of `None` is `False`.
-
 
 ### Booleans
 
 There are two Boolean values, `True` and `False`, representing the
-truth or falsehood of a predicate.  The [type](#type) of a Boolean is `"bool"`.
+truth or falsehood of a predicate. The [type](#type) of a Boolean is `"bool"`.
 
 Boolean values are typically used as conditions in `if` statements,
 although any Starlark value may be used in this way.
 Aside from `False` itself, the following core language values are
 considered false in a condition:
-* `None`
-* numerical 0 (`0`, `0.0` and `-0.0`)
-* the empty string (`""`) and empty bytes (`b""`)
-* the empty collections `[]`, `()`, `{}`, and `set()`
+
+- `None`
+- numerical 0 (`0`, `0.0` and `-0.0`)
+- the empty string (`""`) and empty bytes (`b""`)
+- the empty collections `[]`, `()`, `{}`, and `set()`
 
 All other core language values are considered true.
 Application-defined types determine their own truth value.
@@ -612,7 +608,7 @@ bool(1) == True                         # True
 
 ### Integers
 
-The Starlark integer type represents integers.  Its [type](#type) is `"int"`.
+The Starlark integer type represents integers. Its [type](#type) is `"int"`.
 
 Integers may be positive or negative, and arbitrarily large.
 Integer arithmetic is exact.
@@ -650,7 +646,6 @@ non-zero.
 int("0xffff", 16)               # 65535
 ```
 
-
 ### Floating-point numbers
 
 The Starlark floating-point data type represents an IEEE 754
@@ -663,7 +658,7 @@ However, computing the division or remainder of division by zero is a dynamic er
 
 An arithmetic operation applied to a mixture of `float` and `int`
 operands works as if the `int` operand were first converted to a
-`float`.  For example, `3.141 + 1` is equivalent to `3.141 +
+`float`. For example, `3.141 + 1` is equivalent to `3.141 +
 float(1)`. The implicit conversion fails if the `int` value is too
 large to be represented as a `float`.
 
@@ -694,6 +689,7 @@ such as `Inf / Inf`. All NaN values compare equal to each other,
 but greater than any non-NaN `float` value.
 (Starlark does not follow the IEEE 754 standard for NaN comparisons,
 which requires that all comparisons with NaN are false, except NaN != NaN.)
+
 <!--
 This choice greatly simplifies the logic for float arithmetic by
 ensuring many standard identities and invariants such as:
@@ -752,7 +748,6 @@ float(3) / 2                                    # 1.5
 3.0 // 2.0                                      # 1.0
 ```
 
-
 ### Strings
 
 A string is an immutable array of elements that encode Unicode text.
@@ -777,6 +772,7 @@ Strings may be concatenated with the `+` operator.
 Strings support [indexing](#subscript-expressions) and
 [slicing](#slice-expressions). The result of both operations is another string
 (with length 1, in the case of indexing).
+
 <!-- TODO: The Rust implementation of s[i:j] may fail if it cuts a
      UTF-8 sequence in half. Need to accommodate that here. -->
 
@@ -804,39 +800,38 @@ non-empty.
 
 Strings have several built-in methods:
 
-* [`capitalize`](#string·capitalize)
-* [`count`](#string·count)
-* [`elems`](#string·elems)
-* [`endswith`](#string·endswith)
-* [`find`](#string·find)
-* [`format`](#string·format)
-* [`index`](#string·index)
-* [`isalnum`](#string·isalnum)
-* [`isalpha`](#string·isalpha)
-* [`isdigit`](#string·isdigit)
-* [`islower`](#string·islower)
-* [`isspace`](#string·isspace)
-* [`istitle`](#string·istitle)
-* [`isupper`](#string·isupper)
-* [`join`](#string·join)
-* [`lower`](#string·lower)
-* [`lstrip`](#string·lstrip)
-* [`partition`](#string·partition)
-* [`removeprefix`](#string·removeprefix)
-* [`removesuffix`](#string·removesuffix)
-* [`replace`](#string·replace)
-* [`rfind`](#string·rfind)
-* [`rindex`](#string·rindex)
-* [`rpartition`](#string·rpartition)
-* [`rsplit`](#string·rsplit)
-* [`rstrip`](#string·rstrip)
-* [`split`](#string·split)
-* [`splitlines`](#string·splitlines)
-* [`startswith`](#string·startswith)
-* [`strip`](#string·strip)
-* [`title`](#string·title)
-* [`upper`](#string·upper)
-
+- [`capitalize`](#string·capitalize)
+- [`count`](#string·count)
+- [`elems`](#string·elems)
+- [`endswith`](#string·endswith)
+- [`find`](#string·find)
+- [`format`](#string·format)
+- [`index`](#string·index)
+- [`isalnum`](#string·isalnum)
+- [`isalpha`](#string·isalpha)
+- [`isdigit`](#string·isdigit)
+- [`islower`](#string·islower)
+- [`isspace`](#string·isspace)
+- [`istitle`](#string·istitle)
+- [`isupper`](#string·isupper)
+- [`join`](#string·join)
+- [`lower`](#string·lower)
+- [`lstrip`](#string·lstrip)
+- [`partition`](#string·partition)
+- [`removeprefix`](#string·removeprefix)
+- [`removesuffix`](#string·removesuffix)
+- [`replace`](#string·replace)
+- [`rfind`](#string·rfind)
+- [`rindex`](#string·rindex)
+- [`rpartition`](#string·rpartition)
+- [`rsplit`](#string·rsplit)
+- [`rstrip`](#string·rstrip)
+- [`split`](#string·split)
+- [`splitlines`](#string·splitlines)
+- [`startswith`](#string·startswith)
+- [`strip`](#string·strip)
+- [`title`](#string·title)
+- [`upper`](#string·upper)
 
 ### Bytes
 
@@ -866,7 +861,8 @@ if they are non-empty. They are not iterable, and not a subtype of
 
 A bytes value has these methods:
 
-* [`elems`](#bytes·elems)
+- [`elems`](#bytes·elems)
+
 ```
 TODO(https://github.com/bazelbuild/starlark/issues/112)
 - more methods: likely the same as string (minus those concerned with text):
@@ -928,13 +924,13 @@ result of some expression applied to each element of another sequence.
 
 A list value has these methods:
 
-* [`append`](#list·append)
-* [`clear`](#list·clear)
-* [`extend`](#list·extend)
-* [`index`](#list·index)
-* [`insert`](#list·insert)
-* [`pop`](#list·pop)
-* [`remove`](#list·remove)
+- [`append`](#list·append)
+- [`clear`](#list·clear)
+- [`extend`](#list·extend)
+- [`index`](#list·index)
+- [`insert`](#list·insert)
+- [`pop`](#list·pop)
+- [`remove`](#list·remove)
 
 ### Tuples
 
@@ -984,20 +980,21 @@ to directly concatenate a tuple with a list.
 
 A tuple used in a Boolean context is considered true if it is non-empty.
 
-
 ### Dictionaries
 
 A dictionary is a mutable mapping from keys to values.
 The [type](#type) of a dictionary is `"dict"`.
 
 Dictionaries provide constant-time operations to insert an element, to
-look up the value for a key, or to remove an element.  Dictionaries
-are implemented using hash tables, so keys must be hashable.  Hashable
+look up the value for a key, or to remove an element. Dictionaries
+are implemented using hash tables, so keys must be hashable. Hashable
 values include `None`, Booleans, numbers, strings, and bytes, and tuples
-composed from hashable values.  Most mutable values, such as lists,
+composed from hashable values. Most mutable values, such as lists,
 dictionaries, and sets, are not hashable, unless they are frozen.
+
 <!-- Refine those semantics -- consider making even frozen
 lists/dicts/sets unhashable. -->
+
 Attempting to use a non-hashable value as a key in a dictionary
 results in a dynamic error.
 
@@ -1014,7 +1011,7 @@ coins = {
 ```
 
 The expression `d[k]`, where `d` is a dictionary and `k` is a key,
-retrieves the value associated with the key.  If the dictionary
+retrieves the value associated with the key. If the dictionary
 contains no such item, the operation fails:
 
 ```python
@@ -1037,7 +1034,7 @@ len(coins)				# 5, existing item was updated
 A dictionary can also be constructed using a [dictionary
 comprehension](#comprehension), which evaluates a pair of expressions,
 the _key_ and the _value_, for every element of another iterable such
-as a list.  This example builds a mapping from each word to its length:
+as a list. This example builds a mapping from each word to its length:
 
 ```python
 words = ["able", "baker", "charlie"]
@@ -1079,29 +1076,27 @@ dictionaries `d1` and `d2`, the expression `d1 |= d2` behaves similar to
 `d1 = d1 | d2`, but mutates `d1` in-place rather than assigning a new
 dictionary to it.
 
-Dictionaries may be compared for equality using `==` and `!=`.  Two
+Dictionaries may be compared for equality using `==` and `!=`. Two
 dictionaries compare equal if they contain the same number of items
 and each key/value item (k, v) found in one dictionary is also present
-in the other.  Dictionaries are not ordered; it is an error to compare
+in the other. Dictionaries are not ordered; it is an error to compare
 two dictionaries with `<`.
-
 
 A dictionary value has these methods:
 
-* [`clear`](#dict·clear)
-* [`get`](#dict·get)
-* [`items`](#dict·items)
-* [`keys`](#dict·keys)
-* [`pop`](#dict·pop)
-* [`popitem`](#dict·popitem)
-* [`setdefault`](#dict·setdefault)
-* [`update`](#dict·update)
-* [`values`](#dict·values)
-
+- [`clear`](#dict·clear)
+- [`get`](#dict·get)
+- [`items`](#dict·items)
+- [`keys`](#dict·keys)
+- [`pop`](#dict·pop)
+- [`popitem`](#dict·popitem)
+- [`setdefault`](#dict·setdefault)
+- [`update`](#dict·update)
+- [`values`](#dict·values)
 
 ### Sets
 
-A set is a mutable collection of unique values - the set's *elements*.
+A set is a mutable collection of unique values - the set's _elements_.
 The [type](#type) of a set is `"set"`.
 
 Sets provide constant-time operations to insert, remove, or check for the
@@ -1149,7 +1144,7 @@ t = set(["x", "y"])
 
 Sets may be compared for equality or inequality using `==` and `!=`. A set `s`
 is equal to `t` if and only if `t` is a set containing the same elements;
-iteration order is not significant. In particular, a set is *not* equal to the
+iteration order is not significant. In particular, a set is _not_ equal to the
 list of its elements. Sets are not ordered with respect to other sets, and an
 attempt to compare two sets using `<`, `<=`, `>`, `>=`, or to sort a sequence of
 sets, will fail.
@@ -1215,23 +1210,22 @@ subsequent operations that attempt to update it will fail.
 
 A set has the following methods:
 
-  * [`add`](#set·add)
-  * [`clear`](#set·clear)
-  * [`difference`](#set·difference)
-  * [`difference_update`](#set·difference_update)
-  * [`discard`](#set·discard)
-  * [`intersection`](#set·intersection)
-  * [`intersection_update`](#set·intersection_update)
-  * [`isdisjoint`](#set·isdisjoint)
-  * [`issubset`](#set·issubset)
-  * [`issuperset`](#set·issuperset)
-  * [`pop`](#set·pop)
-  * [`remove`](#set·remove)
-  * [`symmetric_difference`](#set·symmetric_difference)
-  * [`symmetric_difference_update`](#set·symmetric_difference_update)
-  * [`union`](#set·union)
-  * [`update`](#set·update)
-
+- [`add`](#set·add)
+- [`clear`](#set·clear)
+- [`difference`](#set·difference)
+- [`difference_update`](#set·difference_update)
+- [`discard`](#set·discard)
+- [`intersection`](#set·intersection)
+- [`intersection_update`](#set·intersection_update)
+- [`isdisjoint`](#set·isdisjoint)
+- [`issubset`](#set·issubset)
+- [`issuperset`](#set·issuperset)
+- [`pop`](#set·pop)
+- [`remove`](#set·remove)
+- [`symmetric_difference`](#set·symmetric_difference)
+- [`symmetric_difference_update`](#set·symmetric_difference_update)
+- [`union`](#set·union)
+- [`update`](#set·update)
 
 ### Functions
 
@@ -1286,7 +1280,7 @@ idiv(6, y=3)		# 2
 
 <b>Optional parameters:</b> A parameter declaration may specify a
 default value using `name=value` syntax; such a parameter is
-_optional_.  The default value expression is evaluated during
+_optional_. The default value expression is evaluated during
 execution of the `def` statement, and the default value forms part of the function value.
 All optional parameters must follow all non-optional parameters.
 A function call may omit arguments for any suffix of the optional
@@ -1387,6 +1381,7 @@ argument may yet have two values for the same name, such as
 `f(x=1, **dict(x=2))`. This results in a dynamic error.
 
 Function arguments are evaluated in the order they appear in the call.
+
 <!-- see https://github.com/bazelbuild/starlark/issues/13 -->
 
 Unlike Python, Starlark does not allow more than one `*args` argument in a
@@ -1414,7 +1409,6 @@ f(1)            # returns None after printing "1"
 f(0)            # returns None without printing
 f(-1)           # returns 1 without printing
 ```
-
 
 It is a dynamic error for a function to call itself or another
 function value with the same declaration.
@@ -1445,8 +1439,6 @@ allowing unbounded recursion.
      long-running ones, even without recursion.
 -->
 
-
-
 ### Built-in functions
 
 A built-in function is a function or method implemented by the interpreter
@@ -1474,10 +1466,10 @@ within a function; and `load` statements may appear only outside any function.
 
 _Name resolution_ is the static checking process that
 resolves names to variable bindings.
-During execution, names refer to variables.  Statically, names denote
+During execution, names refer to variables. Statically, names denote
 places in the code where variables are created; these places are
-called _bindings_.  A name may denote different bindings at different
-places in the program.  The region of text in which a particular name
+called _bindings_. A name may denote different bindings at different
+places in the program. The region of text in which a particular name
 refers to the same binding is called that binding's _scope_.
 
 Four Starlark constructs bind names, as illustrated in the example below:
@@ -1506,6 +1498,7 @@ The tree of blocks is parallel to the syntax tree.
 Blocks are of five kinds.
 
 <!-- Avoid the term "built-in block" since that's also a type. -->
+
 At the root of the tree is the _predeclared_ block,
 which binds several names implicitly.
 The set of predeclared names includes the universal
@@ -1592,7 +1585,6 @@ even though such references would fail if actually executed.
 [1//0 for x in [1] for y in z for z in ()]  # dynamic error: local variable z referenced before assignment
 ```
 
-
 <!-- This is similar to Python[23]. Presumed rational: it resembles
      the desugaring to nested loop statements, in which the scope
      of all three variables is the entire enclosing function,
@@ -1606,11 +1598,13 @@ even though such references would fail if actually executed.
 -->
 
 It is a static error to refer to a name that has no binding at all.
+
 ```
 def f():
   if False:
     g()                   # static error: undefined: g
 ```
+
 (This behavior differs from Python, which treats such references as global,
 and thus does not report an error until the expression is evaluated.)
 
@@ -1638,7 +1632,6 @@ A name appearing after a dot, such as `split` in
 `get_filename().split('/')`, is not resolved statically.
 The [dot expression](#dot-expressions) `.split` is a dynamic operation
 on the value returned by `get_filename()`.
-
 
 ## Value concepts
 
@@ -1672,9 +1665,9 @@ equal.
 
 Values of other data types, such as `list` and `dict`, are
 _mutable_: they may be modified by a statement such as `a[i] = 0` or
-`items.clear()`.  Although `tuple` and `function` values are not
+`items.clear()`. Although `tuple` and `function` values are not
 directly mutable, they may refer to mutable values indirectly, so for
-this reason we consider them mutable too.  Starlark values of these
+this reason we consider them mutable too. Starlark values of these
 types are actually _references_ to variables.
 
 Copying a reference to a variable, using an assignment statement for
@@ -1691,7 +1684,7 @@ print(y)                        # "[1]"; y observes the mutation
 
 Starlark uses _call-by-value_ parameter passing: in a function call,
 argument values are assigned to function parameters as if by
-assignment statements.  If the values are references, the caller and
+assignment statements. If the values are references, the caller and
 callee may refer to the same variables, so if the called function
 changes the variable referred to by a parameter, the effect may also
 be observed by the caller:
@@ -1704,7 +1697,6 @@ x = []                          # x refers to a new empty list variable
 f(x)                            # f's parameter y becomes an alias for x
 print(x)                        # "[1]"; x observes the mutation
 ```
-
 
 As in all imperative languages, understanding _aliasing_, the
 relationship between reference values and the variables to which they
@@ -1742,6 +1734,7 @@ which are all immutable, are hashable.
 
 Values of mutable types such as `list` and `dict` are not
 hashable, unless they have become immutable due to _freezing_.
+
 <!-- Consider changing this so that these are unconditionally unhashable. -->
 
 A `tuple` value is hashable only if all its elements are hashable.
@@ -1753,30 +1746,30 @@ closures that refer to mutable variables, instances of these types
 are compared by reference identity (see [Comparisons](#comparisons)),
 so their hash values are derived from their identity.
 
-
 ### Collection types
 
 Starlark defines several abstract data types. Although these are not directly
 referenced by name in Starlark programs, they are useful concepts for
 understanding what operations a type supports and for documenting what types a
 function expects.
+
 <!-- Not referenced by name until we have type annotations, at which point they
 are type names. -->
 
-* `Collection`: A type that is:
-  * *iterable* (can appear on the right-hand side of a `for` loop, whether that
+- `Collection`: A type that is:
+  - _iterable_ (can appear on the right-hand side of a `for` loop, whether that
     be a `for` statement or comprehension `for` clause),
-  * can have its length taken via the `len()` function, and
-  * supports testing for membership via the `in` operator.
+  - can have its length taken via the `len()` function, and
+  - supports testing for membership via the `in` operator.
 
   Examples include `list`, `tuple`, `set`, and `dict` (its elements are its
   keys), but not `string` or `bytes` since they are not iterable.
 
-* `Sequence`: A `Collection` that additionally supports subscript and slicing
+- `Sequence`: A `Collection` that additionally supports subscript and slicing
   expressions, following the semantics of indexing. `list` and `tuple` are
   `Sequence`s, but not `set` or `dict`.
 
-* `Mapping`: A `Collection` of keys associated with values, where a value can
+- `Mapping`: A `Collection` of keys associated with values, where a value can
   be retrieved by subscripting with the key. `dict` is the only example of a
   `Mapping` in the core language.
 
@@ -1819,7 +1812,7 @@ and `j` that indicate the start and end of a subsequence, such as
 `a[i:j]`, `list.index(x, i, j)`, or `string.find(x, i, j)`.
 All such operations follow similar conventions, described here.
 
-Indexing in Starlark is *zero-based*. The first element of a string
+Indexing in Starlark is _zero-based_. The first element of a string
 or list has index 0, the next 1, and so on. The last element of a
 sequence of length `n` has index `n-1`.
 
@@ -1833,7 +1826,7 @@ For subsequence operations that require two indices, the first is
 _inclusive_ and the second _exclusive_. Thus `a[i:j]` indicates the
 sequence starting with element `i` up to but not including element
 `j`. The length of this subsequence is `j-i`. This convention is known
-as *half-open indexing*.
+as _half-open indexing_.
 
 ```python
 "hello"[1:4]			# "ell"
@@ -1876,7 +1869,6 @@ This truncation step does not apply to indices of individual elements:
 "hello"[4]		# "o"
 "hello"[5]		# error: index out of range
 ```
-
 
 ## Expressions
 
@@ -2001,7 +1993,6 @@ Entry    = Expression ':' Expression .
 
 Examples:
 
-
 ```python
 {}
 {"one": 1}
@@ -2012,7 +2003,6 @@ The key and value expressions are evaluated in left-to-right order.
 Evaluation fails if the same key is used multiple times.
 
 Only [hashable](#hashing) values may be used as the keys of a dictionary.
-
 
 ### List expressions
 
@@ -2087,7 +2077,6 @@ The bitwise inversion of x is defined as -(x+1).
 ~-1                             # 0
 ~0                              # -1
 ```
-
 
 ### Binary operators
 
@@ -2171,9 +2160,9 @@ The `==` operator reports whether its operands are equal; the `!=`
 operator is its negation.
 
 The operators `<`, `>`, `<=`, and `>=` perform an ordered comparison
-of their operands.  It is an error to apply these operators to
+of their operands. It is an error to apply these operators to
 operands of unequal type, unless one of the operands is an `int` and
-the other is a `float`.  Of the built-in types, only the following
+the other is a `float`. Of the built-in types, only the following
 support ordered comparison, using the ordering relation shown:
 
 ```text
@@ -2190,6 +2179,7 @@ Comparison of floating-point values follows the IEEE 754 standard
 for finite values (including -0.0) and for positive and negative
 infinity, but not for `NaN` values, for which the standard behavior
 would break several mathematical identities. Thus:
+
 ```
 -Inf < -1e50 < -1.0 < -1e-50 < 0.0 < 1e-50 < 1.0 < 1e50 < +Inf < NaN
 +0.0 == -0.0
@@ -2199,6 +2189,7 @@ NaN == NaN
 Applications may define additional types that support ordered comparison.
 The application-defined comparison relation must be a
 [strict weak ordering](https://en.wikipedia.org/wiki/Weak_ordering#Strict_weak_orderings).
+
 <!-- This is a prequisite of the 'sorted' function. -->
 
 The remaining built-in types support only equality comparisons.
@@ -2303,7 +2294,6 @@ Negative values of _n_ behave like zero.
 
 Applications may define additional types that support any subset of
 these operators.
-
 
 #### Membership tests
 
@@ -2446,7 +2436,6 @@ a if b else (lambda: c if d else e)  # parens are required
 (a if b else lambda: c) if d else e  # parens are required
 ```
 
-
 ### Comprehensions
 
 A comprehension constructs new list or dictionary value by looping
@@ -2514,7 +2503,6 @@ _ = [x for x in [2]]            # new variable x is local to the comprehension
 print(x)                        # 1
 ```
 
-
 ### Function and method calls
 
 ```text
@@ -2556,7 +2544,7 @@ specified name.
 
 Use the built-in function `hasattr(x, "f")` to ascertain whether a
 value has a specific attribute, or `dir(x)` to enumerate all its
-attributes.  The `getattr(x, "f")` function can be used to select an
+attributes. The `getattr(x, "f")` function can be used to select an
 attribute when the name `"f"` is not known statically.
 
 A dot expression that selects a method typically appears within a call
@@ -2570,7 +2558,7 @@ expression, as in these examples:
 
 But when not called immediately, the dot expression evaluates to a
 _bound method_, that is, a method coupled to a specific receiver
-value.  A bound method can be called like an ordinary function,
+value. A bound method can be called like an ordinary function,
 without a receiver argument:
 
 ```python
@@ -2659,7 +2647,7 @@ If `stride` is omitted its value defaults to 1. It is an error to specify a
 `stride` of 0.
 
 The effective start and stop indices are computed from the three
-operands as follows.  Let `n` be the length of the sequence.
+operands as follows. Let `n` be the length of the sequence.
 
 <b>If the stride is positive:</b>
 If the `start` operand was omitted, it defaults to -infinity.
@@ -2691,7 +2679,6 @@ because tuple, string, and bytes values are immutable, so the result of the
 operation can share the underlying representation of the original
 operand (when the stride is 1). By contrast, slicing a list requires
 the creation of a new list and copying of the necessary elements.
-
 
 ### Lambda expressions
 
@@ -2748,7 +2735,7 @@ SmallStmt  = ReturnStmt
 
 ### Pass statements
 
-A `pass` statement does nothing.  Use a `pass` statement when the
+A `pass` statement does nothing. Use a `pass` statement when the
 syntax requires a statement but no behavior is required, such as the
 body of a function that does nothing.
 
@@ -2772,7 +2759,7 @@ def list_to_dict(items):
 
 ### Assignments
 
-An assignment statement has the form `lhs = rhs`.  It evaluates the
+An assignment statement has the form `lhs = rhs`. It evaluates the
 expression on the right-hand side then assigns its value (or values) to
 the variable (or variables) on the left-hand side.
 
@@ -2780,7 +2767,7 @@ the variable (or variables) on the left-hand side.
 AssignStmt = Expressions '=' Expressions .
 ```
 
-The expression on the left-hand side is called a _target_.  The
+The expression on the left-hand side is called a _target_. The
 simplest target is the name of a variable, but a target may also have
 the form of a subscript expression to update the element of a list or
 dictionary, or the form of a dot expression to update the field of an
@@ -2809,7 +2796,6 @@ a, b = 2, 3
 
 The same process for assigning a value to a target expression is used
 in `for` statements and in comprehension `for` clauses.
-
 
 ### Augmented assignments
 
@@ -2872,16 +2858,16 @@ the parameter list (which is enclosed in parentheses), a colon, and
 then an indented block of statements which form the body of the function.
 
 The parameter list is a comma-separated list whose elements are of
-several kinds.  First come zero or more required parameters, which are
+several kinds. First come zero or more required parameters, which are
 simple identifiers; all calls must provide an argument value for these parameters.
 
 The required parameters are followed by zero or more optional
-parameters, of the form `name=expression`.  The expression specifies
+parameters, of the form `name=expression`. The expression specifies
 the default value for the parameter for use in calls that do not
 provide an argument value for it.
 
 The required parameters are optionally followed by a single parameter
-name preceded by a `*`.  This is the called the _varargs_ parameter,
+name preceded by a `*`. This is the called the _varargs_ parameter,
 and it accumulates surplus positional arguments specified by a call.
 It is conventionally named `*args`.
 
@@ -2937,7 +2923,7 @@ def f(**kwargs): pass
 def f(a, b, c=1, *, d=1): pass
 ```
 
-Execution of a `def` statement creates a new function object.  The
+Execution of a `def` statement creates a new function object. The
 function object contains: the syntax of the function body; the default
 value for each optional parameter; a reference to each free variable
 appearing within the function body; and the global dictionary of the
@@ -2956,7 +2942,6 @@ f(1) # returns [1, 2]
 ```
 
 <!-- this is too implementation-oriented; it's not a spec. -->
-
 
 ### Return statements
 
@@ -3059,7 +3044,7 @@ for x in range(10):
 ```
 
 The assignment of each value to the loop variables follows the same
-rules as an ordinary assignment.  In this example, two-element lists
+rules as an ordinary assignment. In this example, two-element lists
 are repeatedly assigned to the pair of variables (a, i):
 
 ```python
@@ -3079,11 +3064,10 @@ iteration.
 In Starlark, a `for` statement is permitted only within a function
 definition. A `for` statement at top level results in a static error.
 
-
 ### Break and Continue
 
 The `break` and `continue` statements terminate the current iteration
-of a `for` statement.  Whereas the `continue` statement resumes the loop at
+of a `for` statement. Whereas the `continue` statement resumes the loop at
 the next iteration, a `break` statement terminates the entire loop.
 
 ```text
@@ -3105,7 +3089,6 @@ for x in range(10):
 Both statements affect only the innermost lexically enclosing loop.
 It is a static error to use a `break` or `continue` statement outside a
 loop.
-
 
 ### Load statements
 
@@ -3141,7 +3124,7 @@ The remaining arguments are a mixture of literal strings, such as
 
 The literal string (`"x"`), which must denote a valid identifier not
 starting with `_`, specifies the name to extract from the loaded
-module.  In effect, names starting with `_` are not exported.
+module. In effect, names starting with `_` are not exported.
 The name (`y`) specifies the local name;
 if no name is given, the local name matches the quoted name.
 
@@ -3151,7 +3134,6 @@ load("module.sky", "x", y2="y", "z")    # assigns x, y2, and z
 ```
 
 A load statement within a function is a static error.
-
 
 ## Module execution
 
@@ -3192,7 +3174,6 @@ fail.
 Starlark provides no mechanism by which errors can be handled within
 the language.
 
-
 ## Built-in constants and functions
 
 The outermost block of the Starlark environment is known as the "predeclared" block.
@@ -3202,15 +3183,14 @@ application-specific names.
 
 These names are not reserved words so Starlark programs are free to
 redefine them in a smaller block such as a function body or even at
-the top level of a module.  However, doing so may be confusing to the
-reader.  Nonetheless, this rule permits names to be added to the
+the top level of a module. However, doing so may be confusing to the
+reader. Nonetheless, this rule permits names to be added to the
 predeclared block in later versions of the language (or
 application-specific dialect) without breaking existing programs.
 
 As with built-in functions, built-in methods accept only positional
 arguments except where noted.
 The parameter names serve merely as documentation.
-
 
 ### None
 
@@ -3264,7 +3244,7 @@ bytes(65)			# error: got int, want string, bytes, or iterable of int
 
 ### dict
 
-`dict` creates a dictionary.  It accepts up to one positional
+`dict` creates a dictionary. It accepts up to one positional
 argument, which is interpreted as an iterable of two-element
 sequences (pairs), each specifying a key/value pair in
 the resulting dictionary.
@@ -3329,6 +3309,7 @@ The precise formatting depends on the implementation.
 fail("oops")			# "fail: oops"
 fail("oops", 1, False)		# "fail: oops 1 False"
 ```
+
 <!--
 Note:
 
@@ -3419,6 +3400,7 @@ specified base, decimal by default.
 If `base` is zero, x is interpreted like an integer literal,
 the base being inferred from an optional base prefix such as
 `0b`, `0o`, or `0x` preceding the first digit.
+
 <!-- Note: the spec does not currently support 0b literals, but
      int("0b...") works in both implementation;
      see bazelbuild/starlark#117.
@@ -3546,7 +3528,7 @@ Range values are comparable: two `range` values compare equal if they
 denote the same sequence of integers, even if they were created using
 different parameters.
 
-Range values are not hashable.  <!-- should they be? -->
+Range values are not hashable. <!-- should they be? -->
 
 The `str` function applied to a `range` value yields a string of the
 form `range(10)`, `range(1, 10)`, or `range(1, 10, 2)`.
@@ -3610,7 +3592,7 @@ set({"k1": "v1", "k2": "v2"})  # set(["k1", "k2"]), a set of two elements
 ### sorted
 
 `sorted(x)` returns a new list containing the elements of the collection x,
-in sorted order.  The sort algorithm is stable, i.e., equal elements appear
+in sorted order. The sort algorithm is stable, i.e., equal elements appear
 in the same relative order in the result.
 
 The optional named boolean parameter `reverse`, if true, causes `sorted` to
@@ -3669,9 +3651,9 @@ type(0.0)               # "float"
 
 `zip()` returns a new list of n-tuples formed from corresponding
 elements of each of the n collections provided as arguments to
-`zip`.  That is, the first tuple contains the first element of each of
+`zip`. That is, the first tuple contains the first element of each of
 the collections, the second element contains the second element of each
-of the collections, and so on.  The result list is only as long as the
+of the collections, and so on. The result list is only as long as the
 shortest of the input collections.
 
 ```python
@@ -3682,12 +3664,13 @@ zip(range(10), ["a", "b", "c"])         # [(0, "a"), (1, "b"), (2, "c")]
 
 ## Built-in methods
 
-This section lists the methods of built-in types.  Methods are selected
+This section lists the methods of built-in types. Methods are selected
 using [dot expressions](#dot-expressions).
 For example, strings have a `count` method that counts
 occurrences of a substring; `"banana".count("a")` yields `3`.
 
 <a id='bytes·elems'></a>
+
 ### bytes·elems
 
 `b.elems()` returns an opaque iterable value containing successive int elements of b.
@@ -3698,9 +3681,11 @@ type(b"ABC".elems())	# "bytes.elems"
 b"ABC".elems()	        # b"ABC".elems()
 list(b"ABC".elems())  	# [65, 66, 67]
 ```
+
 <!-- TODO: signpost how to convert an single int or list of int to a bytes. -->
 
 <a id='dict·clear'></a>
+
 ### dict·clear
 
 `D.clear()` removes all the entries of dictionary D and returns `None`.
@@ -3713,6 +3698,7 @@ print(x)                                # {}
 ```
 
 <a id='dict·get'></a>
+
 ### dict·get
 
 `D.get(key[, default])` returns the dictionary value corresponding to the given key.
@@ -3729,6 +3715,7 @@ x.get("three", 0)                       # 0
 ```
 
 <a id='dict·items'></a>
+
 ### dict·items
 
 `D.items()` returns a new list of key/value pairs, one per element in
@@ -3740,6 +3727,7 @@ x.items()                               # [("one", 1), ("two", 2)]
 ```
 
 <a id='dict·keys'></a>
+
 ### dict·keys
 
 `D.keys()` returns a new list containing the keys of dictionary D, in the
@@ -3751,10 +3739,11 @@ x.keys()                               # ["one", "two"]
 ```
 
 <a id='dict·pop'></a>
+
 ### dict·pop
 
 `D.pop(key[, default])` returns the value corresponding to the specified
-key, and removes it from the dictionary.  If the dictionary contains no
+key, and removes it from the dictionary. If the dictionary contains no
 such value, and the optional `default` parameter is present, `pop`
 returns that value; otherwise, it fails.
 
@@ -3769,6 +3758,7 @@ x.pop("four")                           # error: missing key
 ```
 
 <a id='dict·popitem'></a>
+
 ### dict·popitem
 
 `D.popitem()` returns the first key/value pair, removing it from the dictionary.
@@ -3783,6 +3773,7 @@ x.popitem()                             # error: empty dict
 ```
 
 <a id='dict·setdefault'></a>
+
 ### dict·setdefault
 
 `D.setdefault(key[, default])` returns the dictionary value corresponding to the given key.
@@ -3804,6 +3795,7 @@ x                                       # {"one": 1, "two": 2, "three": 3, "four
 ```
 
 <a id='dict·update'></a>
+
 ### dict·update
 
 `D.update([pairs][, name=value[, ...])` makes a series of key/value
@@ -3834,6 +3826,7 @@ x                                       # {"a": 1, "b": "2", "c": 3, "d": 4, "e"
 ```
 
 <a id='dict·values'></a>
+
 ### dict·values
 
 `D.values()` returns a new list containing the dictionary's values, in the
@@ -3846,6 +3839,7 @@ x.values()                              # [1, 2]
 ```
 
 <a id='list·append'></a>
+
 ### list·append
 
 `L.append(x)` appends `x` to the list L, and returns `None`.
@@ -3861,6 +3855,7 @@ x                                       # [1, 2, 3]
 ```
 
 <a id='list·clear'></a>
+
 ### list·clear
 
 `L.clear()` removes all the elements of the list L and returns `None`.
@@ -3873,6 +3868,7 @@ x                                       # []
 ```
 
 <a id='list·extend'></a>
+
 ### list·extend
 
 `L.extend(x)` appends the elements of `x`, which must be iterable, to
@@ -3895,12 +3891,13 @@ y                                       # [1, 2, 1, 2]
 ```
 
 <a id='list·index'></a>
+
 ### list·index
 
 `L.index(x[, start[, end]])` finds `x` within the list L and returns its index.
 
 The optional `start` and `end` parameters restrict the portion of
-list L that is inspected.  If provided and not `None`, they must be list
+list L that is inspected. If provided and not `None`, they must be list
 indices of type `int`. If an index is negative, `len(L)` is effectively
 added to it, then if the index is outside the range `[0:len(L)]`, the
 nearest value within that range is used; see [Indexing](#indexing).
@@ -3917,10 +3914,11 @@ x.index("a", -2)                        # 5 (bananA)
 ```
 
 <a id='list·insert'></a>
+
 ### list·insert
 
 `L.insert(i, x)` inserts the value `x` in the list L at index `i`, moving
-higher-numbered elements along by one.  It returns `None`.
+higher-numbered elements along by one. It returns `None`.
 
 As usual, the index `i` must be an `int`. If its value is negative,
 the length of the list is added, then its value is clamped to the
@@ -3936,6 +3934,7 @@ x                                       # ["a", "b", "c", "d", "e"]
 ```
 
 <a id='list·pop'></a>
+
 ### list·pop
 
 `L.pop([index])` removes and returns the last element of the list L, or,
@@ -3952,6 +3951,7 @@ x                                       # [1]
 ```
 
 <a id='list·remove'></a>
+
 ### list·remove
 
 `L.remove(x)` removes the first occurrence of the value `x` from the list L, and returns `None`.
@@ -4011,7 +4011,7 @@ set([1, 2, 3]).difference([0, 1], [3, 4])  # set([2])
 
 <a id='set·difference_update'></a>
 
-### set·difference\_update
+### set·difference_update
 
 `S.difference_update(*others)` removes from the set `S` any elements found in
 any of the collections `*others`. It returns `None`.
@@ -4077,7 +4077,7 @@ set([1, 2, 3]).intersection([0, 1], [1, 2])  # set([1])
 
 <a id='set·intersection_update'></a>
 
-### set·intersection\_update
+### set·intersection_update
 
 `S.intersection_update(*others)` removes from the set `S` any elements not found
 in at least one of the collections `*others`. It returns `None`.
@@ -4169,7 +4169,7 @@ s.remove(2)  # error: element not found
 
 <a id='set·symmetric_difference'></a>
 
-### set·symmetric\_difference
+### set·symmetric_difference
 
 `S.symmetric_difference(x)` returns a new set containing elements found only in
 the set `S` or in the collection `x` but not those found in both `S` and
@@ -4187,7 +4187,7 @@ set([1, 2]).symmetric_difference([2, 3])  # set([1, 3])
 
 <a id='set·symmetric_difference_update'></a>
 
-### set·symmetric\_difference\_update
+### set·symmetric_difference_update
 
 `S.symmetric_difference_update(x)` removes from the set `S` any elements found
 in both `S` and the collection `x`, and adds to `S` any elements found in
@@ -4251,6 +4251,7 @@ s.update([2, 3], [3, 4])  # None; s is set([1, 2, 3, 4])
 ```
 
 <a id='string·capitalize'></a>
+
 ### string·capitalize
 
 `S.capitalize()` returns a copy of string S, where the first character (if any)
@@ -4261,6 +4262,7 @@ is converted to uppercase; all other characters are converted to lowercase.
 ```
 
 <a id='string·count'></a>
+
 ### string·count
 
 `S.count(sub[, start[, end]])` returns the number of occurrences of
@@ -4274,6 +4276,7 @@ They are interpreted according to Starlark's [indexing conventions](#indexing).
 ```
 
 <a id='string·elems'></a>
+
 ### string·elems
 
 `S.elems()` returns an opaque iterable value containing successive
@@ -4298,8 +4301,8 @@ both implemented in Go, but neither yet in the spec (and both hard to support in
 Java implemntation as long as Bazel does the Latin1 hack).
 -->
 
-
 <a id='string·endswith'></a>
+
 ### string·endswith
 
 `S.endswith(suffix[, start[, end]])` reports whether the string
@@ -4319,6 +4322,7 @@ function reports whether any one of them is a suffix.
 ```
 
 <a id='string·find'></a>
+
 ### string·find
 
 `S.find(sub[, start[, end]])` returns the index of the first
@@ -4337,6 +4341,7 @@ If no occurrence is found, `found` returns -1.
 ```
 
 <a id='string·format'></a>
+
 ### string·format
 
 `S.format(*args, **kwargs)` returns a version of the format string S
@@ -4354,7 +4359,7 @@ specifies which argument to use.
 {field}
 ```
 
-The *field name* may be either a decimal number or a keyword.
+The _field name_ may be either a decimal number or a keyword.
 A number is interpreted as the index of a positional argument;
 a keyword specifies the value of a keyword argument.
 If all the numeric field names form the sequence 0, 1, 2, and so on,
@@ -4368,6 +4373,7 @@ the explicit and implicit forms may not be mixed.
 ```
 
 <a id='string·index'></a>
+
 ### string·index
 
 `S.index(sub[, start[, end]])` returns the index of the first
@@ -4381,6 +4387,7 @@ that if the substring is not found, the operation fails.
 ```
 
 <a id='string·isalnum'></a>
+
 ### string·isalnum
 
 `S.isalnum()` reports whether the string S is non-empty and consists only
@@ -4392,6 +4399,7 @@ Unicode letters and digits.
 ```
 
 <a id='string·isalpha'></a>
+
 ### string·isalpha
 
 `S.isalpha()` reports whether the string S is non-empty and consists only of Unicode letters.
@@ -4403,6 +4411,7 @@ Unicode letters and digits.
 ```
 
 <a id='string·isdigit'></a>
+
 ### string·isdigit
 
 `S.isdigit()` reports whether the string S is non-empty and consists only of Unicode digits.
@@ -4414,6 +4423,7 @@ Unicode letters and digits.
 ```
 
 <a id='string·islower'></a>
+
 ### string·islower
 
 `S.islower()` reports whether the string S contains at least one cased Unicode
@@ -4426,6 +4436,7 @@ letter, and all such letters are lowercase.
 ```
 
 <a id='string·isspace'></a>
+
 ### string·isspace
 
 `S.isspace()` reports whether the string S is non-empty and consists only of Unicode spaces.
@@ -4437,6 +4448,7 @@ letter, and all such letters are lowercase.
 ```
 
 <a id='string·istitle'></a>
+
 ### string·istitle
 
 `S.istitle()` reports whether the string S contains at least one cased Unicode
@@ -4450,6 +4462,7 @@ letter, and all such letters that begin a word are in title case.
 ```
 
 <a id='string·isupper'></a>
+
 ### string·isupper
 
 `S.isupper()` reports whether the string S contains at least one cased Unicode
@@ -4462,6 +4475,7 @@ letter, and all such letters are uppercase.
 ```
 
 <a id='string·join'></a>
+
 ### string·join
 
 `S.join(iterable)` returns the string formed by concatenating each
@@ -4475,6 +4489,7 @@ are strings.
 ```
 
 <a id='string·lower'></a>
+
 ### string·lower
 
 `S.lower()` returns a copy of the string S with letters converted to lowercase.
@@ -4484,6 +4499,7 @@ are strings.
 ```
 
 <a id='string·lstrip'></a>
+
 ### string·lstrip
 
 `S.lstrip([cutset])` returns a copy of the string S with leading whitespace removed.
@@ -4497,6 +4513,7 @@ alternative set of Unicode code points to remove.
 ```
 
 <a id='string·partition'></a>
+
 ### string·partition
 
 `S.partition(x)` splits string S into three parts and returns them as
@@ -4511,6 +4528,7 @@ If S does not contain `x`, `partition` returns `(S, "", "")`.
 ```
 
 <a id='string·removeprefix'></a>
+
 ### string·removeprefix
 
 `S.removeprefix(x)` removes the prefix `x` from the string S at most once,
@@ -4526,6 +4544,7 @@ If the prefix string is not found then it returns the original string.
 ```
 
 <a id='string·removesuffix'></a>
+
 ### string·removesuffix
 
 `S.removesuffix(x)` removes the suffix `x` from the string S at most once,
@@ -4541,6 +4560,7 @@ If the suffix string is not found then it returns the original string.
 ```
 
 <a id='string·replace'></a>
+
 ### string·replace
 
 `S.replace(old, new[, count])` returns a copy of string S with all
@@ -4554,6 +4574,7 @@ specifies a maximum number of occurrences to replace.
 ```
 
 <a id='string·rfind'></a>
+
 ### string·rfind
 
 `S.rfind(sub[, start[, end]])` returns the index of the substring `sub` within
@@ -4567,6 +4588,7 @@ _last_ occurrence.
 ```
 
 <a id='string·rindex'></a>
+
 ### string·rindex
 
 `S.rindex(sub[, start[, end]])` returns the index of the substring `sub` within
@@ -4580,6 +4602,7 @@ _last_ occurrence.
 ```
 
 <a id='string·rpartition'></a>
+
 ### string·rpartition
 
 `S.rpartition(x)` is like `partition`, but splits `S` at the last occurrence of `x`.
@@ -4589,6 +4612,7 @@ _last_ occurrence.
 ```
 
 <a id='string·rsplit'></a>
+
 ### string·rsplit
 
 `S.rsplit([sep[, maxsplit]])` splits a string into substrings like `S.split`,
@@ -4602,6 +4626,7 @@ rightmost splits.
 ```
 
 <a id='string·rstrip'></a>
+
 ### string·rstrip
 
 `S.rstrip([cutset])` returns a copy of the string S with trailing whitespace removed.
@@ -4615,6 +4640,7 @@ alternative set of Unicode code points to remove.
 ```
 
 <a id='string·split'></a>
+
 ### string·split
 
 `S.split([sep [, maxsplit]])` returns the list of substrings of S,
@@ -4644,6 +4670,7 @@ If `maxsplit` is given and non-negative, it specifies a maximum number of splits
 ```
 
 <a id='string·splitlines'></a>
+
 ### string·splitlines
 
 `S.splitlines([keepends])` returns a list whose elements are the
@@ -4661,8 +4688,8 @@ the final element does not necessarily end with a line terminator.
 "one\n\ntwo".splitlines(True)   # ["one\n", "\n", "two"]
 ```
 
-
 <a id='string·startswith'></a>
+
 ### string·startswith
 
 `S.startswith(prefix[, start[, end]])` reports whether the string
@@ -4684,6 +4711,7 @@ function reports whether any one of them is a prefix.
 ```
 
 <a id='string·strip'></a>
+
 ### string·strip
 
 `S.strip([cutset])` returns a copy of the string S with leading and trailing whitespace removed.
@@ -4698,6 +4726,7 @@ and trailing Unicode code points contained in `cutset`.
 ```
 
 <a id='string·title'></a>
+
 ### string·title
 
 `S.title()` returns a copy of the string S with letters converted to titlecase.
@@ -4709,6 +4738,7 @@ Letters are converted to uppercase at the start of words, lowercase elsewhere.
 ```
 
 <a id='string·upper'></a>
+
 ### string·upper
 
 `S.upper()` returns a copy of the string S with letters converted to uppercase.
@@ -4716,7 +4746,6 @@ Letters are converted to uppercase at the start of words, lowercase elsewhere.
 ```python
 "Hello, World!".upper()                 # "HELLO, WORLD!"
 ```
-
 
 ## Grammar reference
 

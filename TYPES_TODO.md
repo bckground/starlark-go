@@ -19,7 +19,7 @@ returns relaxed to accept `error`/`error_tag`.)
 ## Ongoing
 
 - **Broaden the universe signature table.**
-  *Importance: high. Effort: incremental, never "done".*
+  _Importance: high. Effort: incremental, never "done"._
   `typecheck/universe.go` covers the universal builtins and
   string/list/dict/set methods, with argument-aware results for
   `sorted`, `min`/`max`, `zip`, `enumerate`, `list`/`set`/`tuple`/
@@ -35,7 +35,7 @@ awareness, error-value typing) shipped; see TYPES.md for what exists.
 Natural extensions, none blocking:
 
 - **Cover `starlarkstruct`, `lib/time`, and `lib/json` values.**
-  *Importance: medium. Effort: low–medium each.*
+  _Importance: medium. Effort: low–medium each._
   The `CustomTy`/`TypeFactory` mechanism now exists; these are
   additional adapters. `struct(...)` is a factory like `record(...)`
   (kwargs become the attribute table, values typed by inference
@@ -44,7 +44,7 @@ Natural extensions, none blocking:
   CustomTy values), no factories.
 
 - **Static checking of `field()` defaults.**
-  *Importance: low (the runtime checks them at load time anyway).*
+  _Importance: low (the runtime checks them at load time anyway)._
   `field(int, "80")` is only caught when the module executes. The
   field factory sees the default's static value and could check
   intersection with the field type when it knows both.
@@ -56,14 +56,14 @@ Natural extensions, none blocking:
 ## Deferred
 
 - **REPL support for `-typecheck`.**
-  *Importance: low. Effort: medium.*
+  _Importance: low. Effort: medium._
   The flag only applies to file execution; the REPL path runs without
   static checking. Mechanically easy, but checking line-by-line means
   threading accumulated global types across REPL inputs — an
   incremental-Check entry point the checker wasn't designed for.
 
 - **Lambda bodies.**
-  *Importance: low. Effort: high.*
+  _Importance: low. Effort: high._
   Lambdas type as `AnyCallable` and are not descended into (rust
   parity). Inferring lambda parameter/result types from context would
   catch more errors, but rust deliberately doesn't do this — there is
@@ -71,7 +71,7 @@ Natural extensions, none blocking:
   risk. Revisit if/when rust does it.
 
 - **LSP/editor integration.**
-  *Importance: high long-term. Effort: very high — a separate project.*
+  _Importance: high long-term. Effort: very high — a separate project._
   `Result.Types.Lookup(ident)` exposes per-binding inferred types; a
   language-server hover/diagnostics integration is a natural consumer.
   Everything needed (positions, per-ident types) already exists; the
