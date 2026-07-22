@@ -21,6 +21,7 @@ within the language (see [spec.md](spec.md#module-execution)).
 - [Static validation](#static-validation)
 - [Module-level try](#module-level-try)
 - [Execution model](#execution-model)
+- [The Go boundary](#the-go-boundary)
 - [Examples](#examples)
 
 ## Overview
@@ -302,6 +303,33 @@ e.tag                       # NotFound
 e.message                   # "user 42 not found"
 ```
 
+### fail
+
+This extension refines the contract of the core `fail` built-in,
+giving it two modes:
+
+- **Message mode** (core behavior): no argument is an error value or
+  error tag; the arguments are formatted into the failure message.
+- **Payload mode**: the sole argument is an error value or an error
+  tag (a bare tag is wrapped in an error value, as in a `!`
+  function's return). The failure carries the error value to the
+  embedder (see [The Go boundary](#the-go-boundary)), and the message
+  is the error's tag name. This is the form a module-level `try`
+  compiles to.
+
+Mixing an error or error tag with other arguments, or passing more
+than one, has no coherent meaning and is itself a failure:
+
+```python
+errors = error_tags("IOError")
+e = errors.IOError(message="disk full")
+
+fail("unrecoverable:", "disk full")   # message mode
+fail(e)                               # payload mode: carries e
+fail(errors.IOError)                  # payload mode: wraps the tag
+fail("context:", e)                   # failure: error must be the sole argument
+```
+
 ## Static validation
 
 The following rules are enforced at compile time (during name resolution):
@@ -348,16 +376,9 @@ config = try load_config()
 #     fail(e)
 ```
 
-When `fail` is called with an error value, Go callers can use
-`errors.As` with `*starlark.FailError` to extract the underlying
-Starlark error:
-
-```go
-var failErr *starlark.FailError
-if errors.As(err, &failErr) {
-    fmt.Println(failErr.Value.Tag)  // the error tag
-}
-```
+When `fail` is called with an error value, Go callers can recover the
+underlying Starlark error from the resulting failure; see
+[The Go boundary](#the-go-boundary).
 
 ## Execution model
 
@@ -394,6 +415,83 @@ When a function exits successfully:
 
 1. Errdeferred calls are discarded
 2. Regular deferred calls (LIFO order)
+
+## The Go boundary
+
+When control returns to Go — to the embedder calling
+`starlark.ExecFile` or `starlark.Call`, or to a Go builtin invoking a
+Starlark function — the two failure channels map onto exactly two Go
+error types, which never overlap:
+
+- **`*starlark.EvalError` — a failure.** Every abort (a `fail()`
+  call or an implicit fault) reaches Go as an `*EvalError` carrying
+  the message and a copy of the call stack. Its `Unwrap` exposes the
+  original Go error as the cause, so `errors.As` can recover
+  specific error types from the chain:
+
+  - A *fail-style* failure has a `*starlark.FailError` as its cause.
+    The `fail` built-in produces one, and a Go builtin that wants to
+    surface the equivalent of a `fail(...)` call returns one as its
+    error. When the failure carries an error value (as `fail(e)` and
+    a module-level `try` do), the field `StarlarkError` holds it,
+    with tag, message, cause, and extra intact:
+
+    ```go
+    var failErr *starlark.FailError
+    if errors.As(err, &failErr) && failErr.StarlarkError != nil {
+        fmt.Println(failErr.StarlarkError.Tag())
+    }
+    ```
+
+  - Any other non-nil error returned by a Go builtin is an
+    *incidental* failure — a fault, like division by zero — and
+    rides the chain as-is; custom error types defined by the
+    embedder can be recovered the same way. `FailError` is not a
+    general wrapper: it marks deliberate, fail-style aborts, which
+    is what makes it a useful discriminator.
+
+- **`*starlark.ReturnedError` — an uncaught recoverable error.**
+  When an error-returning function invoked directly from Go returns
+  an error value that no Starlark caller handled, `Call` surfaces it
+  as a `*ReturnedError` whose `Value` field is the error value. This
+  keeps a recoverable error that merely escaped to Go distinct from
+  a failure: the Go caller may inspect it and continue, exactly as a
+  Starlark `catch` could have.
+
+A Go builtin is Starlark code that happens to be written in Go, and
+its two return values can express every outcome of the error model:
+
+- **Success**: return `(value, nil)`.
+
+- **Recoverable error**, like `return errors.Tag` in Starlark: the
+  builtin must be created with `NewBuiltinCanReturnError`; return the
+  error tag or error value as the *result*, with a nil Go error. The
+  caller handles it with `try`/`catch` like any `!` function's error.
+
+- **Deliberate failure**, mimicking a call to `fail(...)`: return a
+  `*starlark.FailError` as the Go error. The abort is uncatchable like
+  any failure, and embedders recognize it as fail-style via
+  `errors.As`. `starlark.NewFailError(sep, args...)` builds one exactly
+  as `fail(*args, sep=sep)` would, in either of fail's two modes
+  (message or payload; a mixed call yields a failure describing the
+  misuse) — or construct one directly for full control over the
+  message:
+
+  ```go
+  func mustSync(thread *starlark.Thread, b *starlark.Builtin,
+      args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+      if corrupted() {
+          return nil, &starlark.FailError{
+              Msg:           "cache corrupted", // Error() renders "fail: cache corrupted"
+              StarlarkError: e, // optional: the error value the failure carries
+          }
+      }
+      return starlark.None, nil
+  }
+  ```
+
+- **Incidental failure**, like a division by zero: return any other
+  non-nil Go error (`fmt.Errorf`, a custom type, ...).
 
 ## Examples
 
