@@ -6,7 +6,8 @@
 [![Go Reference](https://pkg.go.dev/badge/go.starlark.net/starlark.svg)](https://pkg.go.dev/go.starlark.net/starlark)
 
 > [!IMPORTANT]  
-> This repository is a **hard fork** of https://github.com/google/starlark-go.
+> This repository is a **hard fork** of https://github.com/google/starlark-go.  
+> We do **NOT** guarantee compatibility between the original project and this implementation.
 
 This is the home of the _Starlark in Go_ project.
 Starlark in Go is an interpreter for Starlark, implemented in Go.
