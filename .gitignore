@@ -14,8 +14,6 @@ local.env
 # AI coding agents
 AGENTS.local.md
 .mcp.json
-## Claude Code
-.claude/settings.local.json
 
 # mise
 mise.local.toml
