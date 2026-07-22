@@ -376,7 +376,7 @@ that runs it is `spec/harness.md`; read it before adding spec files.
 
 **Layout.** `spec/core/` covers the core language (its normative
 document is `doc/spec_original.md`); `spec/optional/<unit>/` holds
-one directory per independently adoptable *unit* — dialect options
+one directory per independently adoptable _unit_ — dialect options
 (`set`, `while`, `recursion`, `toplevelcontrol`, `globalreassign`,
 `positionalonly`) and extensions (`defer`, `error_handling`,
 `types`) — each with a normative `spec.md` and a coverage `index.md`;
@@ -391,7 +391,7 @@ chunked: `---` separates independent programs, and `### "regex"`
 (a Go-quoted string) on a line declares that the chunk fails at that
 line. The runner predeclares `assert`, `trap`, `matches`, and
 `freeze`; assertion failures are reported, not raised. Remember that
-core files run with *default* dialect options: no top-level
+core files run with _default_ dialect options: no top-level
 control flow, no global reassignment, no `set`.
 
 **Runner.** `spectest/` is this implementation's runner
@@ -399,15 +399,15 @@ control flow, no global reassignment, no `set`.
 `spectest.Supported`, executed in a fresh module per program.
 `spectest/known_failures.txt` lists files expected to fail (reported
 as skips; a listed file that passes is an error). Go's test cache
-*is* `.star`-aware — it content-hashes the files the test opens and
+_is_ `.star`-aware — it content-hashes the files the test opens and
 the directory listings it walks (see `go help test`), so edits and
 added/removed spec files invalidate it and a `(cached)` result is
 trustworthy; `-count=1` is not needed.
 
-**Discipline.** Spec files assert *normative* behavior, not whatever
+**Discipline.** Spec files assert _normative_ behavior, not whatever
 the implementation happens to do — testdata can encode bugs (bytes
 indexing did). Error-message regexes pin this implementation's
-wording but are advisory for other implementations; *that* an error
+wording but are advisory for other implementations; _that_ an error
 occurs is the normative part. Implementation-specific behavior
 (embedder modules, machine-int boundaries, resource limits) belongs
 in package testdata, not in `spec/`; embedding-boundary obligations

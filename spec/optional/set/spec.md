@@ -1,6 +1,6 @@
 # Unit: set
 
-This unit adds the *set* data type of the core specification
+This unit adds the _set_ data type of the core specification
 (spec.md#sets), which the core specification makes optional. An
 implementation that adopts this unit predeclares the `set` built-in
 function.

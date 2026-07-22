@@ -428,8 +428,7 @@ error types, which never overlap:
   the message and a copy of the call stack. Its `Unwrap` exposes the
   original Go error as the cause, so `errors.As` can recover
   specific error types from the chain:
-
-  - A *fail-style* failure has a `*starlark.FailError` as its cause.
+  - A _fail-style_ failure has a `*starlark.FailError` as its cause.
     The `fail` built-in produces one, and a Go builtin that wants to
     surface the equivalent of a `fail(...)` call returns one as its
     error. When the failure carries an error value (as `fail(e)` and
@@ -444,7 +443,7 @@ error types, which never overlap:
     ```
 
   - Any other non-nil error returned by a Go builtin is an
-    *incidental* failure — a fault, like division by zero — and
+    _incidental_ failure — a fault, like division by zero — and
     rides the chain as-is; custom error types defined by the
     embedder can be recovered the same way. `FailError` is not a
     general wrapper: it marks deliberate, fail-style aborts, which
@@ -465,7 +464,7 @@ its two return values can express every outcome of the error model:
 
 - **Recoverable error**, like `return errors.Tag` in Starlark: the
   builtin must be created with `NewBuiltinCanReturnError`; return the
-  error tag or error value as the *result*, with a nil Go error. The
+  error tag or error value as the _result_, with a nil Go error. The
   caller handles it with `try`/`catch` like any `!` function's error.
 
 - **Deliberate failure**, mimicking a call to `fail(...)`: return a

@@ -34,8 +34,8 @@ Calls without error values keep the core behavior.
 
 ## Error tags
 
-`error_tags(*names)` returns an *error tag set* (type `"error_tags"`)
-with one attribute per name, each a distinct *error tag* (type
+`error_tags(*names)` returns an _error tag set_ (type `"error_tags"`)
+with one attribute per name, each a distinct _error tag_ (type
 `"error_tag"`).
 
 ```python
@@ -53,7 +53,7 @@ both (the tags themselves, not copies).
 ## Error values
 
 An error tag is callable. Calling it with the optional keyword
-arguments `message`, `cause`, and `extra` produces an *error value*
+arguments `message`, `cause`, and `extra` produces an _error value_
 (type `"error"`) carrying those fields:
 
 ```python
@@ -109,7 +109,7 @@ CatchExpr  = Test 'catch' Test .
 CatchBlock = Test 'catch' identifier ':' Suite .
 ```
 
-In the *value form*, `f() catch v` evaluates to the call's result, or
+In the _value form_, `f() catch v` evaluates to the call's result, or
 to the value `v` if the call produced an error. `v` is evaluated only
 on the error path. The two forms are distinguished after the `catch`
 keyword: an identifier immediately followed by `:` selects the block
@@ -117,7 +117,7 @@ form; anything else is a value-form fallback expression. (In the rare
 position where a value-form fallback ending in an identifier abuts a
 `:` — for example inside a slice — parenthesize the fallback.)
 
-In the *block form*, an error binds the error value to the
+In the _block form_, an error binds the error value to the
 identifier and executes the suite, which must terminate with `return`
 or `recover`; falling off the end of a catch block is a failure
 ("catch block must end with recover or return"). The catch block
@@ -143,7 +143,7 @@ resumes normally after the catch block.
 
 ## errdefer
 
-*Requires the `defer` unit.*
+_Requires the `defer` unit._
 
 ```
 ErrDeferStmt = 'errdefer' CallExpr .

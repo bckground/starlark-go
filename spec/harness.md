@@ -79,23 +79,23 @@ file may report several failures in a single run.
 
 The `assert` module:
 
-| Name | Behavior |
-|---|---|
-| `assert.eq(x, y)` | reports a failure unless `x == y` |
-| `assert.ne(x, y)` | reports a failure unless `x != y` |
-| `assert.true(cond, msg="assertion failed")` | reports `msg` unless `cond` is true |
-| `assert.lt(x, y)` | reports a failure unless `x < y` |
-| `assert.contains(x, y)` | reports a failure unless `y in x` |
-| `assert.fails(f, pattern)` | calls `f()`; reports a failure unless the call aborts with a message matching the regular expression `pattern` |
-| `assert.fail(msg)` | reports `msg` unconditionally |
+| Name                                        | Behavior                                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `assert.eq(x, y)`                           | reports a failure unless `x == y`                                                                              |
+| `assert.ne(x, y)`                           | reports a failure unless `x != y`                                                                              |
+| `assert.true(cond, msg="assertion failed")` | reports `msg` unless `cond` is true                                                                            |
+| `assert.lt(x, y)`                           | reports a failure unless `x < y`                                                                               |
+| `assert.contains(x, y)`                     | reports a failure unless `y in x`                                                                              |
+| `assert.fails(f, pattern)`                  | calls `f()`; reports a failure unless the call aborts with a message matching the regular expression `pattern` |
+| `assert.fail(msg)`                          | reports `msg` unconditionally                                                                                  |
 
 Free functions:
 
-| Name | Behavior |
-|---|---|
-| `trap(f)` | calls `f()`; returns the abort message as a string, or `None` if the call completed normally |
-| `matches(pattern, str)` | reports whether `str` matches the regular expression `pattern` |
-| `freeze(x)` | freezes `x` and everything reachable from it, returning `x`; used to spec behavior of frozen values |
+| Name                    | Behavior                                                                                            |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `trap(f)`               | calls `f()`; returns the abort message as a string, or `None` if the call completed normally        |
+| `matches(pattern, str)` | reports whether `str` matches the regular expression `pattern`                                      |
+| `freeze(x)`             | freezes `x` and everything reachable from it, returning `x`; used to spec behavior of frozen values |
 
 Regular expressions use RE2/`re`-style syntax restricted to the
 common subset: literal text, character classes, `.`, `*`, `+`, `?`,
@@ -116,7 +116,7 @@ Spec files observe behavior through three channels:
    bulk of the suite.
 
 2. **Recoverable errors** (units that define them, e.g.
-   `error_handling`). Observed *in the language*, using the unit's
+   `error_handling`). Observed _in the language_, using the unit's
    own constructs — a `try`/`catch` spec catches the error it is
    specifying. No harness support is involved; this is deliberate, as
    it keeps the unit self-hosting.
@@ -125,13 +125,12 @@ Spec files observe behavior through three channels:
    construct can intercept. In core Starlark every dynamic error is
    an abort; in the `error_handling` unit, aborts are the "failures"
    half of its errors/failures distinction. Two mechanisms:
-
    - `assert.fails(f, pattern)` / `trap(f)`, when the aborting
      computation can be wrapped in a callable.
    - **Chunk expectations**, when it cannot — parse errors, resolve
      (static) errors, and aborts at module top level. In a
      `*_errors.star` file, `### "regex"` on a line declares that
-     executing the chunk fails *at that line* with a message matching
+     executing the chunk fails _at that line_ with a message matching
      the regex (a Go-style quoted string):
 
      ```python
@@ -145,15 +144,15 @@ Spec files observe behavior through three channels:
 
 ## Normative force of error assertions
 
-*That* an error occurs is normative: a conforming implementation must
+_That_ an error occurs is normative: a conforming implementation must
 abort (or must not) exactly where the suite says.
 
-The error *message* regex is advisory: it pins the reference
+The error _message_ regex is advisory: it pins the reference
 implementation's wording and exists to keep assertions honest, but a
 foreign implementation with different wording is not non-conforming.
 A runner for such an implementation may relax message matching to
 occurrence-only, or carry a local overlay of message patterns.
-Error *positions* (line/column) are asserted only as far as the chunk
+Error _positions_ (line/column) are asserted only as far as the chunk
 convention implies (the line carrying `###`) and only for static
 errors; dynamic-error positions are not part of the contract.
 
