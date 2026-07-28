@@ -1401,6 +1401,17 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		_, starlarkCaller = thread.stack[n-2].callable.(*Function)
 	}
 	if starlarkCaller {
+		// If the caller frame already carries a pending error, it was deposited
+		// by an earlier call that nothing consumed with catch/try before this
+		// one ran — only possible for a dynamically-dispatched call target,
+		// which the resolver cannot statically require catch/try for (see
+		// resolve.checkErrorCalls). Overwriting it here would silently discard
+		// it, which the language guarantees never happens; surface it as a
+		// hard failure instead. A failure already in flight for this call (err
+		// != nil) takes precedence, since it is the more immediate cause.
+		if err == nil && thread.stack[n-2].pendingError != nil {
+			err = thread.evalError(&ReturnedError{Value: thread.stack[n-2].pendingError})
+		}
 		thread.stack[n-2].pendingError = pendingErr
 	} else if pendingErr != nil {
 		err = thread.evalError(&ReturnedError{Value: pendingErr})

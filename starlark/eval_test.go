@@ -2452,6 +2452,73 @@ result = wrapper() catch "propagated_loaded"
 	}
 }
 
+// TestUnhandledDynamicErrorReturningCallFails verifies the runtime safety net
+// promised by resolve.checkErrorCalls's "checked at runtime" comment (see also
+// AGENTS.md's "Strictness of the compile-time check"): a call whose target the
+// resolver cannot statically prove is error-returning (here, a variable bound
+// to a CanReturnError builtin) is not rejected at compile time, but an error it
+// returns must still not be silently discarded if nothing consumes it with
+// catch or try — it must surface as a failure instead of vanishing into a
+// spurious successful return.
+func TestUnhandledDynamicErrorReturningCallFails(t *testing.T) {
+	errTag := starlark.NewErrorTag("TestError")
+	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return errTag, nil
+	})
+	okBuiltin := starlark.NewBuiltinCanReturnError("ok_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return starlark.String("fine"), nil
+	})
+	predeclared := starlark.StringDict{
+		"fail_builtin": failBuiltin,
+		"ok_builtin":   okBuiltin,
+	}
+
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "bare unwrapped call immediately followed by return",
+			src: `
+def main()!:
+    fn = fail_builtin
+    x = fn()   # bare, unwrapped dynamic-target call - must not silently become None
+    return "done"
+result = main() catch "SPURIOUS"
+`,
+		},
+		{
+			name: "bare unwrapped call clobbered by a later call before return",
+			src: `
+def main()!:
+    fn = fail_builtin
+    ok = ok_builtin
+    x = fn()   # bare, unwrapped, fails
+    y = ok()    # must not silently erase the pending error from fn()
+    return "done"
+result = main() catch "SPURIOUS"
+`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			thread := &starlark.Thread{Name: test.name}
+			globals, err := starlark.ExecFile(thread, test.name+".star", test.src, predeclared)
+			if err == nil {
+				t.Fatalf("ExecFile succeeded with result = %v, want a failure (an unhandled error from a dynamically-dispatched call must not be silently discarded)", globals["result"])
+			}
+			var re *starlark.ReturnedError
+			if !errors.As(err, &re) {
+				t.Fatalf("error = %v (%T), want one wrapping a *starlark.ReturnedError", err, err)
+			}
+			if got, want := re.Value.Tag(), errTag; got != want {
+				t.Errorf("returned error tag = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestErrorReturnerInterface(t *testing.T) {
 	src := `
 def can_error()!:
