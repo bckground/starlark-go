@@ -11,5 +11,5 @@
 | #recover                    | recover.star                                 |
 | #errdefer                   | errdefer.star, errdefer_errors.star          |
 | #failures                   | failures.star                                |
-| #static-validation          | static_errors.star                           |
+| #static-validation          | static_errors.star, dynamic_calls.star       |
 | #implementation-obligations | (prose only; tested by each implementation)  |

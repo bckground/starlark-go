@@ -605,6 +605,19 @@ loop:
 		case compile.RETURN:
 			result = stack[sp-1]
 
+			// A pending error still sitting on this frame here was deposited by
+			// some earlier call in this function's body and never consumed by a
+			// catch or try — only possible for a dynamically-dispatched call
+			// target (e.g. a dot/index expression), since the resolver statically
+			// requires catch/try for any call it can prove is error-returning
+			// (see resolve.checkErrorCalls). Silently discarding it here would
+			// violate the language's guarantee that error propagation never
+			// happens silently, so surface it as a hard failure instead.
+			if fr.pendingError != nil {
+				err = &ReturnedError{Value: fr.pendingError}
+				break loop
+			}
+
 			// On a clean return, this frame's pending error must reflect reality so
 			// that Call transfers the right thing to the caller: for an
 			// error-returning function a returned Error value becomes the pending
