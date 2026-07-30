@@ -2456,7 +2456,8 @@ result = wrapper() catch "propagated_loaded"
 // promised by resolve.checkErrorCalls's "checked at runtime" comment (see also
 // AGENTS.md's "Strictness of the compile-time check"): a call whose target the
 // resolver cannot statically prove is error-returning (here, a variable bound
-// to a CanReturnError builtin) is not rejected at compile time, but an error it
+// to a CanReturnError builtin, or such a builtin reached through an attribute
+// of an embedder value) is not rejected at compile time, but an error it
 // returns must still not be silently discarded if nothing consumes it with
 // catch or try — it must surface as a failure instead of vanishing into a
 // spurious successful return.
@@ -2471,6 +2472,11 @@ func TestUnhandledDynamicErrorReturningCallFails(t *testing.T) {
 	predeclared := starlark.StringDict{
 		"fail_builtin": failBuiltin,
 		"ok_builtin":   okBuiltin,
+		// A module-like embedder value exposing the same builtin as an
+		// attribute, the shape most embedders actually present (fs.read_all).
+		"fs": starlarkstruct.FromStringDict(starlark.String("fs"), starlark.StringDict{
+			"read_all": failBuiltin,
+		}),
 	}
 
 	tests := []struct {
@@ -2497,6 +2503,21 @@ def main()!:
     y = ok()    # must not silently erase the pending error from fn()
     return "done"
 result = main() catch "SPURIOUS"
+`,
+		},
+		{
+			name: "bare unwrapped call through an attribute of an embedder value",
+			src: `
+def main()!:
+    x = fs.read_all("//missing.yml")   # attribute target: never statically resolvable
+    return "done"
+result = main() catch "SPURIOUS"
+`,
+		},
+		{
+			name: "bare unwrapped call at module top level",
+			src: `
+result = fs.read_all("//missing.yml")
 `,
 		},
 	}
