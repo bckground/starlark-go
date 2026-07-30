@@ -166,6 +166,7 @@ func TestExecFile(t *testing.T) {
 		"testdata/defer.star",
 		"testdata/defer_errors.star",
 		"testdata/dict.star",
+		"testdata/dynamic_calls.star",
 		"testdata/errdefer.star",
 		"testdata/error_extra.star",
 		"testdata/error_tags.star",
