@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v7.0.1
 
-      - uses: "HatsuneMiku3939/direnv-action@c4ead5d491ceb812400ab06425db5c27dbd73022" # v1.4.2
+      - uses: "HatsuneMiku3939/direnv-action@c81e6f10d47895cdd46432d8801bff0fabc73a6b" # v1.4.3
 
       - uses: "bckground/actions/setup-mise@main"
         with:
