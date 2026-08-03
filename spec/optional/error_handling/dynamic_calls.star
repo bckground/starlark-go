@@ -1,11 +1,11 @@
 # spec: spec.md#static-validation
 
 # Calls whose target is not statically resolvable to an
-# error-returning function - a variable, a parameter, an element - are
-# not rejected by the static check; the requirement that an error be
-# handled is enforced at runtime instead. An unhandled error from such
-# a call is a failure: it is never dropped, leaving the call to
-# evaluate to None.
+# error-returning function - a variable, a parameter, an element, the
+# result of another call - are not rejected by the static check; the
+# requirement that an error be handled is enforced at runtime instead.
+# An unhandled error from such a call is a failure: it is never
+# dropped, leaving the call to evaluate to None.
 
 errs = error_tags("E")
 
@@ -63,6 +63,21 @@ def drops_via_element():
     return "no failure"
 
 assert.fails(drops_via_element, "E: dropped")
+
+def drops_via_parameter(f):
+    x = f()
+    return "no failure"
+
+assert.fails(lambda: drops_via_parameter(may_fail), "E: dropped")
+
+def returns_may_fail():
+    return may_fail
+
+def drops_via_call_result():
+    x = returns_may_fail()()
+    return "no failure"
+
+assert.fails(drops_via_call_result, "E: dropped")
 
 # The check is about the error channel, not the call: an error handled
 # by an enclosing catch block leaves nothing pending.
