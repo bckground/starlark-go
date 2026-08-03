@@ -14,6 +14,7 @@ package syntax
 import (
 	"log"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -144,6 +145,24 @@ type parser struct {
 	in      *scanner
 	tok     Token
 	tokval  tokenValue
+	depth   int
+}
+
+// enter increments the depth and checks the recursion limit.
+// It should be paired with a deferred call to [parser.leave].
+//
+// Every cycle in the parser's static call graph must include at
+// least one function that uses enter+leave to break cycles.
+// TestParserCallGraphCycles statically verifies this property.
+func (p *parser) enter() {
+	p.depth++
+	if p.depth > 1000 {
+		p.in.errorf(p.in.pos, "excessive nesting")
+	}
+}
+
+func (p *parser) leave() {
+	p.depth--
 }
 
 // nextToken advances the scanner and returns the position of the
@@ -533,6 +552,9 @@ func (p *parser) parseLoadStmt() *LoadStmt {
 // suite = simple_stmt | NEWLINE INDENT stmt+ OUTDENT
 // Note: This function does NOT consume the OUTDENT token - callers must handle it
 func (p *parser) parseSuite() []Stmt {
+	p.enter()
+	defer p.leave()
+
 	if p.tok == NEWLINE {
 		p.nextToken() // consume NEWLINE
 		p.consume(INDENT)
@@ -720,6 +742,9 @@ func (p *parser) parseExprs(exprs []Expr, allowTrailingComma bool) []Expr {
 
 // parseTest parses a 'test', a single-component expression.
 func (p *parser) parseTest() Expr {
+	p.enter()
+	defer p.leave()
+
 	// try <expr>
 	if p.tok == TRY {
 		trypos := p.nextToken()
@@ -771,6 +796,9 @@ func (p *parser) parseTypeExpr() Expr {
 // Callable parameter list (typing.Callable[[int], str]) rather than
 // the legacy union syntax.
 func (p *parser) validateTypeExpr(e Expr, insideIndex bool) {
+	p.enter()
+	defer p.leave()
+
 	errf := func(n Expr, kind string) {
 		start, _ := n.Span()
 		p.in.errorf(start, "%s expression is not allowed in type expression", kind)
@@ -904,13 +932,22 @@ func (p *parser) validateTypePath(e *DotExpr) {
 
 // typePathString renders an identifier path expression as a string.
 func typePathString(e Expr) string {
-	switch e := e.(type) {
-	case *Ident:
-		return e.Name
-	case *DotExpr:
-		return typePathString(e.X) + "." + e.Name.Name
+	var parts []string
+	for {
+		switch x := e.(type) {
+		case *Ident:
+			parts = append(parts, x.Name)
+			slices.Reverse(parts)
+			return strings.Join(parts, ".")
+		case *DotExpr:
+			parts = append(parts, x.Name.Name)
+			e = x.X
+		default:
+			parts = append(parts, "?")
+			slices.Reverse(parts)
+			return strings.Join(parts, ".")
+		}
 	}
-	return "?"
 }
 
 // parseTestNoCond parses a single-component expression without
@@ -973,6 +1010,9 @@ func (p *parser) parseCatchSuffix(x Expr) Expr {
 // parseLambda parses a lambda expression.
 // The allowCond flag allows the body to be an 'a if b else c' conditional.
 func (p *parser) parseLambda(allowCond bool) Expr {
+	p.enter()
+	defer p.leave()
+
 	lambda := p.nextToken()
 	var params []Expr
 	if p.tok != COLON {
@@ -995,6 +1035,9 @@ func (p *parser) parseLambda(allowCond bool) Expr {
 }
 
 func (p *parser) parseTestPrec(prec int) Expr {
+	p.enter()
+	defer p.leave()
+
 	if prec >= len(preclevels) {
 		return p.parsePrimaryWithSuffix()
 	}
@@ -1218,6 +1261,9 @@ func (p *parser) parseArgs() []Expr {
 //	| '(' ...                    // tuple or parenthesized expression
 //	| ('-'|'+'|'~') primary_with_suffix
 func (p *parser) parsePrimary() Expr {
+	p.enter()
+	defer p.leave()
+
 	switch p.tok {
 	case IDENT:
 		return p.parseIdent()
@@ -1459,9 +1505,7 @@ func (p *parser) assignComments(n Node) {
 
 	// Assign suffix comments to syntax immediately before.
 	suffix := p.in.suffixComments
-	for i := len(post) - 1; i >= 0; i-- {
-		x := post[i]
-
+	for _, x := range slices.Backward(post) {
 		// Do not assign suffix comments to file
 		switch x.(type) {
 		case *File:
