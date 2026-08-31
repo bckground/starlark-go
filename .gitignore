@@ -7,10 +7,6 @@ tmp/
 # gotestsum
 junitreport.xml
 
-# direnv
-.direnv/
-local.env
-
 # AI coding agents
 AGENTS.local.md
 .mcp.json

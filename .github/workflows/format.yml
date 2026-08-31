@@ -42,8 +42,6 @@ jobs:
     steps:
       - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v7.0.1
 
-      - uses: "HatsuneMiku3939/direnv-action@6204df45a0179b54cdc2b51b22ac93d728ca6e4d" # v1.4.5
-
       - uses: "bckground/actions/setup-mise@main"
         with:
           mise-envs: "ci"

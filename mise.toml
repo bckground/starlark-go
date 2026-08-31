@@ -1,3 +1,10 @@
+[settings]
+env_shell_expand = true
+
+[env]
+_.path = "bin"
+_.file = ".env.local"
+
 [tools]
 golang = { version = "1.26.1" }
 "go:mvdan.cc/gofumpt" = { version = "0.9.2" }
