@@ -3,9 +3,11 @@
 # Calls whose target is not statically resolvable to an
 # error-returning function - a variable, a parameter, an element, the
 # result of another call - are not rejected by the static check; the
-# requirement that an error be handled is enforced at runtime instead.
-# An unhandled error from such a call is a failure: it is never
-# dropped, leaving the call to evaluate to None.
+# requirement that the call be guarded is enforced at runtime instead.
+# The requirement is a property of the call site, not of the outcome:
+# an unguarded call to an error-returning value is a failure raised
+# before the callee runs, whether or not it would have returned an
+# error.
 
 errs = error_tags("E")
 
@@ -28,23 +30,36 @@ def tries()!:
 
 assert.eq(tries() catch "propagated", "propagated")
 
-# A dynamic call that returns no error is unaffected by the check.
+# A dynamic call that would have returned no error is still a failure.
 def calls_succeeding():
     g = succeeds
     return g()
 
-assert.eq(calls_succeeding(), "fine")
+assert.fails(calls_succeeding, "must be handled with try or catch")
 
-# An unhandled error from a dynamic call is a failure, both when the
-# enclosing function returns...
+# The callee does not run: the failure is raised at the call site,
+# before control enters the error-returning function.
+ran = []
+
+def records()!:
+    ran.append("entered")
+    return "fine"
+
+def calls_records():
+    g = records
+    return g()
+
+assert.fails(calls_records, "must be handled with try or catch")
+assert.eq(ran, [])
+
+# An error that a guarded call does produce is still never dropped.
 def drops_on_return():
     f = may_fail
     x = f()
     return "no failure"
 
-assert.fails(drops_on_return, "E: dropped")
+assert.fails(drops_on_return, "must be handled with try or catch")
 
-# ...and when a later call in the same function would overwrite it.
 def drops_on_later_call():
     f = may_fail
     g = succeeds
@@ -52,7 +67,7 @@ def drops_on_later_call():
     y = g()
     return "no failure"
 
-assert.fails(drops_on_later_call, "E: dropped")
+assert.fails(drops_on_later_call, "must be handled with try or catch")
 
 # The target need not be a variable: any dynamically dispatched call
 # is checked the same way.
@@ -62,13 +77,13 @@ def drops_via_element():
     x = table["f"]()
     return "no failure"
 
-assert.fails(drops_via_element, "E: dropped")
+assert.fails(drops_via_element, "must be handled with try or catch")
 
 def drops_via_parameter(f):
     x = f()
     return "no failure"
 
-assert.fails(lambda: drops_via_parameter(may_fail), "E: dropped")
+assert.fails(lambda: drops_via_parameter(may_fail), "must be handled with try or catch")
 
 def returns_may_fail():
     return may_fail
@@ -77,10 +92,9 @@ def drops_via_call_result():
     x = returns_may_fail()()
     return "no failure"
 
-assert.fails(drops_via_call_result, "E: dropped")
+assert.fails(drops_via_call_result, "must be handled with try or catch")
 
-# The check is about the error channel, not the call: an error handled
-# by an enclosing catch block leaves nothing pending.
+# An error handled by an enclosing catch block leaves nothing pending.
 def handled_by_block():
     f = may_fail
     x = f() catch e:

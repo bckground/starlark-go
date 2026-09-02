@@ -176,11 +176,14 @@ The following are static errors:
 - `errdefer` outside a function, or in a function without the `!`
   marker.
 
-The first check applies only to calls whose target is statically
+The first check applies *statically* only to calls whose target is
 resolvable to a known error-returning function — a direct call by
 name. Calls through values (variables, parameters, methods, elements)
-are validated at runtime instead: a dynamic call that misuses the
-error channel is a failure.
+are validated at runtime instead, but the rule itself is the same:
+reaching an unguarded call to an error-returning value is a failure.
+The requirement is a property of the call site, not of the outcome, so
+the failure is raised before the callee runs and regardless of whether
+that call would have produced an error.
 
 ## Implementation obligations
 

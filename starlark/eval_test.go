@@ -2470,10 +2470,9 @@ result = wrapper() catch "propagated_loaded"
 // AGENTS.md's "Strictness of the compile-time check"): a call whose target the
 // resolver cannot statically prove is error-returning (here, a variable bound
 // to a CanReturnError builtin, or such a builtin reached through an attribute
-// of an embedder value) is not rejected at compile time, but an error it
-// returns must still not be silently discarded if nothing consumes it with
-// catch or try — it must surface as a failure instead of vanishing into a
-// spurious successful return.
+// of an embedder value) is not rejected at compile time, but calling it
+// without catch or try is still invalid Starlark, and the interpreter must
+// abort at the call site rather than let the callee run.
 func TestUnhandledDynamicErrorReturningCallFails(t *testing.T) {
 	errTag := starlark.NewErrorTag("TestError")
 	failBuiltin := starlark.NewBuiltinCanReturnError("fail_builtin", func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -2533,6 +2532,19 @@ result = main() catch "SPURIOUS"
 result = fs.read_all("//missing.yml")
 `,
 		},
+		{
+			// The requirement is on the call site, not the outcome: a callee
+			// that would have returned a value rather than an error is
+			// rejected just the same.
+			name: "bare unwrapped call to a callee that would succeed",
+			src: `
+def main()!:
+    fn = ok_builtin
+    x = fn()
+    return "done"
+result = main() catch "SPURIOUS"
+`,
+		},
 	}
 
 	for _, test := range tests {
@@ -2542,12 +2554,9 @@ result = fs.read_all("//missing.yml")
 			if err == nil {
 				t.Fatalf("ExecFile succeeded with result = %v, want a failure (an unhandled error from a dynamically-dispatched call must not be silently discarded)", globals["result"])
 			}
-			var re *starlark.ReturnedError
-			if !errors.As(err, &re) {
-				t.Fatalf("error = %v (%T), want one wrapping a *starlark.ReturnedError", err, err)
-			}
-			if got, want := re.Value.Tag(), errTag; got != want {
-				t.Errorf("returned error tag = %v, want %v", got, want)
+			const want = "must be handled with try or catch"
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error = %v (%T), want one containing %q", err, err, want)
 			}
 		})
 	}
