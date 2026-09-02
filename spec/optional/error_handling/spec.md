@@ -176,7 +176,7 @@ The following are static errors:
 - `errdefer` outside a function, or in a function without the `!`
   marker.
 
-The first check applies *statically* only to calls whose target is
+The first check applies _statically_ only to calls whose target is
 resolvable to a known error-returning function — a direct call by
 name. Calls through values (variables, parameters, methods, elements)
 are validated at runtime instead, but the rule itself is the same:
