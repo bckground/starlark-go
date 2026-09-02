@@ -237,13 +237,30 @@ x = may_fail() catch e:
 - `errdefer` in non-`!` functions is a resolver error
 
 **Strictness of the compile-time check:** the "must be handled with try/catch"
-rule is only enforced for calls whose target is _statically resolvable_ to a
-known `!` function or error-returning builtin — i.e. a direct call by name. Calls
-through a value whose error-returning-ness cannot be determined at resolve time
-(a variable, parameter, `obj.method()`, `x[i]()`, or a `load()`-ed symbol) are
-**not** rejected by the resolver and are instead validated at runtime. So the
-static guarantee is real but partial: it catches direct misuse, not dynamic
-dispatch. Treat it as a lint that covers the common case, not a soundness proof.
+rule is only enforced _at compile time_ for calls whose target is _statically
+resolvable_ to a known `!` function or error-returning builtin — i.e. a direct
+call by name. Calls through a value whose error-returning-ness cannot be
+determined at resolve time (a variable, parameter, `obj.method()`, `x[i]()`, or a
+`load()`-ed symbol) are **not** rejected by the resolver; the interpreter
+enforces the same rule for them at the call site instead. So the _static_
+guarantee is partial — treat the resolver check as a lint that covers the common
+case — but the rule itself is not: an unguarded call to an error-returning value
+always aborts.
+
+The runtime check lives in the CALL case of `starlark/interp.go` and fires
+_before_ the callee runs, so an unguarded call cannot succeed by happening not to
+return an error: like Zig, it is the call that is invalid, not the outcome. It
+works by peeking at the instruction after the call — the compiler always emits
+the guarding TRY or CATCH_CHECK immediately after the call it guards, because the
+resolver requires the operand of `try`/`catch` to be a call expression.
+`TestGuardOpcodeFollowsCall` pins that invariant. The leftover-`pendingError`
+checks in `RETURN` and in `Call` are now defense in depth behind it.
+
+Only Starlark call sites are covered: a Go caller (the embedder, or a builtin
+using `starlark.Call`) has no `try`/`catch`, so an error there is surfaced as a
+`*ReturnedError` as described above. A `!` function as the top-level call of a
+`defer`/`errdefer` is likewise exempt — it is invoked during teardown, not
+through a CALL instruction.
 
 **Catch Block Scoping:**
 

@@ -446,6 +446,26 @@ loop:
 
 			function := stack[sp-1]
 
+			// An error-returning callee may only be called as the operand of
+			// try or catch. The resolver enforces that statically for targets
+			// it can resolve (see resolve.checkErrorCalls), but a dynamically
+			// dispatched target — a variable, parameter, attribute, element, or
+			// call result — is only known here, so this is its enforcement
+			// point. The requirement is a property of the call site, not of the
+			// outcome: reject before the callee runs, so an unguarded call
+			// cannot succeed by happening not to return an error.
+			//
+			// try/catch compile to a TRY or CATCH_CHECK immediately after the
+			// call instruction: the resolver requires the operand of either to
+			// be a call expression, so the two are always adjacent (pinned by
+			// TestGuardOpcodeFollowsCall).
+			if er, ok := function.(ErrorReturner); ok && er.CanReturnError() {
+				if next := compile.Opcode(code[pc]); next != compile.TRY && next != compile.CATCH_CHECK {
+					err = fmt.Errorf("call to error-returning function %q must be handled with try or catch", er.Name())
+					break loop
+				}
+			}
+
 			if vmdebug {
 				fmt.Printf("VM call %s args=%s kwargs=%s @%s\n",
 					function, positional, kvpairs, f.Position(fr.pc))
