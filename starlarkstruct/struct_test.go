@@ -85,70 +85,62 @@ func TestAttrAt(t *testing.T) {
 		t.Fatalf("Len(): want %d, got %d", len(names), s.Len())
 	}
 	for pos, name := range names {
-		got, err := s.AttrAt(pos)
-		if err != nil {
-			t.Errorf("AttrAt(%d) failed: %v", pos, err)
-			continue
+		gotName, gotValue := s.AttrAt(pos)
+		if gotName != name {
+			t.Fatalf("AttrAt(%d): want %s, got %s", pos, name, gotName)
 		}
 		want, err := s.Attr(name)
 		if err != nil {
 			t.Fatalf("Attr(%s) failed: %v", name, err)
 		}
-		if eq, err := starlark.Equal(got, want); err != nil {
+		if eq, err := starlark.Equal(gotValue, want); err != nil {
 			t.Errorf("comparing AttrAt(%d) and Attr(%s): %v", pos, name, err)
 		} else if !eq {
-			t.Errorf("AttrAt(%d): want %s (= Attr(%s)), got %s", pos, want, name, got)
+			t.Errorf("AttrAt(%d): want %s (= Attr(%s)), got %s", pos, want, name, gotValue)
 		}
 	}
 }
 
-func TestAttrAtOutOfRange(t *testing.T) {
-	sym := &symbol{name: "S"}
-	for _, test := range []struct {
-		desc string
-		s    *starlarkstruct.Struct
-		pos  int
-		want string // expected error message
-	}{
-		{
-			desc: "negative",
-			s:    starlarkstruct.FromKeywords(starlarkstruct.Default, []starlark.Tuple{{starlark.String("a"), starlark.MakeInt(1)}}),
-			pos:  -1,
-			want: "struct has no attribute at index -1",
-		},
-		{
-			desc: "past end",
-			s:    starlarkstruct.FromKeywords(starlarkstruct.Default, []starlark.Tuple{{starlark.String("a"), starlark.MakeInt(1)}}),
-			pos:  1,
-			want: "struct has no attribute at index 1",
-		},
-		{
-			desc: "empty struct",
-			s:    starlarkstruct.FromKeywords(starlarkstruct.Default, nil),
-			pos:  0,
-			want: "struct has no attribute at index 0",
-		},
-		{
-			desc: "branded struct names its constructor",
-			s:    starlarkstruct.FromKeywords(sym, []starlark.Tuple{{starlark.String("a"), starlark.MakeInt(1)}}),
-			pos:  2,
-			want: "S struct has no attribute at index 2",
-		},
-	} {
-		t.Run(test.desc, func(t *testing.T) {
-			v, err := test.s.AttrAt(test.pos)
-			if err == nil {
-				t.Fatalf("AttrAt(%d): want error, got %s", test.pos, v)
+func TestEntries(t *testing.T) {
+	s := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"b": starlark.MakeInt(2),
+		"a": starlark.MakeInt(1),
+		"c": starlark.MakeInt(3),
+	})
+	t.Run("sequence matches Attr and AttrNames", func(t *testing.T) {
+		var names []string
+		for name, value := range s.Entries() {
+			names = append(names, name)
+			want, err := s.Attr(name)
+			if err != nil {
+				t.Fatalf("Attr(%s) failed: %v", name, err)
 			}
-			if v != nil {
-				t.Errorf("AttrAt(%d) returned non-nil value %v with error", test.pos, v)
+			if eq, err := starlark.Equal(value, want); err != nil {
+				t.Errorf("comparing Entries value of %s and Attr(%s): %v", name, name, err)
+			} else if !eq {
+				t.Errorf("Entries: %s: want %s (= Attr(%s)), got %s", name, want, name, value)
 			}
-			if _, ok := err.(starlark.NoSuchAttrError); !ok {
-				t.Errorf("AttrAt(%d) error: want starlark.NoSuchAttrError, got %T", test.pos, err)
+		}
+		if got, want := strings.Join(names, ","), strings.Join(s.AttrNames(), ","); got != want {
+			t.Errorf("Entries names: want %s, got %s", want, got)
+		}
+	})
+	t.Run("reusable iterator", func(t *testing.T) {
+		seq := s.Entries()
+		for range 2 {
+			var n int
+			for range seq {
+				n++
 			}
-			if got := err.Error(); got != test.want {
-				t.Errorf("AttrAt(%d) error: want %q, got %q", test.pos, test.want, got)
+			if n != s.Len() {
+				t.Errorf("Entries: want %d entries, got %d", s.Len(), n)
 			}
-		})
-	}
+		}
+	})
+	t.Run("an empty struct yields nothing", func(t *testing.T) {
+		empty := starlarkstruct.FromStringDict(starlarkstruct.Default, nil)
+		for name, value := range empty.Entries() {
+			t.Errorf("Entries of empty struct yielded %s = %s", name, value)
+		}
+	})
 }
