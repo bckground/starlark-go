@@ -1952,8 +1952,9 @@ type Error struct {
 	// pos is the position of the ! call that produced this error: the call
 	// site in the caller, not a position inside the callee, so it names the
 	// code that asked for the work rather than the library that refused it.
-	// It is recorded once, where the error is raised, and travels unchanged
-	// as try propagates it. Invalid when the raising call came from Go.
+	// It is recorded by each raise and travels unchanged as try propagates
+	// it, so an error re-returned after a catch reports the re-raise, not the
+	// original. Invalid when the raising call came from Go.
 	pos syntax.Position
 }
 
@@ -2026,14 +2027,13 @@ func (e *Error) Extra() Value { return e.extra }
 // invalid Position if it was raised by a call from Go. See Error.pos.
 func (e *Error) Position() syntax.Position { return e.pos }
 
-// at returns e with pos recorded as the position of the call that raised it.
-// Errors are values, not identities -- comparison is by tag (see
-// CompareSameType) and they are unhashable -- so returning a copy keeps a
-// reused error value from inheriting the first site it was raised at.
+// at returns e with pos recorded as the position of the call that raised it,
+// replacing any position left by an earlier raise -- including with an invalid
+// pos, so a raise from Go reports no position rather than a stale one. Errors
+// are values, not identities -- comparison is by tag (see CompareSameType) and
+// they are unhashable -- so returning a copy keeps a reused error value from
+// inheriting the first site it was raised at.
 func (e *Error) at(pos syntax.Position) *Error {
-	if !pos.IsValid() {
-		return e
-	}
 	positioned := *e
 	positioned.pos = pos
 	return &positioned

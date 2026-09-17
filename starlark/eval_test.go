@@ -2669,11 +2669,6 @@ def outer()!:
 def raises_builtin()!:
     try boom()
 
-def reuse()!:
-    e = errors.E(message = "shared")
-    if True:
-        return e
-    return e
 `
 	boom := starlark.NewBuiltinCanReturnError("boom", func(
 		thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple,
@@ -2745,18 +2740,92 @@ def reuse()!:
 			t.Errorf("Error() = %q, want %q", re.Error(), want)
 		}
 	})
+}
 
-	// Raising the same error value twice must not make the second raise report
-	// the first one's site, which is why at() copies rather than mutates.
-	t.Run("a reused error value is not pinned to its first raise", func(t *testing.T) {
-		v, err := starlark.Call(&starlark.Thread{}, globals["reuse"], nil, nil)
-		_ = v
+// lineOf returns the 1-based line number of the first line in src containing
+// marker, so position assertions stay correct when src is edited.
+func lineOf(t *testing.T, src, marker string) int32 {
+	t.Helper()
+	for i, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, marker) {
+			return int32(i + 1)
+		}
+	}
+	t.Fatalf("marker %q not found in source", marker)
+	return 0
+}
+
+// TestErrorPositionReraise verifies that every raise re-records the position:
+// an error value raised a second time reports the second site, and a raise
+// with no Starlark caller reports no position at all, even when the value
+// carries one from an earlier, unrelated raise.
+func TestErrorPositionReraise(t *testing.T) {
+	const src = `
+errs = error_tags("E")
+
+shared = errs.E(message = "shared")
+
+def inner()!:
+    return errs.E(message = "boom")
+
+def capture():
+    v = inner() catch e:
+        recover e
+    return v
+
+def outer()!:
+    return capture()
+
+def raise_shared()!:
+    return shared
+
+def site_a()!:
+    try raise_shared()
+
+def site_b()!:
+    try raise_shared()
+`
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "reraise.star", src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raise := func(t *testing.T, fn string) *starlark.Error {
+		t.Helper()
+		_, err := starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
 		var re *starlark.ReturnedError
 		if !errors.As(err, &re) {
-			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+			t.Fatalf("%s: err = %v (%T), want it to wrap *starlark.ReturnedError", fn, err, err)
 		}
-		if re.Value.Position().IsValid() {
-			t.Errorf("position = %v, want invalid (called from Go)", re.Value.Position())
+		return re.Value
+	}
+
+	// outer returns an error that inner raised (and capture recovered), so the
+	// value already carries inner's call site. outer is called from Go, so this
+	// raise has no position -- the stale one must not survive.
+	t.Run("a raise from Go leaves no stale position", func(t *testing.T) {
+		if got := raise(t, "outer").Position(); got.IsValid() {
+			t.Errorf("position = %v, want invalid: the raise came from Go", got)
+		}
+	})
+
+	// site_a and site_b raise the same module-level error value from different
+	// call sites. Each raise must report its own, which is why at() copies
+	// rather than mutates.
+	t.Run("a reused error value is not pinned to its first raise", func(t *testing.T) {
+		fromA := raise(t, "site_a")
+		wantA := lineOf(t, src, "def site_a") + 1
+		if fromA.Position().Line != wantA {
+			t.Fatalf("site_a: position = %v, want line %d", fromA.Position(), wantA)
+		}
+
+		fromB := raise(t, "site_b")
+		wantB := lineOf(t, src, "def site_b") + 1
+		if fromB.Position().Line != wantB {
+			t.Errorf("site_b: position = %v, want line %d", fromB.Position(), wantB)
+		}
+		if fromA.Position().Line != wantA {
+			t.Errorf("site_a's error moved to %v after site_b raised the same value; want line %d", fromA.Position(), wantA)
 		}
 	})
 }

@@ -81,11 +81,13 @@ An error also records the source position of the `!` call that raised
 it. The position names the *call site in the caller*, not a position
 inside the callee, so it points at the code that asked for the work
 rather than at the library that refused it — the useful distinction
-when the callee is a shared helper such as an assertion routine. It is
-recorded once, where the error is raised, and `try` propagation leaves
-it unchanged, so an error that travels up several frames still names
-the call that produced it. An error raised by a call from Go has no
-such position.
+when the callee is a shared helper such as an assertion routine. `try`
+propagation leaves it unchanged, so an error that travels up several
+frames still names the call that produced it; every raise, on the
+other hand, records afresh, so an error caught and returned again
+names the re-raise, not the original. An error raised by a call from
+Go has no position at all, even if the value carries one from an
+earlier raise.
 
 The position is not a Starlark attribute; it is visible to the
 embedder through `(*starlark.Error).Position()` and is rendered in the
