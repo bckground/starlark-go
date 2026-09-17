@@ -2692,25 +2692,27 @@ def raises_builtin()!:
 		return re.Value.Position()
 	}
 
-	// middle calls raises on line 8; the position names that call, not the
-	// return statement inside raises on line 5.
+	// The position names middle's call to raises, not the return statement
+	// inside raises.
+	raisedIn := lineOf(t, src, "def middle") + 1
 	t.Run("names the call site, not the callee", func(t *testing.T) {
-		if got := position(t, "middle"); got.Line != 8 {
-			t.Errorf("position = %v, want line 8 (the `try raises()` call)", got)
+		if got := position(t, "middle"); got.Line != raisedIn {
+			t.Errorf("position = %v, want line %d (the `try raises()` call)", got, raisedIn)
 		}
 	})
 
-	// outer adds a propagation hop on line 11. The error still points at the
-	// innermost raise on line 8, not at the try that forwarded it.
+	// outer adds a propagation hop. The error still points at the innermost
+	// raise, not at the try that forwarded it.
 	t.Run("try propagation does not overwrite it", func(t *testing.T) {
-		if got := position(t, "outer"); got.Line != 8 {
-			t.Errorf("position = %v, want line 8 (propagation must not re-position)", got)
+		if got := position(t, "outer"); got.Line != raisedIn {
+			t.Errorf("position = %v, want line %d (propagation must not re-position)", got, raisedIn)
 		}
 	})
 
 	t.Run("a ! builtin records its call site", func(t *testing.T) {
-		if got := position(t, "raises_builtin"); got.Line != 14 {
-			t.Errorf("position = %v, want line 14 (the `try boom()` call)", got)
+		want := lineOf(t, src, "def raises_builtin") + 1
+		if got := position(t, "raises_builtin"); got.Line != want {
+			t.Errorf("position = %v, want line %d (the `try boom()` call)", got, want)
 		}
 	})
 
@@ -2736,7 +2738,7 @@ def raises_builtin()!:
 		if !errors.As(err, &re) {
 			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
 		}
-		if want := "pos.star:8:15: E: boom"; re.Error() != want {
+		if want := fmt.Sprintf("pos.star:%d:15: E: boom", raisedIn); re.Error() != want {
 			t.Errorf("Error() = %q, want %q", re.Error(), want)
 		}
 	})
