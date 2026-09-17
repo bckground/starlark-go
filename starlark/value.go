@@ -1948,6 +1948,13 @@ type Error struct {
 	message *string
 	cause   *Error
 	extra   Value
+
+	// pos is the position of the ! call that produced this error: the call
+	// site in the caller, not a position inside the callee, so it names the
+	// code that asked for the work rather than the library that refused it.
+	// It is recorded once, where the error is raised, and travels unchanged
+	// as try propagates it. Invalid when the raising call came from Go.
+	pos syntax.Position
 }
 
 func NewError(tag *ErrorTag, message *string, cause *Error, extra Value) *Error {
@@ -2014,6 +2021,23 @@ func (e *Error) Message() string {
 }
 
 func (e *Error) Extra() Value { return e.extra }
+
+// Position returns the position of the ! call that produced this error, or an
+// invalid Position if it was raised by a call from Go. See Error.pos.
+func (e *Error) Position() syntax.Position { return e.pos }
+
+// at returns e with pos recorded as the position of the call that raised it.
+// Errors are values, not identities -- comparison is by tag (see
+// CompareSameType) and they are unhashable -- so returning a copy keeps a
+// reused error value from inheriting the first site it was raised at.
+func (e *Error) at(pos syntax.Position) *Error {
+	if !pos.IsValid() {
+		return e
+	}
+	positioned := *e
+	positioned.pos = pos
+	return &positioned
+}
 
 // FailError is the error produced by a deliberate, fail-style abort: the
 // fail() builtin returns one, and a Go builtin may return one to raise the
@@ -2093,10 +2117,14 @@ type ReturnedError struct {
 }
 
 func (e *ReturnedError) Error() string {
+	msg := e.Value.tag.name
 	if e.Value.message != nil {
-		return e.Value.tag.name + ": " + *e.Value.message
+		msg += ": " + *e.Value.message
 	}
-	return e.Value.tag.name
+	if e.Value.pos.IsValid() {
+		return e.Value.pos.String() + ": " + msg
+	}
+	return msg
 }
 
 // ErrorTags represents a namespace of error values.

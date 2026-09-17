@@ -295,6 +295,19 @@ func (fr *frame) asCallFrame() CallFrame {
 	}
 }
 
+// raisePosition returns the position of the call currently executing in the
+// caller of the topmost frame -- the site of the ! call about to produce an
+// error. It is invalid unless the caller is Starlark code: a Go caller has no
+// source position worth reporting.
+func (thread *Thread) raisePosition() syntax.Position {
+	if n := len(thread.stack); n >= 2 {
+		if _, ok := thread.stack[n-2].callable.(*Function); ok {
+			return thread.stack[n-2].Position()
+		}
+	}
+	return syntax.Position{}
+}
+
 func (thread *Thread) evalError(err error) *EvalError {
 	return &EvalError{
 		Msg:       err.Error(),
@@ -1374,12 +1387,16 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	var pendingErr *Error
 	if err == nil {
 		if b, ok := c.(*Builtin); ok && b.canReturnError {
+			// This call is the raise point for a ! builtin, so record where it
+			// was called from. A Starlark callee records its own raise in the
+			// RETURN opcode instead; by the time its error reaches here it is
+			// already positioned, and propagation must not overwrite it.
 			switch v := result.(type) {
 			case *ErrorTag:
-				pendingErr = NewError(v, nil, nil, nil)
+				pendingErr = NewError(v, nil, nil, nil).at(thread.raisePosition())
 				result = None
 			case *Error:
-				pendingErr = v
+				pendingErr = v.at(thread.raisePosition())
 				result = None
 			}
 		} else {

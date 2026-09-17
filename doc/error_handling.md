@@ -77,6 +77,21 @@ error.extra      caller-supplied context, or None (any)
 
 An error used in a Boolean context is considered false.
 
+An error also records the source position of the `!` call that raised
+it. The position names the *call site in the caller*, not a position
+inside the callee, so it points at the code that asked for the work
+rather than at the library that refused it — the useful distinction
+when the callee is a shared helper such as an assertion routine. It is
+recorded once, where the error is raised, and `try` propagation leaves
+it unchanged, so an error that travels up several frames still names
+the call that produced it. An error raised by a call from Go has no
+such position.
+
+The position is not a Starlark attribute; it is visible to the
+embedder through `(*starlark.Error).Position()` and is rendered in the
+message of a `*starlark.ReturnedError` (see
+[The Go boundary](#the-go-boundary)).
+
 An error can be created by calling an error tag as a function with
 optional keyword arguments for metadata. When a `!` function returns
 a bare error tag, the runtime automatically wraps it in an error value
@@ -456,6 +471,18 @@ error types, which never overlap:
   keeps a recoverable error that merely escaped to Go distinct from
   a failure: the Go caller may inspect it and continue, exactly as a
   Starlark `catch` could have.
+
+  Its `Error` method prefixes the message with the position of the
+  `!` call that raised the error, when there is one, so the location
+  survives into logs and reports that carry only the message and not
+  a backtrace:
+
+  ```text
+  test.star:5:18: ASSERTION_FAILED: "a" != "b"
+  ```
+
+  `Value.Position()` returns the same position for callers that want
+  it structured. It is invalid when Go itself made the raising call.
 
 A Go builtin is Starlark code that happens to be written in Go, and
 its two return values can express every outcome of the error model:

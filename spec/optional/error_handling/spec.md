@@ -199,3 +199,8 @@ implementation's own suite, not by spec files.
   error value.
 - Error state must be confined to the call in which it arises; it
   must not leak across threads, modules, or independent executions.
+- An implementation that reports where an error came from must report
+  the site of the error-returning call that raised it, in the caller,
+  and must not re-report a later `try` that merely propagated it. The
+  call site, rather than a position inside the callee, is what names
+  the program's own code when the callee is a shared helper.

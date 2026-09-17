@@ -2649,3 +2649,114 @@ func TestUnpackArgNoEscape(t *testing.T) {
 		t.Errorf("AllocsPerRun = %v, want none", n)
 	}
 }
+
+// TestErrorPosition verifies that an error records the position of the ! call
+// that raised it -- the call site in the caller, not a position inside the
+// callee -- and that propagation through try leaves that position alone.
+func TestErrorPosition(t *testing.T) {
+	const src = `
+errors = error_tags("E")
+
+def raises()!:
+    return errors.E(message = "boom")
+
+def middle()!:
+    try raises()
+
+def outer()!:
+    try middle()
+
+def raises_builtin()!:
+    try boom()
+
+def reuse()!:
+    e = errors.E(message = "shared")
+    if True:
+        return e
+    return e
+`
+	boom := starlark.NewBuiltinCanReturnError("boom", func(
+		thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple,
+	) (starlark.Value, error) {
+		return starlark.NewError(starlark.NewErrorTag("B"), nil, nil, nil), nil
+	})
+	predeclared := starlark.StringDict{"boom": boom}
+
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "pos.star", src, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	position := func(t *testing.T, fn string) syntax.Position {
+		t.Helper()
+		_, err := starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("%s: err = %v (%T), want it to wrap *starlark.ReturnedError", fn, err, err)
+		}
+		return re.Value.Position()
+	}
+
+	// middle calls raises on line 8; the position names that call, not the
+	// return statement inside raises on line 5.
+	t.Run("names the call site, not the callee", func(t *testing.T) {
+		if got := position(t, "middle"); got.Line != 8 {
+			t.Errorf("position = %v, want line 8 (the `try raises()` call)", got)
+		}
+	})
+
+	// outer adds a propagation hop on line 11. The error still points at the
+	// innermost raise on line 8, not at the try that forwarded it.
+	t.Run("try propagation does not overwrite it", func(t *testing.T) {
+		if got := position(t, "outer"); got.Line != 8 {
+			t.Errorf("position = %v, want line 8 (propagation must not re-position)", got)
+		}
+	})
+
+	t.Run("a ! builtin records its call site", func(t *testing.T) {
+		if got := position(t, "raises_builtin"); got.Line != 14 {
+			t.Errorf("position = %v, want line 14 (the `try boom()` call)", got)
+		}
+	})
+
+	// A ! function called from Go has no Starlark caller, so there is no source
+	// position to report and the message is rendered without one.
+	t.Run("no Starlark caller leaves it invalid", func(t *testing.T) {
+		_, err := starlark.Call(&starlark.Thread{}, globals["raises"], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if re.Value.Position().IsValid() {
+			t.Errorf("position = %v, want invalid", re.Value.Position())
+		}
+		if got := re.Error(); got != "E: boom" {
+			t.Errorf("Error() = %q, want %q", got, "E: boom")
+		}
+	})
+
+	t.Run("Error renders the position when it has one", func(t *testing.T) {
+		_, err := starlark.Call(&starlark.Thread{}, globals["middle"], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if want := "pos.star:8:15: E: boom"; re.Error() != want {
+			t.Errorf("Error() = %q, want %q", re.Error(), want)
+		}
+	})
+
+	// Raising the same error value twice must not make the second raise report
+	// the first one's site, which is why at() copies rather than mutates.
+	t.Run("a reused error value is not pinned to its first raise", func(t *testing.T) {
+		v, err := starlark.Call(&starlark.Thread{}, globals["reuse"], nil, nil)
+		_ = v
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if re.Value.Position().IsValid() {
+			t.Errorf("position = %v, want invalid (called from Go)", re.Value.Position())
+		}
+	})
+}

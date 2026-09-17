@@ -647,12 +647,17 @@ loop:
 			// (the defer above), like every other exit path.
 			fr.pendingError = nil
 			if f.CanReturnError {
+				// An error return is the raise point, so record where this
+				// function was called from. Propagation (the TRY opcode above)
+				// breaks out of the loop without reaching here, so an error
+				// travelling up through try keeps the position of the call that
+				// raised it. A successful return computes no position.
 				switch v := result.(type) {
 				case *ErrorTag:
-					fr.pendingError = NewError(v, nil, nil, nil)
+					fr.pendingError = NewError(v, nil, nil, nil).at(thread.raisePosition())
 					result = None
 				case *Error:
-					fr.pendingError = v
+					fr.pendingError = v.at(thread.raisePosition())
 					result = None
 				}
 			}
