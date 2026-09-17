@@ -1374,9 +1374,15 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 
 	result, err := c.CallInternal(thread, args, kwargs)
 
-	// Sanity check: nil is not a valid Starlark value.
-	if result == nil && err == nil {
-		err = fmt.Errorf("internal error: nil (not None) returned from %s", fn)
+	// Sanity check: nil is not a valid Starlark value. A typed nil *Error is
+	// just as invalid, and the raise conversion below dereferences it, so
+	// reject it here rather than let it panic out of the interpreter.
+	if err == nil {
+		if result == nil {
+			err = fmt.Errorf("internal error: nil (not None) returned from %s", fn)
+		} else if e, ok := result.(*Error); ok && e == nil {
+			err = fmt.Errorf("internal error: nil *Error (not None) returned from %s", fn)
+		}
 	}
 
 	// Determine the recoverable error produced by this call, if any. It comes

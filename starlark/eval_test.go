@@ -2961,3 +2961,44 @@ try middle()
 		}
 	})
 }
+
+// TestNilErrorValueIsRejected verifies that a typed-nil *Error reaching the
+// raise conversion is reported as an internal error rather than panicking.
+// Only Go can produce one; it is as invalid a Starlark value as an untyped nil.
+func TestNilErrorValueIsRejected(t *testing.T) {
+	t.Run("returned by a ! builtin", func(t *testing.T) {
+		b := starlark.NewBuiltinCanReturnError("nilerr", func(
+			*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple,
+		) (starlark.Value, error) {
+			return (*starlark.Error)(nil), nil
+		})
+		const src = `
+def f()!:
+    try nilerr()
+`
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "nil.star", src, starlark.StringDict{"nilerr": b})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = starlark.Call(&starlark.Thread{}, globals["f"], nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "internal error") {
+			t.Errorf("err = %v, want an internal error naming the nil result", err)
+		}
+	})
+
+	t.Run("returned by a ! function", func(t *testing.T) {
+		const src = `
+def f()!:
+    return nilerr
+`
+		predeclared := starlark.StringDict{"nilerr": (*starlark.Error)(nil)}
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "nil.star", src, predeclared)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = starlark.Call(&starlark.Thread{}, globals["f"], nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "internal error") {
+			t.Errorf("err = %v, want an internal error naming the nil result", err)
+		}
+	})
+}

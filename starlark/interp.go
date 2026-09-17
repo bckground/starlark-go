@@ -657,6 +657,12 @@ loop:
 					fr.pendingError = NewError(v, nil, nil, nil).at(thread.raisePosition())
 					result = None
 				case *Error:
+					if v == nil {
+						// Only Go can produce a typed nil *Error; it is not a
+						// valid Starlark value (see the sanity check in Call).
+						err = fmt.Errorf("internal error: nil *Error (not None) returned from %s", fn.Name())
+						break loop
+					}
 					fr.pendingError = v.at(thread.raisePosition())
 					result = None
 				}
