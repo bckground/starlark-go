@@ -7,7 +7,7 @@ errs = error_tags("E")
 def may_fail()!:
     return errs.E(message="config missing")
 
-config = try may_fail() ### "fail: E"
+config = try may_fail() ### "fail: .*E"
 ---
 # A module-level try whose call succeeds yields the result.
 errs = error_tags("E")

@@ -91,8 +91,8 @@ earlier raise.
 
 The position is not a Starlark attribute; it is visible to the
 embedder through `(*starlark.Error).Position()` and is rendered in the
-message of a `*starlark.ReturnedError` (see
-[The Go boundary](#the-go-boundary)).
+message of a `*starlark.ReturnedError` and of a `*starlark.FailError`
+carrying the error (see [The Go boundary](#the-go-boundary)).
 
 An error can be created by calling an error tag as a function with
 optional keyword arguments for metadata. When a `!` function returns

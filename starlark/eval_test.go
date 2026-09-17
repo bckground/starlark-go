@@ -2922,3 +2922,42 @@ def caught_block():
 		}
 	})
 }
+
+// TestFailErrorRendersErrorValue verifies that a failure carrying an error
+// value renders that value in full -- its message and, when it has one, the
+// position of the raise -- rather than its bare tag name. This is the message
+// an embedder logs for an uncaught module-level try, which compiles to fail.
+func TestFailErrorRendersErrorValue(t *testing.T) {
+	const src = `
+errs = error_tags("E")
+
+def raises()!:
+    return errs.E(message = "boom")
+
+def middle()!:
+    try raises()
+
+try middle()
+`
+	_, err := starlark.ExecFile(&starlark.Thread{}, "fail3.star", src, nil)
+	var failErr *starlark.FailError
+	if !errors.As(err, &failErr) {
+		t.Fatalf("err = %v (%T), want it to wrap *starlark.FailError", err, err)
+	}
+
+	t.Run("carries the message and the raise position", func(t *testing.T) {
+		want := fmt.Sprintf("fail: fail3.star:%d:15: E: boom", lineOf(t, src, "try raises()"))
+		if got := failErr.Error(); got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a positionless error still carries its message", func(t *testing.T) {
+		msg := "boom"
+		e := starlark.NewError(starlark.NewErrorTag("E"), &msg, nil, nil)
+		fe := &starlark.FailError{StarlarkError: e}
+		if got, want := fe.Error(), "fail: E: boom"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+}

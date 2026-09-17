@@ -28,7 +28,8 @@ means "this can happen, and the caller should decide".
 This unit refines the contract of the core `fail` built-in: called
 with a single error value or error tag (a bare tag is wrapped in an
 error value, as in a `!` function's return), the failure carries that
-error; the message is its tag's name. Mixing an error or error tag
+error; the message identifies it, at minimum by its tag's name. Mixing
+an error or error tag
 with other arguments, or passing more than one, is itself a failure.
 Calls without error values keep the core behavior.
 

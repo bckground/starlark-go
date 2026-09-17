@@ -2027,6 +2027,21 @@ func (e *Error) Extra() Value { return e.extra }
 // invalid Position if it was raised by a call from Go. See Error.pos.
 func (e *Error) Position() syntax.Position { return e.pos }
 
+// describe renders e for a diagnostic: its tag, its message if it has one, and
+// the position of the raise as a prefix if it has one. It is what a Go caller
+// sees for an error that reached it, whether as a ReturnedError or as the
+// payload of a failure.
+func (e *Error) describe() string {
+	msg := e.tag.name
+	if e.message != nil {
+		msg += ": " + *e.message
+	}
+	if e.pos.IsValid() {
+		return e.pos.String() + ": " + msg
+	}
+	return msg
+}
+
 // at returns e with pos recorded as the position of the call that raised it,
 // replacing any position left by an earlier raise -- including with an invalid
 // pos, so a raise from Go reports no position rather than a stale one. Errors
@@ -2048,8 +2063,8 @@ func (e *Error) at(pos syntax.Position) *Error {
 // Msg is the failure message content, without the "fail: " prefix: Error
 // renders every FailError with the prefix, however it was constructed --
 // the prefix marks the failure as fail-style, like the type itself. When
-// Msg is empty and StarlarkError is set, Error falls back to the error
-// value's representation (its tag name).
+// Msg is empty and StarlarkError is set, Error falls back to describing
+// the error value: its tag, its message, and the position of the raise.
 type FailError struct {
 	Msg           string
 	StarlarkError *Error
@@ -2058,7 +2073,7 @@ type FailError struct {
 func (e *FailError) Error() string {
 	msg := e.Msg
 	if msg == "" && e.StarlarkError != nil {
-		msg = e.StarlarkError.String()
+		msg = e.StarlarkError.describe()
 	}
 	return "fail: " + msg
 }
@@ -2070,7 +2085,7 @@ func (e *FailError) Error() string {
 // with "fail: ". In payload mode, the sole argument is an error value or an
 // error tag (wrapped in an error value, like a !-function returning a bare
 // tag): it becomes StarlarkError, the payload the failure carries to the
-// embedder, and the message is its tag name.
+// embedder, which Error then describes.
 //
 // An error or error tag mixed with other arguments, or more than one of
 // them, has no coherent meaning: NewFailError returns a *FailError that
@@ -2116,16 +2131,7 @@ type ReturnedError struct {
 	Value *Error
 }
 
-func (e *ReturnedError) Error() string {
-	msg := e.Value.tag.name
-	if e.Value.message != nil {
-		msg += ": " + *e.Value.message
-	}
-	if e.Value.pos.IsValid() {
-		return e.Value.pos.String() + ": " + msg
-	}
-	return msg
-}
+func (e *ReturnedError) Error() string { return e.Value.describe() }
 
 // ErrorTags represents a namespace of error values.
 type ErrorTags struct {
