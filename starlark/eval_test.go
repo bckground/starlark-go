@@ -2829,3 +2829,96 @@ def site_b()!:
 		}
 	})
 }
+
+// errReturningCallable is a Go Callable that is not a *Builtin but declares
+// itself error-returning through the exported ErrorReturner interface, as an
+// embedder's native function may.
+type errReturningCallable struct{ err starlark.Value }
+
+func (c *errReturningCallable) String() string       { return "<custom>" }
+func (c *errReturningCallable) Type() string         { return "custom" }
+func (c *errReturningCallable) Freeze()              {}
+func (c *errReturningCallable) Truth() starlark.Bool { return starlark.True }
+func (c *errReturningCallable) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: custom")
+}
+func (c *errReturningCallable) Name() string         { return "custom" }
+func (c *errReturningCallable) CanReturnError() bool { return true }
+func (c *errReturningCallable) CallInternal(*starlark.Thread, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return c.err, nil
+}
+
+// TestErrorReturningCallable verifies that any Callable declaring itself
+// error-returning via ErrorReturner -- not only *Builtin -- has a returned
+// error value treated as a raise, so try propagates it and catch intercepts it.
+func TestErrorReturningCallable(t *testing.T) {
+	tag := starlark.NewErrorTag("C")
+	msg := "custom boom"
+
+	const src = `
+def propagates()!:
+    try custom()
+
+def caught():
+    return custom() catch "fallback"
+
+def caught_block():
+    v = custom() catch e:
+        recover e.message
+    return v
+`
+	run := func(t *testing.T, result starlark.Value, fn string) (starlark.Value, error) {
+		t.Helper()
+		predeclared := starlark.StringDict{"custom": &errReturningCallable{err: result}}
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "custom.star", src, predeclared)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+	}
+
+	t.Run("an error value is a raise, not a result", func(t *testing.T) {
+		_, err := run(t, starlark.NewError(tag, &msg, nil, nil), "propagates")
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if got := re.Value.Tag(); got != tag {
+			t.Errorf("tag = %v, want C", got)
+		}
+		if got := re.Value.Position(); !got.IsValid() || got.Line != 3 {
+			t.Errorf("position = %v, want the `try custom()` call on line 3", got)
+		}
+	})
+
+	t.Run("a bare error tag is a raise too", func(t *testing.T) {
+		_, err := run(t, tag, "propagates")
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if got := re.Value.Tag(); got != tag {
+			t.Errorf("tag = %v, want C", got)
+		}
+	})
+
+	t.Run("catch intercepts it", func(t *testing.T) {
+		v, err := run(t, starlark.NewError(tag, &msg, nil, nil), "caught")
+		if err != nil {
+			t.Fatalf("err = %v, want catch to have handled it", err)
+		}
+		if got, want := v, starlark.String("fallback"); got != want {
+			t.Errorf("result = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a catch block binds the error value", func(t *testing.T) {
+		v, err := run(t, starlark.NewError(tag, &msg, nil, nil), "caught_block")
+		if err != nil {
+			t.Fatalf("err = %v, want the catch block to have handled it", err)
+		}
+		if got, want := v, starlark.String(msg); got != want {
+			t.Errorf("result = %v, want %v", got, want)
+		}
+	})
+}

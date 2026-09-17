@@ -456,13 +456,12 @@ func ExecFileOptions(opts *syntax.FileOptions, thread *Thread, filename string, 
 }
 
 // stringDictCanError returns a predicate that reports whether a name in the
-// given StringDict refers to a Builtin created with NewBuiltinCanError.
+// given StringDict refers to an error-returning callable: a Builtin created
+// with NewBuiltinCanError, or any other [ErrorReturner] an embedder supplies.
 func stringDictCanError(d StringDict) func(string) bool {
 	return func(name string) bool {
-		if b, ok := d[name].(*Builtin); ok {
-			return b.canReturnError
-		}
-		return false
+		er, ok := d[name].(ErrorReturner)
+		return ok && er.CanReturnError()
 	}
 }
 
@@ -1386,11 +1385,17 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	// error.
 	var pendingErr *Error
 	if err == nil {
-		if b, ok := c.(*Builtin); ok && b.canReturnError {
-			// This call is the raise point for a ! builtin, so record where it
-			// was called from. A Starlark callee records its own raise in the
-			// RETURN opcode instead; by the time its error reaches here it is
-			// already positioned, and propagation must not overwrite it.
+		if _, isStarlark := c.(*Function); isStarlark {
+			// A Starlark callee records its own raise in the RETURN opcode, so
+			// by the time its error reaches here it is already positioned, and
+			// propagation must not overwrite it. Only a *Function runs bytecode,
+			// so only it can leave anything on fr.
+			pendingErr = fr.pendingError
+		} else if er, ok := c.(ErrorReturner); ok && er.CanReturnError() {
+			// This call is the raise point for a ! Go callable -- a builtin, or
+			// an embedder's own Callable declaring itself error-returning -- so
+			// record where it was called from. The gate is the exported
+			// interface, matching the one the CALL guard in interp.go applies.
 			switch v := result.(type) {
 			case *ErrorTag:
 				pendingErr = NewError(v, nil, nil, nil).at(thread.raisePosition())
@@ -1399,8 +1404,6 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 				pendingErr = v.at(thread.raisePosition())
 				result = None
 			}
-		} else {
-			pendingErr = fr.pendingError
 		}
 	}
 	// Deliver it to the caller. Only a Starlark *Function caller has TRY/CATCH_CHECK
