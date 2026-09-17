@@ -295,15 +295,28 @@ func (fr *frame) asCallFrame() CallFrame {
 	}
 }
 
+// starlarkCaller returns the frame of the Starlark function that called the
+// topmost frame, or nil when the caller is Go: the embedder at the outermost
+// frame, a builtin, or any other Callable that is not a *Function. Only a
+// *Function runs bytecode, so only its frame has the try/catch opcodes that
+// consume a pending error and a source position worth reporting.
+func (thread *Thread) starlarkCaller() *frame {
+	if len(thread.stack) < 2 {
+		return nil
+	}
+	caller := thread.frameAt(1)
+	if _, ok := caller.callable.(*Function); !ok {
+		return nil
+	}
+	return caller
+}
+
 // raisePosition returns the position of the call currently executing in the
 // caller of the topmost frame -- the site of the ! call about to produce an
-// error. It is invalid unless the caller is Starlark code: a Go caller has no
-// source position worth reporting.
+// error. It is invalid unless the caller is Starlark code.
 func (thread *Thread) raisePosition() syntax.Position {
-	if n := len(thread.stack); n >= 2 {
-		if _, ok := thread.stack[n-2].callable.(*Function); ok {
-			return thread.stack[n-2].Position()
-		}
+	if caller := thread.starlarkCaller(); caller != nil {
+		return caller.Position()
 	}
 	return syntax.Position{}
 }
@@ -1386,9 +1399,9 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	}
 
 	// Determine the recoverable error produced by this call, if any. It comes
-	// either from a ! builtin returning an Error value, or from a Starlark callee
-	// that left it on its own (now-returning) frame fr. A failure supersedes any
-	// error.
+	// either from an error-returning Go callable returning an Error value, or
+	// from a Starlark callee that left it on its own (now-returning) frame fr.
+	// A failure supersedes any error.
 	var pendingErr *Error
 	if err == nil {
 		if _, isStarlark := c.(*Function); isStarlark {
@@ -1420,12 +1433,7 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 	// error as a ReturnedError on the Go error channel instead, so it can neither
 	// be stranded on a frame the caller cannot read nor silently leak up. result is
 	// already None on every path that set pendingErr.
-	n := len(thread.stack)
-	starlarkCaller := false
-	if n >= 2 {
-		_, starlarkCaller = thread.stack[n-2].callable.(*Function)
-	}
-	if starlarkCaller {
+	if caller := thread.starlarkCaller(); caller != nil {
 		// If the caller frame already carries a pending error, it was deposited
 		// by an earlier call that nothing consumed with catch/try before this
 		// one ran — only possible for a dynamically-dispatched call target,
@@ -1434,10 +1442,10 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		// it, which the language guarantees never happens; surface it as a
 		// hard failure instead. A failure already in flight for this call (err
 		// != nil) takes precedence, since it is the more immediate cause.
-		if err == nil && thread.stack[n-2].pendingError != nil {
-			err = thread.evalError(&ReturnedError{Value: thread.stack[n-2].pendingError})
+		if err == nil && caller.pendingError != nil {
+			err = thread.evalError(&ReturnedError{Value: caller.pendingError})
 		}
-		thread.stack[n-2].pendingError = pendingErr
+		caller.pendingError = pendingErr
 	} else if pendingErr != nil {
 		err = thread.evalError(&ReturnedError{Value: pendingErr})
 	}
