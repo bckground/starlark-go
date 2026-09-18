@@ -78,7 +78,7 @@ error.extra      caller-supplied context, or None (any)
 An error used in a Boolean context is considered false.
 
 An error also records the source position of the `!` call that raised
-it. The position names the *call site in the caller*, not a position
+it. The position names the _call site in the caller_, not a position
 inside the callee, so it points at the code that asked for the work
 rather than at the library that refused it — the useful distinction
 when the callee is a shared helper such as an assertion routine. `try`
