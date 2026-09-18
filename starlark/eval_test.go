@@ -596,16 +596,15 @@ i()
   <builtin>: in min
   crash.star:3:19: in g
   crash.star:2:19: in f
-Error: floored division by zero`
+Failed: floored division by zero`
 	if got := backtrace(t, err); got != want {
 		t.Errorf("error was %s, want %s", got, want)
 	}
 
 	// Additionally, ensure that errors originating in
 	// Starlark and/or Go each have an accurate frame.
-	// The topmost frame, if built-in, is not shown,
-	// but the name of the built-in function is shown
-	// as "Error in fn: ...".
+	// The topmost frame, if built-in, is not shown; the
+	// built-in names itself in its own message.
 	//
 	// This program fails in Starlark (f) if x==0,
 	// or in Go (string.join) if x is non-zero.
@@ -617,11 +616,11 @@ f()
 		0: `Traceback (most recent call last):
   crash.star:3:2: in <toplevel>
   crash.star:2:20: in f
-Error: floored division by zero`,
+Failed: floored division by zero`,
 		1: `Traceback (most recent call last):
   crash.star:3:2: in <toplevel>
   crash.star:2:17: in f
-Error in join: join: in list, want string, got int`,
+Failed: join: in list, want string, got int`,
 	} {
 		globals := starlark.StringDict{"i": starlark.MakeInt(i)}
 		_, err := starlark.ExecFile(thread, "crash.star", src2, globals)
@@ -1319,7 +1318,7 @@ f(0)
 
 	const want = `Traceback (most recent call last):
   root.star:2:1: in <toplevel>
-Error: cannot load crash.star: floored division by zero`
+Failed: cannot load crash.star: floored division by zero`
 	if got := backtrace(t, err); got != want {
 		t.Errorf("error was %s, want %s", got, want)
 	}
@@ -1343,7 +1342,7 @@ Error: cannot load crash.star: floored division by zero`
 	const wantUnwrapped = `Traceback (most recent call last):
   crash.star:5:2: in <toplevel>
   crash.star:3:12: in f
-Error: floored division by zero`
+Failed: floored division by zero`
 	if got := backtrace(t, unwrappedErr); got != wantUnwrapped {
 		t.Errorf("error was %s, want %s", got, wantUnwrapped)
 	}
@@ -2648,4 +2647,500 @@ func TestUnpackArgNoEscape(t *testing.T) {
 	if n > 0 {
 		t.Errorf("AllocsPerRun = %v, want none", n)
 	}
+}
+
+// TestErrorPosition verifies that an error records the position of the ! call
+// that raised it -- the call site in the caller, not a position inside the
+// callee -- and that propagation through try leaves that position alone.
+func TestErrorPosition(t *testing.T) {
+	const src = `
+errors = error_tags("E")
+
+def raises()!:
+    return errors.E(message = "boom")
+
+def middle()!:
+    try raises()
+
+def outer()!:
+    try middle()
+
+def raises_builtin()!:
+    try boom()
+
+`
+	boom := starlark.NewBuiltinCanReturnError("boom", func(
+		thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple,
+	) (starlark.Value, error) {
+		return starlark.NewError(starlark.NewErrorTag("B"), nil, nil, nil), nil
+	})
+	predeclared := starlark.StringDict{"boom": boom}
+
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "pos.star", src, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	position := func(t *testing.T, fn string) syntax.Position {
+		t.Helper()
+		_, err := starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("%s: err = %v (%T), want it to wrap *starlark.ReturnedError", fn, err, err)
+		}
+		return re.Value.Position()
+	}
+
+	// The position names middle's call to raises, not the return statement
+	// inside raises.
+	raisedIn := lineOf(t, src, "def middle") + 1
+	t.Run("names the call site, not the callee", func(t *testing.T) {
+		if got := position(t, "middle"); got.Line != raisedIn {
+			t.Errorf("position = %v, want line %d (the `try raises()` call)", got, raisedIn)
+		}
+	})
+
+	// outer adds a propagation hop. The error still points at the innermost
+	// raise, not at the try that forwarded it.
+	t.Run("try propagation does not overwrite it", func(t *testing.T) {
+		if got := position(t, "outer"); got.Line != raisedIn {
+			t.Errorf("position = %v, want line %d (propagation must not re-position)", got, raisedIn)
+		}
+	})
+
+	t.Run("a ! builtin records its call site", func(t *testing.T) {
+		want := lineOf(t, src, "def raises_builtin") + 1
+		if got := position(t, "raises_builtin"); got.Line != want {
+			t.Errorf("position = %v, want line %d (the `try boom()` call)", got, want)
+		}
+	})
+
+	// A ! function called from Go has no Starlark caller, so there is no source
+	// position to report and the message is rendered without one.
+	t.Run("no Starlark caller leaves it invalid", func(t *testing.T) {
+		_, err := starlark.Call(&starlark.Thread{}, globals["raises"], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if re.Value.Position().IsValid() {
+			t.Errorf("position = %v, want invalid", re.Value.Position())
+		}
+		if got := re.Error(); got != "E: boom" {
+			t.Errorf("Error() = %q, want %q", got, "E: boom")
+		}
+	})
+
+	t.Run("Error renders the position when it has one", func(t *testing.T) {
+		_, err := starlark.Call(&starlark.Thread{}, globals["middle"], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if want := fmt.Sprintf("pos.star:%d:15: E: boom", raisedIn); re.Error() != want {
+			t.Errorf("Error() = %q, want %q", re.Error(), want)
+		}
+	})
+}
+
+// lineOf returns the 1-based line number of the first line in src containing
+// marker, so position assertions stay correct when src is edited.
+func lineOf(t *testing.T, src, marker string) int32 {
+	t.Helper()
+	for i, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, marker) {
+			return int32(i + 1)
+		}
+	}
+	t.Fatalf("marker %q not found in source", marker)
+	return 0
+}
+
+// TestErrorPositionReraise verifies that every raise re-records the position:
+// an error value raised a second time reports the second site, and a raise
+// with no Starlark caller reports no position at all, even when the value
+// carries one from an earlier, unrelated raise.
+func TestErrorPositionReraise(t *testing.T) {
+	const src = `
+errs = error_tags("E")
+
+shared = errs.E(message = "shared")
+
+def inner()!:
+    return errs.E(message = "boom")
+
+def capture():
+    v = inner() catch e:
+        recover e
+    return v
+
+def outer()!:
+    return capture()
+
+def raise_shared()!:
+    return shared
+
+def site_a()!:
+    try raise_shared()
+
+def site_b()!:
+    try raise_shared()
+`
+	globals, err := starlark.ExecFile(&starlark.Thread{}, "reraise.star", src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raise := func(t *testing.T, fn string) *starlark.Error {
+		t.Helper()
+		_, err := starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("%s: err = %v (%T), want it to wrap *starlark.ReturnedError", fn, err, err)
+		}
+		return re.Value
+	}
+
+	// outer returns an error that inner raised (and capture recovered), so the
+	// value already carries inner's call site. outer is called from Go, so this
+	// raise has no position -- the stale one must not survive.
+	t.Run("a raise from Go leaves no stale position", func(t *testing.T) {
+		if got := raise(t, "outer").Position(); got.IsValid() {
+			t.Errorf("position = %v, want invalid: the raise came from Go", got)
+		}
+	})
+
+	// site_a and site_b raise the same module-level error value from different
+	// call sites. Each raise must report its own, which is why at() copies
+	// rather than mutates.
+	t.Run("a reused error value is not pinned to its first raise", func(t *testing.T) {
+		fromA := raise(t, "site_a")
+		wantA := lineOf(t, src, "def site_a") + 1
+		if fromA.Position().Line != wantA {
+			t.Fatalf("site_a: position = %v, want line %d", fromA.Position(), wantA)
+		}
+
+		fromB := raise(t, "site_b")
+		wantB := lineOf(t, src, "def site_b") + 1
+		if fromB.Position().Line != wantB {
+			t.Errorf("site_b: position = %v, want line %d", fromB.Position(), wantB)
+		}
+		if fromA.Position().Line != wantA {
+			t.Errorf("site_a's error moved to %v after site_b raised the same value; want line %d", fromA.Position(), wantA)
+		}
+	})
+}
+
+// errReturningCallable is a Go Callable that is not a *Builtin but declares
+// itself error-returning through the exported ErrorReturner interface, as an
+// embedder's native function may.
+type errReturningCallable struct{ err starlark.Value }
+
+func (c *errReturningCallable) String() string       { return "<custom>" }
+func (c *errReturningCallable) Type() string         { return "custom" }
+func (c *errReturningCallable) Freeze()              {}
+func (c *errReturningCallable) Truth() starlark.Bool { return starlark.True }
+func (c *errReturningCallable) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: custom")
+}
+func (c *errReturningCallable) Name() string         { return "custom" }
+func (c *errReturningCallable) CanReturnError() bool { return true }
+func (c *errReturningCallable) CallInternal(*starlark.Thread, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return c.err, nil
+}
+
+// TestErrorReturningCallable verifies that any Callable declaring itself
+// error-returning via ErrorReturner -- not only *Builtin -- has a returned
+// error value treated as a raise, so try propagates it and catch intercepts it.
+func TestErrorReturningCallable(t *testing.T) {
+	tag := starlark.NewErrorTag("C")
+	msg := "custom boom"
+
+	const src = `
+def propagates()!:
+    try custom()
+
+def caught():
+    return custom() catch "fallback"
+
+def caught_block():
+    v = custom() catch e:
+        recover e.message
+    return v
+`
+	run := func(t *testing.T, result starlark.Value, fn string) (starlark.Value, error) {
+		t.Helper()
+		predeclared := starlark.StringDict{"custom": &errReturningCallable{err: result}}
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "custom.star", src, predeclared)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+	}
+
+	t.Run("an error value is a raise, not a result", func(t *testing.T) {
+		_, err := run(t, starlark.NewError(tag, &msg, nil, nil), "propagates")
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if got := re.Value.Tag(); got != tag {
+			t.Errorf("tag = %v, want C", got)
+		}
+		if got := re.Value.Position(); !got.IsValid() || got.Line != 3 {
+			t.Errorf("position = %v, want the `try custom()` call on line 3", got)
+		}
+	})
+
+	t.Run("a bare error tag is a raise too", func(t *testing.T) {
+		_, err := run(t, tag, "propagates")
+		var re *starlark.ReturnedError
+		if !errors.As(err, &re) {
+			t.Fatalf("err = %v (%T), want it to wrap *starlark.ReturnedError", err, err)
+		}
+		if got := re.Value.Tag(); got != tag {
+			t.Errorf("tag = %v, want C", got)
+		}
+	})
+
+	t.Run("catch intercepts it", func(t *testing.T) {
+		v, err := run(t, starlark.NewError(tag, &msg, nil, nil), "caught")
+		if err != nil {
+			t.Fatalf("err = %v, want catch to have handled it", err)
+		}
+		if got, want := v, starlark.String("fallback"); got != want {
+			t.Errorf("result = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a catch block binds the error value", func(t *testing.T) {
+		v, err := run(t, starlark.NewError(tag, &msg, nil, nil), "caught_block")
+		if err != nil {
+			t.Fatalf("err = %v, want the catch block to have handled it", err)
+		}
+		if got, want := v, starlark.String(msg); got != want {
+			t.Errorf("result = %v, want %v", got, want)
+		}
+	})
+}
+
+// TestFailErrorRendersErrorValue verifies that a failure carrying an error
+// value renders that value in full -- its message and, when it has one, the
+// position of the raise -- rather than its bare tag name. This is the message
+// an embedder logs for an uncaught module-level try, which compiles to fail.
+func TestFailErrorRendersErrorValue(t *testing.T) {
+	const src = `
+errs = error_tags("E")
+
+def raises()!:
+    return errs.E(message = "boom")
+
+def middle()!:
+    try raises()
+
+try middle()
+`
+	_, err := starlark.ExecFile(&starlark.Thread{}, "fail3.star", src, nil)
+	var failErr *starlark.FailError
+	if !errors.As(err, &failErr) {
+		t.Fatalf("err = %v (%T), want it to wrap *starlark.FailError", err, err)
+	}
+
+	t.Run("carries the message and the raise position", func(t *testing.T) {
+		want := fmt.Sprintf("fail: fail3.star:%d:15: E: boom", lineOf(t, src, "try raises()"))
+		if got := failErr.Error(); got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a positionless error still carries its message", func(t *testing.T) {
+		msg := "boom"
+		e := starlark.NewError(starlark.NewErrorTag("E"), &msg, nil, nil)
+		fe := &starlark.FailError{StarlarkError: e}
+		if got, want := fe.Error(), "fail: E: boom"; got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestNilErrorValueIsRejected verifies that a typed-nil *Error reaching the
+// raise conversion is reported as an internal error rather than panicking.
+// Only Go can produce one; it is as invalid a Starlark value as an untyped nil.
+func TestNilErrorValueIsRejected(t *testing.T) {
+	t.Run("returned by a ! builtin", func(t *testing.T) {
+		b := starlark.NewBuiltinCanReturnError("nilerr", func(
+			*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple,
+		) (starlark.Value, error) {
+			return (*starlark.Error)(nil), nil
+		})
+		const src = `
+def f()!:
+    try nilerr()
+`
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "nil.star", src, starlark.StringDict{"nilerr": b})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = starlark.Call(&starlark.Thread{}, globals["f"], nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "internal error") {
+			t.Errorf("err = %v, want an internal error naming the nil result", err)
+		}
+	})
+
+	t.Run("returned by a ! function", func(t *testing.T) {
+		const src = `
+def f()!:
+    return nilerr
+`
+		predeclared := starlark.StringDict{"nilerr": (*starlark.Error)(nil)}
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "nil.star", src, predeclared)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = starlark.Call(&starlark.Thread{}, globals["f"], nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "internal error") {
+			t.Errorf("err = %v, want an internal error naming the nil result", err)
+		}
+	})
+}
+
+// TestDeferredCallPosition verifies that a deferred call is reported at the
+// defer statement that registered it -- its call site, as for any other call --
+// rather than at whatever instruction the frame happened to exit on, and that
+// running cleanup does not move the position of the failure already unwinding
+// the frame.
+func TestDeferredCallPosition(t *testing.T) {
+	backtrace := func(t *testing.T, src string, fn string) string {
+		t.Helper()
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "defer.star", src, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		return ee.Backtrace()
+	}
+
+	t.Run("a failing deferred call is reported at the defer", func(t *testing.T) {
+		const src = `
+def cleanup():
+    fail("cleanup exploded")
+
+def work():
+    defer cleanup()
+    x = 1
+    return x
+`
+		bt := backtrace(t, src, "work")
+		want := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "defer cleanup()"))
+		if !strings.Contains(bt, want) {
+			t.Errorf("backtrace does not place the deferred call at %s:\n%s", want, bt)
+		}
+		if unwanted := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "return x")); strings.Contains(bt, unwanted) {
+			t.Errorf("backtrace blames the return at %s, not the defer:\n%s", unwanted, bt)
+		}
+	})
+
+	t.Run("cleanup does not move the failure it is unwinding", func(t *testing.T) {
+		const src = `
+def cleanup():
+    pass
+
+def work():
+    defer cleanup()
+    return 1 // 0
+`
+		bt := backtrace(t, src, "work")
+		want := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "return 1 // 0"))
+		if !strings.Contains(bt, want) {
+			t.Errorf("primary failure is not reported at %s:\n%s", want, bt)
+		}
+	})
+}
+
+// TestFailureBacktraceLabel verifies that a backtrace calls an aborted
+// execution a failure, matching the language's own vocabulary -- failures
+// abort, errors travel the ! channel -- and that an explicit fail() is
+// reported as the failure itself rather than as a malfunction of the fail
+// builtin, whose frame and "fail: " prefix only say the same thing twice.
+func TestFailureBacktraceLabel(t *testing.T) {
+	bt := func(t *testing.T, src string) string {
+		t.Helper()
+		_, err := starlark.ExecFile(&starlark.Thread{}, "lbl.star", src, nil)
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		return ee.Backtrace()
+	}
+
+	t.Run("an explicit fail is the failure, not a broken builtin", func(t *testing.T) {
+		got := bt(t, "def work():\n    fail(\"disk full\")\nwork()\n")
+		if !strings.HasSuffix(got, "\nFailed: disk full") {
+			t.Errorf("backtrace does not end in `Failed: disk full`:\n%s", got)
+		}
+		if strings.Contains(got, "in fail") {
+			t.Errorf("backtrace still blames the fail builtin:\n%s", got)
+		}
+	})
+
+	t.Run("a fail carrying an error value describes it", func(t *testing.T) {
+		src := "errs = error_tags(\"DiskFull\")\ndef work():\n    fail(errs.DiskFull(message = \"no space\"))\nwork()\n"
+		if got := bt(t, src); !strings.HasSuffix(got, "\nFailed: DiskFull: no space") {
+			t.Errorf("backtrace does not end in `Failed: DiskFull: no space`:\n%s", got)
+		}
+	})
+
+	t.Run("a runtime fault is a failure too", func(t *testing.T) {
+		got := bt(t, "def work():\n    return 1 // 0\nwork()\n")
+		if !strings.HasSuffix(got, "\nFailed: floored division by zero") {
+			t.Errorf("backtrace does not end in `Failed: floored division by zero`:\n%s", got)
+		}
+	})
+
+	// The label never names the built-in that failed. A built-in that names
+	// itself in its own message -- as the standard library does, for Go
+	// callers who see only err.Error() and no stack -- is identified by that
+	// and nothing else.
+	t.Run("a misbehaving builtin is named by its own message", func(t *testing.T) {
+		got := bt(t, "def work():\n    return \"\".join([1])\nwork()\n")
+		if !strings.HasSuffix(got, "\nFailed: join: in list, want string, got int") {
+			t.Errorf("backtrace does not end in the builtin's own message:\n%s", got)
+		}
+	})
+
+	// A Go builtin raising a fail-style failure loses the "fail: " marker,
+	// which the "Failed" label already conveys.
+	t.Run("a builtin raising a failure drops the fail marker", func(t *testing.T) {
+		b := starlark.NewBuiltin("must_sync", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return nil, starlark.NewFailError(" ", starlark.String("cache corrupted"))
+		})
+		_, err := starlark.ExecFile(&starlark.Thread{}, "lbl.star", "must_sync()", starlark.StringDict{"must_sync": b})
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		if got := ee.Backtrace(); !strings.HasSuffix(got, "\nFailed: cache corrupted") {
+			t.Errorf("backtrace = %s, want no `fail: ` marker", got)
+		}
+	})
+
+	// A builtin that names itself keeps that name intact: nothing is trimmed
+	// off the message, because the label no longer duplicates it.
+	t.Run("a self-naming builtin message is left intact", func(t *testing.T) {
+		b := starlark.NewBuiltin("polite", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return nil, fmt.Errorf("polite: I know who I am")
+		})
+		_, err := starlark.ExecFile(&starlark.Thread{}, "lbl.star", "polite()", starlark.StringDict{"polite": b})
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		if got := ee.Backtrace(); !strings.HasSuffix(got, "\nFailed: polite: I know who I am") {
+			t.Errorf("backtrace = %s, want the message untouched", got)
+		}
+	})
 }

@@ -44,7 +44,7 @@ def catches_try():
 assert.fails(catches_try, "fail: boom")
 
 # fail with a single error value turns a caught error into a failure
-# carrying it; the abort message uses the tag's name. (This is the
+# carrying it; the abort message identifies the error. (This is the
 # handling that a module-level try is specified to perform.)
 def errors_softly()!:
     return errs.E(message="ignored by fail")
@@ -54,7 +54,7 @@ def fail_with_error():
         recover err
     fail(e)
 
-assert.fails(fail_with_error, "fail: E")
+assert.fails(fail_with_error, "fail: .*E")
 
 # A bare error tag is wrapped, as in a ! function's return.
 assert.fails(lambda: fail(errs.E), "fail: E")

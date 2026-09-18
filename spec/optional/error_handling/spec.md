@@ -28,7 +28,8 @@ means "this can happen, and the caller should decide".
 This unit refines the contract of the core `fail` built-in: called
 with a single error value or error tag (a bare tag is wrapped in an
 error value, as in a `!` function's return), the failure carries that
-error; the message is its tag's name. Mixing an error or error tag
+error; the message identifies it, at minimum by its tag's name. Mixing
+an error or error tag
 with other arguments, or passing more than one, is itself a failure.
 Calls without error values keep the core behavior.
 
@@ -199,3 +200,8 @@ implementation's own suite, not by spec files.
   error value.
 - Error state must be confined to the call in which it arises; it
   must not leak across threads, modules, or independent executions.
+- An implementation that reports where an error came from must report
+  the site of the error-returning call that raised it, in the caller,
+  and must not re-report a later `try` that merely propagated it. The
+  call site, rather than a position inside the callee, is what names
+  the program's own code when the callee is a shared helper.

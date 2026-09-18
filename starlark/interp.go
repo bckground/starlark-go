@@ -19,6 +19,7 @@ type deferredCall struct {
 	fn     Value
 	args   Tuple
 	kwargs []Tuple
+	pc     uint32 // of the defer/errdefer that registered it, for reporting
 }
 
 // runDeferred executes a stack of deferred calls (defer or errdefer) in LIFO
@@ -45,7 +46,15 @@ func (thread *Thread) runDeferred(fr *frame, stack []deferredCall, inFlight erro
 		deferred := stack[i]
 		saved := fr.pendingError
 		fr.pendingError = nil
+		// Report the cleanup as called from its defer, not from whatever
+		// instruction fr exited on: that is the call site, and fr.pc still
+		// points at the exit. Restoring is not optional -- the backtrace of the
+		// failure unwinding fr is captured after this teardown, so leaving
+		// fr.pc moved would blame the last defer for it.
+		savedpc := fr.pc
+		fr.pc = deferred.pc
 		_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+		fr.pc = savedpc
 		fr.pendingError = saved // ignore a recoverable error deposited on fr by the cleanup
 		// A recoverable error returned by the deferred call is ignored regardless of
 		// how Call delivered it: deposited on fr (a Starlark-function frame, undone by
@@ -545,6 +554,7 @@ loop:
 				fn:     fn,
 				args:   args,
 				kwargs: kwargs,
+				pc:     fr.pc,
 			})
 
 		case compile.ERRDEFER:
@@ -583,6 +593,7 @@ loop:
 				fn:     fn,
 				args:   args,
 				kwargs: kwargs,
+				pc:     fr.pc,
 			})
 
 		case compile.TRY:
@@ -647,12 +658,23 @@ loop:
 			// (the defer above), like every other exit path.
 			fr.pendingError = nil
 			if f.CanReturnError {
+				// An error return is the raise point, so record where this
+				// function was called from. Propagation (the TRY opcode above)
+				// breaks out of the loop without reaching here, so an error
+				// travelling up through try keeps the position of the call that
+				// raised it. A successful return computes no position.
 				switch v := result.(type) {
 				case *ErrorTag:
-					fr.pendingError = NewError(v, nil, nil, nil)
+					fr.pendingError = NewError(v, nil, nil, nil).at(thread.raisePosition())
 					result = None
 				case *Error:
-					fr.pendingError = v
+					if v == nil {
+						// Only Go can produce a typed nil *Error; it is not a
+						// valid Starlark value (see the sanity check in Call).
+						err = fmt.Errorf("internal error: nil *Error (not None) returned from %s", fn.Name())
+						break loop
+					}
+					fr.pendingError = v.at(thread.raisePosition())
 					result = None
 				}
 			}
