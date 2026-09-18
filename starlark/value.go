@@ -2070,12 +2070,15 @@ type FailError struct {
 	StarlarkError *Error
 }
 
-func (e *FailError) Error() string {
-	msg := e.Msg
-	if msg == "" && e.StarlarkError != nil {
-		msg = e.StarlarkError.describe()
+func (e *FailError) Error() string { return "fail: " + e.message() }
+
+// message returns the failure's message content, without the "fail: " prefix:
+// Msg, or a description of the error value it carries when Msg is empty.
+func (e *FailError) message() string {
+	if e.Msg == "" && e.StarlarkError != nil {
+		return e.StarlarkError.describe()
 	}
-	return "fail: " + msg
+	return e.Msg
 }
 
 // NewFailError returns the *FailError that a call to the fail builtin with

@@ -371,7 +371,7 @@ func (e *EvalError) Backtrace() string {
 		if ce, ok := c.(*EvalError); ok {
 			s += ce.Backtrace()
 		} else {
-			s += "Error: " + c.Error()
+			s += "Failed: " + c.Error()
 		}
 	}
 	return s
@@ -379,15 +379,22 @@ func (e *EvalError) Backtrace() string {
 
 // backtrace renders just this error's stack and message, without its Cleanup list.
 func (e *EvalError) backtrace() string {
-	// If the topmost stack frame is a built-in function,
-	// remove it from the stack and add print "Error in fn:".
+	// The topmost frame, if a built-in, has no source position worth printing
+	// (it is <builtin>:0:0), so drop it. The label does not name it either:
+	// built-ins name themselves in their own message, which is all a Go caller
+	// seeing only err.Error() has to go on.
 	stack := e.CallStack
-	suffix := ""
 	if last := len(stack) - 1; last >= 0 && stack[last].Pos.Filename() == builtinFilename {
-		suffix = " in " + stack[last].Name
 		stack = stack[:last]
 	}
-	return fmt.Sprintf("%sError%s: %s", stack, suffix, e.Msg)
+	// The "Failed" label already marks a fail-style failure, so drop the
+	// "fail: " prefix that its Error() carries for Go callers.
+	msg := e.Msg
+	var fe *FailError
+	if errors.As(e.cause, &fe) {
+		msg = fe.message()
+	}
+	return fmt.Sprintf("%sFailed: %s", stack, msg)
 }
 
 func (e *EvalError) Unwrap() error { return e.cause }

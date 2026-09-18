@@ -596,16 +596,15 @@ i()
   <builtin>: in min
   crash.star:3:19: in g
   crash.star:2:19: in f
-Error: floored division by zero`
+Failed: floored division by zero`
 	if got := backtrace(t, err); got != want {
 		t.Errorf("error was %s, want %s", got, want)
 	}
 
 	// Additionally, ensure that errors originating in
 	// Starlark and/or Go each have an accurate frame.
-	// The topmost frame, if built-in, is not shown,
-	// but the name of the built-in function is shown
-	// as "Error in fn: ...".
+	// The topmost frame, if built-in, is not shown; the
+	// built-in names itself in its own message.
 	//
 	// This program fails in Starlark (f) if x==0,
 	// or in Go (string.join) if x is non-zero.
@@ -617,11 +616,11 @@ f()
 		0: `Traceback (most recent call last):
   crash.star:3:2: in <toplevel>
   crash.star:2:20: in f
-Error: floored division by zero`,
+Failed: floored division by zero`,
 		1: `Traceback (most recent call last):
   crash.star:3:2: in <toplevel>
   crash.star:2:17: in f
-Error in join: join: in list, want string, got int`,
+Failed: join: in list, want string, got int`,
 	} {
 		globals := starlark.StringDict{"i": starlark.MakeInt(i)}
 		_, err := starlark.ExecFile(thread, "crash.star", src2, globals)
@@ -1319,7 +1318,7 @@ f(0)
 
 	const want = `Traceback (most recent call last):
   root.star:2:1: in <toplevel>
-Error: cannot load crash.star: floored division by zero`
+Failed: cannot load crash.star: floored division by zero`
 	if got := backtrace(t, err); got != want {
 		t.Errorf("error was %s, want %s", got, want)
 	}
@@ -1343,7 +1342,7 @@ Error: cannot load crash.star: floored division by zero`
 	const wantUnwrapped = `Traceback (most recent call last):
   crash.star:5:2: in <toplevel>
   crash.star:3:12: in f
-Error: floored division by zero`
+Failed: floored division by zero`
 	if got := backtrace(t, unwrappedErr); got != wantUnwrapped {
 		t.Errorf("error was %s, want %s", got, wantUnwrapped)
 	}
@@ -3058,6 +3057,90 @@ def work():
 		want := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "return 1 // 0"))
 		if !strings.Contains(bt, want) {
 			t.Errorf("primary failure is not reported at %s:\n%s", want, bt)
+		}
+	})
+}
+
+// TestFailureBacktraceLabel verifies that a backtrace calls an aborted
+// execution a failure, matching the language's own vocabulary -- failures
+// abort, errors travel the ! channel -- and that an explicit fail() is
+// reported as the failure itself rather than as a malfunction of the fail
+// builtin, whose frame and "fail: " prefix only say the same thing twice.
+func TestFailureBacktraceLabel(t *testing.T) {
+	bt := func(t *testing.T, src string) string {
+		t.Helper()
+		_, err := starlark.ExecFile(&starlark.Thread{}, "lbl.star", src, nil)
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		return ee.Backtrace()
+	}
+
+	t.Run("an explicit fail is the failure, not a broken builtin", func(t *testing.T) {
+		got := bt(t, "def work():\n    fail(\"disk full\")\nwork()\n")
+		if !strings.HasSuffix(got, "\nFailed: disk full") {
+			t.Errorf("backtrace does not end in `Failed: disk full`:\n%s", got)
+		}
+		if strings.Contains(got, "in fail") {
+			t.Errorf("backtrace still blames the fail builtin:\n%s", got)
+		}
+	})
+
+	t.Run("a fail carrying an error value describes it", func(t *testing.T) {
+		src := "errs = error_tags(\"DiskFull\")\ndef work():\n    fail(errs.DiskFull(message = \"no space\"))\nwork()\n"
+		if got := bt(t, src); !strings.HasSuffix(got, "\nFailed: DiskFull: no space") {
+			t.Errorf("backtrace does not end in `Failed: DiskFull: no space`:\n%s", got)
+		}
+	})
+
+	t.Run("a runtime fault is a failure too", func(t *testing.T) {
+		got := bt(t, "def work():\n    return 1 // 0\nwork()\n")
+		if !strings.HasSuffix(got, "\nFailed: floored division by zero") {
+			t.Errorf("backtrace does not end in `Failed: floored division by zero`:\n%s", got)
+		}
+	})
+
+	// The label never names the built-in that failed. A built-in that names
+	// itself in its own message -- as the standard library does, for Go
+	// callers who see only err.Error() and no stack -- is identified by that
+	// and nothing else.
+	t.Run("a misbehaving builtin is named by its own message", func(t *testing.T) {
+		got := bt(t, "def work():\n    return \"\".join([1])\nwork()\n")
+		if !strings.HasSuffix(got, "\nFailed: join: in list, want string, got int") {
+			t.Errorf("backtrace does not end in the builtin's own message:\n%s", got)
+		}
+	})
+
+	// A Go builtin raising a fail-style failure loses the "fail: " marker,
+	// which the "Failed" label already conveys.
+	t.Run("a builtin raising a failure drops the fail marker", func(t *testing.T) {
+		b := starlark.NewBuiltin("must_sync", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return nil, starlark.NewFailError(" ", starlark.String("cache corrupted"))
+		})
+		_, err := starlark.ExecFile(&starlark.Thread{}, "lbl.star", "must_sync()", starlark.StringDict{"must_sync": b})
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		if got := ee.Backtrace(); !strings.HasSuffix(got, "\nFailed: cache corrupted") {
+			t.Errorf("backtrace = %s, want no `fail: ` marker", got)
+		}
+	})
+
+	// A builtin that names itself keeps that name intact: nothing is trimmed
+	// off the message, because the label no longer duplicates it.
+	t.Run("a self-naming builtin message is left intact", func(t *testing.T) {
+		b := starlark.NewBuiltin("polite", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+			return nil, fmt.Errorf("polite: I know who I am")
+		})
+		_, err := starlark.ExecFile(&starlark.Thread{}, "lbl.star", "polite()", starlark.StringDict{"polite": b})
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		if got := ee.Backtrace(); !strings.HasSuffix(got, "\nFailed: polite: I know who I am") {
+			t.Errorf("backtrace = %s, want the message untouched", got)
 		}
 	})
 }
