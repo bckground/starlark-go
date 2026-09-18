@@ -19,6 +19,7 @@ type deferredCall struct {
 	fn     Value
 	args   Tuple
 	kwargs []Tuple
+	pc     uint32 // of the defer/errdefer that registered it, for reporting
 }
 
 // runDeferred executes a stack of deferred calls (defer or errdefer) in LIFO
@@ -45,7 +46,15 @@ func (thread *Thread) runDeferred(fr *frame, stack []deferredCall, inFlight erro
 		deferred := stack[i]
 		saved := fr.pendingError
 		fr.pendingError = nil
+		// Report the cleanup as called from its defer, not from whatever
+		// instruction fr exited on: that is the call site, and fr.pc still
+		// points at the exit. Restoring is not optional -- the backtrace of the
+		// failure unwinding fr is captured after this teardown, so leaving
+		// fr.pc moved would blame the last defer for it.
+		savedpc := fr.pc
+		fr.pc = deferred.pc
 		_, deferErr := Call(thread, deferred.fn, deferred.args, deferred.kwargs)
+		fr.pc = savedpc
 		fr.pendingError = saved // ignore a recoverable error deposited on fr by the cleanup
 		// A recoverable error returned by the deferred call is ignored regardless of
 		// how Call delivered it: deposited on fr (a Starlark-function frame, undone by
@@ -545,6 +554,7 @@ loop:
 				fn:     fn,
 				args:   args,
 				kwargs: kwargs,
+				pc:     fr.pc,
 			})
 
 		case compile.ERRDEFER:
@@ -583,6 +593,7 @@ loop:
 				fn:     fn,
 				args:   args,
 				kwargs: kwargs,
+				pc:     fr.pc,
 			})
 
 		case compile.TRY:

@@ -3004,3 +3004,60 @@ def f()!:
 		}
 	})
 }
+
+// TestDeferredCallPosition verifies that a deferred call is reported at the
+// defer statement that registered it -- its call site, as for any other call --
+// rather than at whatever instruction the frame happened to exit on, and that
+// running cleanup does not move the position of the failure already unwinding
+// the frame.
+func TestDeferredCallPosition(t *testing.T) {
+	backtrace := func(t *testing.T, src string, fn string) string {
+		t.Helper()
+		globals, err := starlark.ExecFile(&starlark.Thread{}, "defer.star", src, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = starlark.Call(&starlark.Thread{}, globals[fn], nil, nil)
+		var ee *starlark.EvalError
+		if !errors.As(err, &ee) {
+			t.Fatalf("err = %v (%T), want *starlark.EvalError", err, err)
+		}
+		return ee.Backtrace()
+	}
+
+	t.Run("a failing deferred call is reported at the defer", func(t *testing.T) {
+		const src = `
+def cleanup():
+    fail("cleanup exploded")
+
+def work():
+    defer cleanup()
+    x = 1
+    return x
+`
+		bt := backtrace(t, src, "work")
+		want := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "defer cleanup()"))
+		if !strings.Contains(bt, want) {
+			t.Errorf("backtrace does not place the deferred call at %s:\n%s", want, bt)
+		}
+		if unwanted := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "return x")); strings.Contains(bt, unwanted) {
+			t.Errorf("backtrace blames the return at %s, not the defer:\n%s", unwanted, bt)
+		}
+	})
+
+	t.Run("cleanup does not move the failure it is unwinding", func(t *testing.T) {
+		const src = `
+def cleanup():
+    pass
+
+def work():
+    defer cleanup()
+    return 1 // 0
+`
+		bt := backtrace(t, src, "work")
+		want := fmt.Sprintf("defer.star:%d:", lineOf(t, src, "return 1 // 0"))
+		if !strings.Contains(bt, want) {
+			t.Errorf("primary failure is not reported at %s:\n%s", want, bt)
+		}
+	})
+}
