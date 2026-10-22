@@ -171,7 +171,7 @@ time, and handle OOM failures, timeouts, and crashes in the parent. The
 interpreter starts very quickly, so the overhead is usually modest.
 
 For past discussions of this topic, see
-[these issues](https://github.com/google/starlark-go/issues?q=is:issue+(160+OR+236+OR+252+OR+410+OR+470+OR+498+OR+606+OR+617+OR+621+OR+661)+NOT+PEP+NOT+"byte+code").
+[these issues](<https://github.com/google/starlark-go/issues?q=is:issue+(160+OR+236+OR+252+OR+410+OR+470+OR+498+OR+606+OR+617+OR+621+OR+661)+NOT+PEP+NOT+"byte+code">).
 
 ### Contributing
 
