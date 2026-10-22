@@ -218,7 +218,7 @@ type frame struct {
 	callable     Callable // current function (or toplevel) or built-in
 	pc           uint32   // program counter (Starlark frames only)
 	locals       []Value  // local variables (Starlark frames only)
-	spanStart    int64    // start time of current profiler span
+	spanStart    int64    // start time of current profiler span, or 0 if none
 	pendingError *Error   // recoverable error (from a ! call) awaiting handling in this frame
 }
 
@@ -1372,6 +1372,11 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		}
 	}
 
+	// End the caller's span, whether the caller is
+	// a Starlark function or a built-in calling back into Starlark.
+	// If the caller has no span (as during LOAD), don't start one on return.
+	resume := thread.endProfSpan()
+
 	thread.stack = append(thread.stack, fr) // push
 
 	fr.callable = c
@@ -1390,6 +1395,10 @@ func Call(thread *Thread, fn Value, args Tuple, kwargs []Tuple) (Value, error) {
 		*fr = frame{}
 
 		thread.stack = thread.stack[:len(thread.stack)-1] // pop
+
+		if resume {
+			thread.beginProfSpan() // resume the caller's span
+		}
 	}()
 
 	result, err := c.CallInternal(thread, args, kwargs)
